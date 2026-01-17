@@ -15,7 +15,7 @@ message = "Dangerous command denied"
 [constructs]
 function_definitions = "deny"
 background = "deny"
-subshells = "pass"
+subshells = "ask"
 
 [[rule]]
 command = "curl"

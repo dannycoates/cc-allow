@@ -1,8 +1,8 @@
 # Example cc-allow configuration
 
 [policy]
-default = "pass"                              # "allow", "deny", or "pass" when no rule matches
-dynamic_commands = "pass"                     # commands with $VAR or $(cmd) as the name
+default = "ask"                              # "allow", "deny", or "ask" when no rule matches
+dynamic_commands = "ask"                     # commands with $VAR or $(cmd) as the name
 default_message = "Command not allowed"       # fallback message when rule has no message
 
 # Quick lists for the most common patterns
@@ -15,9 +15,9 @@ names = ["ls", "cat", "echo", "grep", "find", "head", "tail", "wc", "sort", "uni
 
 # Constructs configuration
 [constructs]
-subshells = "pass"
+subshells = "ask"
 function_definitions = "deny"
-background = "pass"
+background = "ask"
 
 # Detailed rules (evaluated in order, first match wins)
 

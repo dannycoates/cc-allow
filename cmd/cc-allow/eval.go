@@ -6,15 +6,15 @@ import (
 
 // Result represents the evaluation result.
 type Result struct {
-	Action  string // "allow", "deny", or "pass"
+	Action  string // "allow", "deny", or "ask"
 	Message string
 	Command string // the command that caused denial (if any)
 }
 
 // combineActions merges two actions following these rules:
 // - deny always wins (any config can deny, and it can't be undone)
-// - allow is preserved unless denied (pass doesn't override allow)
-// - pass means "no opinion" and defers to the other action
+// - allow is preserved unless denied (ask doesn't override allow)
+// - ask means "no opinion" and defers to the other action
 func combineActions(current, new string) string {
 	// If already denied, stay denied (deny is sticky)
 	if current == "deny" {
@@ -24,15 +24,15 @@ func combineActions(current, new string) string {
 	if new == "deny" {
 		return "deny"
 	}
-	// If current is allow and new is pass, keep allow (pass doesn't override)
-	if current == "allow" && new == "pass" {
+	// If current is allow and new is ask, keep allow (ask doesn't override)
+	if current == "allow" && new == "ask" {
 		return "allow"
 	}
-	// If current is pass and new is allow, become allow
-	if current == "pass" && new == "allow" {
+	// If current is ask and new is allow, become allow
+	if current == "ask" && new == "allow" {
 		return "allow"
 	}
-	// Both same, or both pass
+	// Both same, or both ask
 	return current
 }
 
@@ -53,8 +53,8 @@ func combineResults(current, new Result) Result {
 		}
 		return current
 	}
-	// Both pass
-	return Result{Action: "pass"}
+	// Both ask
+	return Result{Action: "ask"}
 }
 
 // Evaluator applies configuration rules to extracted commands.
@@ -73,7 +73,7 @@ func NewEvaluatorSingle(cfg *Config) *Evaluator {
 }
 
 // Evaluate checks all extracted info against all configurations.
-// Combines results: deny wins over all, allow preserved unless denied, pass is neutral.
+// Combines results: deny wins over all, allow preserved unless denied, ask is neutral.
 func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	// Check parse error
 	if info.ParseError != nil {
@@ -84,7 +84,7 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	}
 
 	// Track overall result across all configs
-	overallResult := Result{Action: "pass"} // start with "no opinion"
+	overallResult := Result{Action: "ask"} // start with "no opinion"
 
 	// Evaluate against each config, combining results
 	for _, cfg := range e.chain.Configs {
@@ -101,7 +101,7 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 }
 
 // evaluateWithConfig evaluates info against a single config.
-// Within a single config: deny beats all, then allow beats pass.
+// Within a single config: deny beats all, then allow beats ask.
 func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result {
 	// Check constructs
 	if result := e.checkConstructsWithConfig(cfg, info); result.Action == "deny" {
@@ -120,7 +120,7 @@ func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result 
 		case "allow":
 			hasExplicitAllow = true
 		}
-		// "pass" continues to next command
+		// "ask" continues to next command
 	}
 
 	// Check redirects
@@ -139,8 +139,8 @@ func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result 
 		return Result{Action: "allow"}
 	}
 
-	// Otherwise pass through
-	return Result{Action: "pass"}
+	// Otherwise ask through
+	return Result{Action: "ask"}
 }
 
 // checkConstructsWithConfig verifies shell constructs against a single config's policy.
@@ -155,7 +155,7 @@ func (e *Evaluator) checkConstructsWithConfig(cfg *Config, info *ExtractedInfo) 
 		case "allow":
 			// explicitly allowed, continue checking
 		}
-		// "pass" continues
+		// "ask" continues
 	}
 
 	if info.Constructs.HasBackground {
@@ -171,7 +171,7 @@ func (e *Evaluator) checkConstructsWithConfig(cfg *Config, info *ExtractedInfo) 
 	}
 
 	// No denial from constructs
-	return Result{Action: "pass"}
+	return Result{Action: "ask"}
 }
 
 // evaluateCommandWithConfig checks a single command against a single config's rules.
@@ -188,7 +188,7 @@ func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 		case "allow":
 			return Result{Action: "allow"}
 		default:
-			return Result{Action: "pass"}
+			return Result{Action: "ask"}
 		}
 	}
 
@@ -344,7 +344,7 @@ func (e *Evaluator) evaluateRedirectWithConfig(cfg *Config, redir Redirect) Resu
 		case "allow":
 			return Result{Action: "allow"}
 		default:
-			return Result{Action: "pass"}
+			return Result{Action: "ask"}
 		}
 	}
 
@@ -355,8 +355,8 @@ func (e *Evaluator) evaluateRedirectWithConfig(cfg *Config, redir Redirect) Resu
 		}
 	}
 
-	// No rule matched - pass through
-	return Result{Action: "pass"}
+	// No rule matched - ask through
+	return Result{Action: "ask"}
 }
 
 // matchRedirectRuleWithConfig checks if a redirect rule matches.

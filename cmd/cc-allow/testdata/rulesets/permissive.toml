@@ -2,7 +2,7 @@
 
 [policy]
 default = "allow"
-dynamic_commands = "pass"
+dynamic_commands = "ask"
 default_message = "Command not allowed"
 
 [commands.deny]

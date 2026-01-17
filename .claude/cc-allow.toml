@@ -2,7 +2,7 @@
 # Sensible defaults: allow dev tools, block dangerous operations
 
 [policy]
-default = "pass"                    # defer to Claude Code's permission system
+default = "ask"                    # defer to Claude Code's permission system
 dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
 default_message = "Command not allowed by project policy"
 
@@ -44,8 +44,8 @@ message = "Dangerous command blocked by project policy"
 
 [constructs]
 function_definitions = "deny"       # prevent command shadowing
-background = "pass"                 # allow but defer to Claude Code
-subshells = "pass"
+background = "ask"                 # allow but defer to Claude Code
+subshells = "ask"
 
 [[rule]]
 command = "curl"

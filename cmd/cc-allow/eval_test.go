@@ -23,8 +23,8 @@ func parseAndEval(t *testing.T, cfg *Config, input string) Result {
 func TestEvalAllowList(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 			DefaultMessage:  "Not allowed",
 		},
 		Commands: CommandsConfig{
@@ -45,16 +45,16 @@ func TestEvalAllowList(t *testing.T) {
 
 	// Pass through by default
 	r = parseAndEval(t, cfg, "rm -rf /")
-	if r.Action != "pass" {
-		t.Errorf("rm should pass through, got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("rm should ask through, got %s", r.Action)
 	}
 }
 
 func TestEvalDenyList(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 			DefaultMessage:  "Denied",
 		},
 		Commands: CommandsConfig{
@@ -76,15 +76,15 @@ func TestEvalDenyList(t *testing.T) {
 
 	// Pass through by default
 	r = parseAndEval(t, cfg, "echo hello")
-	if r.Action != "pass" {
-		t.Errorf("echo should pass through, got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("echo should ask through, got %s", r.Action)
 	}
 }
 
 func TestEvalDynamicCommands(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
+			Default:         "ask",
 			DynamicCommands: "deny",
 			DefaultMessage:  "Denied",
 		},
@@ -103,18 +103,18 @@ func TestEvalDynamicCommands(t *testing.T) {
 	}
 
 	// Pass dynamic
-	cfg.Policy.DynamicCommands = "pass"
+	cfg.Policy.DynamicCommands = "ask"
 	r = parseAndEval(t, cfg, "$CMD arg")
-	if r.Action != "pass" {
-		t.Errorf("dynamic command should pass, got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("dynamic command should ask, got %s", r.Action)
 	}
 }
 
 func TestEvalPipeContext(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 			DefaultMessage:  "Denied",
 		},
 		Rules: []Rule{
@@ -137,7 +137,7 @@ func TestEvalPipeContext(t *testing.T) {
 		t.Errorf("curl alone should be allowed, got %s", r.Action)
 	}
 
-	// curl piped to cat passes (cat not in pipe.to list, curl matches allow rule)
+	// curl piped to cat askes (cat not in pipe.to list, curl matches allow rule)
 	r = parseAndEval(t, cfg, "curl example.com | cat")
 	if r.Action != "allow" {
 		t.Errorf("curl piped to cat should be allowed, got %s", r.Action)
@@ -156,8 +156,8 @@ func TestEvalPipeContext(t *testing.T) {
 func TestEvalArgMatching(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 			DefaultMessage:  "Denied",
 		},
 		Rules: []Rule{
@@ -170,10 +170,10 @@ func TestEvalArgMatching(t *testing.T) {
 		},
 	}
 
-	// rm without -r passes
+	// rm without -r askes
 	r := parseAndEval(t, cfg, "rm file.txt")
-	if r.Action != "pass" {
-		t.Errorf("rm file.txt should pass, got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("rm file.txt should ask, got %s", r.Action)
 	}
 
 	// rm -r is denied
@@ -192,8 +192,8 @@ func TestEvalArgMatching(t *testing.T) {
 func TestEvalFunctionDefinitions(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 		},
 		Constructs: ConstructsConfig{
 			FunctionDefinitions: "deny",
@@ -216,8 +216,8 @@ func TestEvalFunctionDefinitions(t *testing.T) {
 func TestEvalBackground(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 		},
 		Constructs: ConstructsConfig{
 			Background: "deny",
@@ -239,8 +239,8 @@ func TestEvalBackground(t *testing.T) {
 func TestEvalRedirects(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 		},
 		Redirects: []RedirectRule{
 			{
@@ -251,14 +251,14 @@ func TestEvalRedirects(t *testing.T) {
 		},
 	}
 
-	// Normal redirect passes
+	// Normal redirect askes
 	r := parseAndEval(t, cfg, "echo foo > output.txt")
-	if r.Action != "pass" {
-		t.Errorf("normal redirect should pass, got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("normal redirect should ask, got %s", r.Action)
 	}
 
 	// System redirect is denied
-	r = parseAndEval(t, cfg, "echo foo > /etc/passwd")
+	r = parseAndEval(t, cfg, "echo foo > /etc/askwd")
 	if r.Action != "deny" {
 		t.Errorf("system redirect should be denied, got %s", r.Action)
 	}
@@ -268,8 +268,8 @@ func TestEvalAppendRedirects(t *testing.T) {
 	appendTrue := true
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 		},
 		Redirects: []RedirectRule{
 			{
@@ -281,10 +281,10 @@ func TestEvalAppendRedirects(t *testing.T) {
 		},
 	}
 
-	// Overwrite .bashrc passes (not append)
+	// Overwrite .bashrc askes (not append)
 	r := parseAndEval(t, cfg, "echo foo > .bashrc")
-	if r.Action != "pass" {
-		t.Errorf("overwrite .bashrc should pass (rule only applies to append), got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("overwrite .bashrc should ask (rule only applies to append), got %s", r.Action)
 	}
 
 	// Append to .bashrc is denied
@@ -297,8 +297,8 @@ func TestEvalAppendRedirects(t *testing.T) {
 func TestEvalMultipleCommands(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 			DefaultMessage:  "Not allowed",
 		},
 		Commands: CommandsConfig{
@@ -319,7 +319,7 @@ func TestEvalMultipleCommands(t *testing.T) {
 		t.Errorf("echo && rm should be denied, got %s", r.Action)
 	}
 
-	// Mixed allowed and pass -> allow wins
+	// Mixed allowed and ask -> allow wins
 	r = parseAndEval(t, cfg, "echo hello | cat")
 	if r.Action != "allow" {
 		t.Errorf("echo | cat should be allowed (echo is allowed), got %s", r.Action)
@@ -329,8 +329,8 @@ func TestEvalMultipleCommands(t *testing.T) {
 func TestEvalWildcardRule(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 		},
 		Rules: []Rule{
 			{
@@ -348,23 +348,23 @@ func TestEvalWildcardRule(t *testing.T) {
 	}
 
 	r = parseAndEval(t, cfg, "echo hello")
-	if r.Action != "pass" {
-		t.Errorf("echo without pipe should pass, got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("echo without pipe should ask, got %s", r.Action)
 	}
 }
 
 func TestEvalDefaultPass(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 		},
 	}
 
-	// Everything should pass
+	// Everything should ask
 	r := parseAndEval(t, cfg, "some_random_command")
-	if r.Action != "pass" {
-		t.Errorf("should pass by default, got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("should ask by default, got %s", r.Action)
 	}
 }
 
@@ -386,7 +386,7 @@ func parseAndEvalChain(t *testing.T, configs []*Config, input string) Result {
 func TestConfigChainStrictestWins(t *testing.T) {
 	// Global config allows curl
 	globalCfg := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 		Commands: CommandsConfig{
 			Allow: CommandList{Names: []string{"curl"}},
 		},
@@ -394,7 +394,7 @@ func TestConfigChainStrictestWins(t *testing.T) {
 
 	// Project config denies curl
 	projectCfg := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 		Commands: CommandsConfig{
 			Deny: CommandList{Names: []string{"curl"}, Message: "curl denied by project"},
 		},
@@ -419,27 +419,27 @@ func TestConfigChainStrictestWins(t *testing.T) {
 func TestConfigChainPassDoesNotOverrideAllow(t *testing.T) {
 	// Config 1 allows echo
 	cfg1 := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 		Commands: CommandsConfig{
 			Allow: CommandList{Names: []string{"echo"}},
 		},
 	}
 
-	// Config 2 has no opinion (default pass)
+	// Config 2 has no opinion (default ask)
 	cfg2 := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 	}
 
-	// Test: one allows, one passes -> allow wins (pass is less strict)
+	// Test: one allows, one askes -> allow wins (ask is less strict)
 	r := parseAndEvalChain(t, []*Config{cfg1, cfg2}, "echo hello")
 	if r.Action != "allow" {
-		t.Errorf("allow should win over pass, got %s", r.Action)
+		t.Errorf("allow should win over ask, got %s", r.Action)
 	}
 
 	// Reverse order - same result
 	r = parseAndEvalChain(t, []*Config{cfg2, cfg1}, "echo hello")
 	if r.Action != "allow" {
-		t.Errorf("allow should win over pass regardless of order, got %s", r.Action)
+		t.Errorf("allow should win over ask regardless of order, got %s", r.Action)
 	}
 }
 
@@ -451,7 +451,7 @@ func TestConfigChainDenyFromLowerConfig(t *testing.T) {
 
 	// Project config denies rm
 	projectCfg := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 		Commands: CommandsConfig{
 			Deny: CommandList{Names: []string{"rm"}, Message: "rm denied"},
 		},
@@ -473,7 +473,7 @@ func TestConfigChainDenyFromLowerConfig(t *testing.T) {
 func TestConfigChainRulesDenyOverridesAllow(t *testing.T) {
 	// Global config allows curl generally
 	globalCfg := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 		Rules: []Rule{
 			{Command: "curl", Action: "allow"},
 		},
@@ -481,7 +481,7 @@ func TestConfigChainRulesDenyOverridesAllow(t *testing.T) {
 
 	// Project config denies curl piped to bash
 	projectCfg := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 		Rules: []Rule{
 			{
 				Command: "curl",
@@ -508,7 +508,7 @@ func TestConfigChainRulesDenyOverridesAllow(t *testing.T) {
 func TestConfigChainConstructs(t *testing.T) {
 	// Global config allows function definitions
 	globalCfg := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 		Constructs: ConstructsConfig{
 			FunctionDefinitions: "allow",
 		},
@@ -516,7 +516,7 @@ func TestConfigChainConstructs(t *testing.T) {
 
 	// Project config denies function definitions
 	projectCfg := &Config{
-		Policy: PolicyConfig{Default: "pass"},
+		Policy: PolicyConfig{Default: "ask"},
 		Constructs: ConstructsConfig{
 			FunctionDefinitions: "deny",
 		},

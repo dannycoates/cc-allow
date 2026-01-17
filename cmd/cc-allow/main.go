@@ -32,7 +32,7 @@ type HookSpecificOutput struct {
 // Exit codes per Claude Code hooks documentation
 const (
 	ExitAllow = 0 // Success, command explicitly allowed
-	ExitPass  = 1 // Non-blocking, pass through to Claude Code's default behavior
+	ExitAsk = 1 // Non-blocking, ask user via Claude Code's default behavior
 	ExitDeny  = 2 // Blocking error, command explicitly denied
 	ExitError = 3 // Processing error (parse failure, config error, etc.)
 )
@@ -60,7 +60,7 @@ func main() {
 		}
 		if hookInput.ToolInput.Command == "" {
 			// No command to evaluate, defer to Claude Code
-			outputHookResult(Result{Action: "pass"})
+			outputHookResult(Result{Action: "ask"})
 		}
 		input = strings.NewReader(hookInput.ToolInput.Command)
 	}
@@ -106,7 +106,7 @@ func outputHookResult(result Result) {
 		} else {
 			output.HookSpecificOutput.PermissionDecisionReason = "Denied by cc-allow policy"
 		}
-	default: // "pass" - defer to Claude Code's default behavior
+	default: // "ask" - defer to Claude Code's default behavior
 		output.HookSpecificOutput.PermissionDecision = "ask"
 		output.HookSpecificOutput.PermissionDecisionReason = "No cc-allow rules matched"
 	}
@@ -124,9 +124,9 @@ func outputPlainResult(result Result) {
 			fmt.Fprintln(os.Stderr, result.Message)
 		}
 		os.Exit(ExitDeny)
-	default: // "pass" or empty
-		fmt.Fprintln(os.Stderr, "Pass: no rules matched")
-		os.Exit(ExitPass)
+	default: // "ask" or empty
+		fmt.Fprintln(os.Stderr, "Ask: no rules matched")
+		os.Exit(ExitAsk)
 	}
 }
 

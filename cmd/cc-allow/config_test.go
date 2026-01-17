@@ -73,14 +73,14 @@ function_definitions = "deny"
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Policy.Default != "pass" {
-		t.Errorf("expected default=pass, got %s", cfg.Policy.Default)
+	if cfg.Policy.Default != "ask" {
+		t.Errorf("expected default=ask, got %s", cfg.Policy.Default)
 	}
-	if cfg.Policy.DynamicCommands != "pass" {
-		t.Errorf("expected dynamic_commands=pass, got %s", cfg.Policy.DynamicCommands)
+	if cfg.Policy.DynamicCommands != "ask" {
+		t.Errorf("expected dynamic_commands=ask, got %s", cfg.Policy.DynamicCommands)
 	}
-	if cfg.Constructs.Subshells != "pass" {
-		t.Errorf("expected subshells=pass, got %s", cfg.Constructs.Subshells)
+	if cfg.Constructs.Subshells != "ask" {
+		t.Errorf("expected subshells=ask, got %s", cfg.Constructs.Subshells)
 	}
 }
 
@@ -91,8 +91,8 @@ func TestParseConfigDefaults(t *testing.T) {
 		t.Fatalf("ParseConfig error: %v", err)
 	}
 
-	if cfg.Policy.Default != "pass" {
-		t.Errorf("expected default default=pass, got %s", cfg.Policy.Default)
+	if cfg.Policy.Default != "ask" {
+		t.Errorf("expected default default=ask, got %s", cfg.Policy.Default)
 	}
 	if cfg.Policy.DefaultMessage != "Command not allowed" {
 		t.Errorf("expected default message, got %s", cfg.Policy.DefaultMessage)

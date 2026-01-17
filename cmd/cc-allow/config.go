@@ -18,7 +18,7 @@ type Config struct {
 
 // PolicyConfig defines the default behavior when no rules match.
 type PolicyConfig struct {
-	Default         string `toml:"default"`          // "allow", "deny", or "pass" (default: "pass")
+	Default         string `toml:"default"`          // "allow", "deny", or "ask" (default: "ask")
 	DynamicCommands string `toml:"dynamic_commands"` // how to handle $VAR or $(cmd) as command names
 	DefaultMessage  string `toml:"default_message"`  // fallback message when rule has no message
 }
@@ -96,22 +96,22 @@ func ParseConfig(data string) (*Config, error) {
 	}
 	// Set defaults
 	if cfg.Policy.Default == "" {
-		cfg.Policy.Default = "pass"
+		cfg.Policy.Default = "ask"
 	}
 	if cfg.Policy.DynamicCommands == "" {
-		cfg.Policy.DynamicCommands = "pass"
+		cfg.Policy.DynamicCommands = "ask"
 	}
 	if cfg.Policy.DefaultMessage == "" {
 		cfg.Policy.DefaultMessage = "Command not allowed"
 	}
 	if cfg.Constructs.Subshells == "" {
-		cfg.Constructs.Subshells = "pass"
+		cfg.Constructs.Subshells = "ask"
 	}
 	if cfg.Constructs.FunctionDefinitions == "" {
-		cfg.Constructs.FunctionDefinitions = "pass"
+		cfg.Constructs.FunctionDefinitions = "ask"
 	}
 	if cfg.Constructs.Background == "" {
-		cfg.Constructs.Background = "pass"
+		cfg.Constructs.Background = "ask"
 	}
 	return &cfg, nil
 }
@@ -120,14 +120,14 @@ func ParseConfig(data string) (*Config, error) {
 func DefaultConfig() *Config {
 	return &Config{
 		Policy: PolicyConfig{
-			Default:         "pass",
-			DynamicCommands: "pass",
+			Default:         "ask",
+			DynamicCommands: "ask",
 			DefaultMessage:  "Command not allowed",
 		},
 		Constructs: ConstructsConfig{
-			Subshells:           "pass",
-			FunctionDefinitions: "pass",
-			Background:          "pass",
+			Subshells:           "ask",
+			FunctionDefinitions: "ask",
+			Background:          "ask",
 		},
 	}
 }
