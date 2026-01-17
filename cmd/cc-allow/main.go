@@ -1,0 +1,103 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"os"
+	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
+)
+
+// Exit codes per Claude Code hooks documentation
+const (
+	ExitAllow = 0 // Success, command explicitly allowed
+	ExitPass  = 1 // Non-blocking, pass through to Claude Code's default behavior
+	ExitDeny  = 2 // Blocking error, command explicitly denied
+	ExitError = 3 // Processing error (parse failure, config error, etc.)
+)
+
+func main() {
+	configPath := flag.String("config", "", "path to TOML configuration file")
+	flag.Parse()
+
+	// Load configuration
+	var cfg *Config
+	var err error
+	if *configPath != "" {
+		cfg, err = LoadConfig(*configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			os.Exit(ExitError)
+		}
+	} else {
+		cfg = DefaultConfig()
+	}
+
+	// Parse bash input from stdin
+	parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+	f, err := parser.Parse(os.Stdin, "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Parse error: %v\n", err)
+		os.Exit(ExitError)
+	}
+
+	// Extract commands and context from AST
+	info := ExtractFromFile(f)
+
+	// Evaluate against rules
+	eval := NewEvaluator(cfg)
+	result := eval.Evaluate(info)
+
+	switch result.Action {
+	case "allow":
+		os.Exit(ExitAllow)
+	case "deny":
+		if result.Message != "" {
+			fmt.Fprintln(os.Stderr, result.Message)
+		}
+		os.Exit(ExitDeny)
+	default: // "pass" or empty
+		os.Exit(ExitPass)
+	}
+}
+
+// Helper functions for word extraction (used by tests and walk.go)
+
+func wordToString(word *syntax.Word) string {
+	var parts []string
+	for _, part := range word.Parts {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			parts = append(parts, p.Value)
+		case *syntax.SglQuoted:
+			parts = append(parts, p.Value)
+		case *syntax.DblQuoted:
+			parts = append(parts, wordPartsToString(p.Parts))
+		case *syntax.ParamExp:
+			if p.Param != nil {
+				parts = append(parts, "$"+p.Param.Value)
+			}
+		default:
+			parts = append(parts, fmt.Sprintf("<%T>", p))
+		}
+	}
+	return strings.Join(parts, "")
+}
+
+func wordPartsToString(wps []syntax.WordPart) string {
+	var parts []string
+	for _, part := range wps {
+		switch p := part.(type) {
+		case *syntax.Lit:
+			parts = append(parts, p.Value)
+		case *syntax.ParamExp:
+			if p.Param != nil {
+				parts = append(parts, "$"+p.Param.Value)
+			}
+		default:
+			parts = append(parts, fmt.Sprintf("<%T>", p))
+		}
+	}
+	return strings.Join(parts, "")
+}
