@@ -1,0 +1,93 @@
+# cc-allow config for development projects
+# Sensible defaults: allow dev tools, block dangerous operations
+
+[policy]
+default = "pass"                    # defer to Claude Code's permission system
+dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
+default_message = "Command not allowed by project policy"
+
+# Common safe commands for development
+[commands.allow]
+names = [
+    # Navigation & inspection
+    "ls", "cat", "head", "tail", "less", "more", "pwd", "cd", "tree",
+    "find", "grep", "rg", "ag", "wc", "sort", "uniq", "diff",
+    # Go development
+    "go", "gofmt", "golint", "gopls",
+    # Git
+    "git", "gh",
+    # Build tools
+    "make", "just", "cargo", "npm", "yarn", "pnpm", "bun",
+    # Common utilities
+    "echo", "printf", "date", "which", "whereis", "file", "stat",
+    "mkdir", "cp", "mv", "touch", "chmod", "ln",
+    # Editors & viewers
+    "vim", "nvim", "nano", "code",
+    # Process inspection (read-only)
+    "ps", "top", "htop", "pgrep",
+    # Network inspection (read-only)
+    "ping", "dig", "nslookup", "host",
+    # Us
+    './cc-allow'
+]
+
+# Dangerous commands - always block
+[commands.deny]
+names = [
+    "sudo", "su", "doas",           # privilege escalation
+    "dd", "mkfs", "fdisk", "parted", # disk operations
+    "shutdown", "reboot", "halt",   # system control
+    "rm", "rmdir",                  # deletion (use git for recovery)
+    "killall", "pkill",             # mass process killing
+]
+message = "Dangerous command blocked by project policy"
+
+[constructs]
+function_definitions = "deny"       # prevent command shadowing
+background = "pass"                 # allow but defer to Claude Code
+subshells = "pass"
+
+[[rule]]
+command = "curl"
+action = "deny"
+message = "Use WebFetch tool instead"
+
+[[rule]]
+command = "wget"
+action = "deny"
+message = "Use WebFetch tool instead"
+
+[[rule]]
+command = "fetch"
+action = "deny"
+message = "Use WebFetch tool instead"
+
+# Block dangerous git operations
+[[rule]]
+command = "git"
+action = "deny"
+message = "Force push not allowed"
+[rule.args]
+any_match = ["--force", "-f"]
+contains = ["push"]
+
+[[rule]]
+command = "git"
+action = "deny"
+message = "Hard reset not allowed"
+[rule.args]
+contains = ["reset", "--hard"]
+
+# Block writes to system directories
+[[redirect]]
+action = "deny"
+message = "Cannot write to system directories"
+[redirect.to]
+pattern = ["re:^/etc/.*", "re:^/usr/.*", "re:^/bin/.*", "re:^/sbin/.*", "re:^/var/.*"]
+
+# Block writes to home directory dotfiles
+[[redirect]]
+action = "deny"
+message = "Cannot modify shell configuration files"
+[redirect.to]
+exact = [".bashrc", ".zshrc", ".profile", ".bash_profile", ".zprofile"]
