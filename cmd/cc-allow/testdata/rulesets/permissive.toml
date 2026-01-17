@@ -14,20 +14,28 @@ function_definitions = "allow"
 background = "allow"
 subshells = "allow"
 
-# Block curl/wget piped to shell
+# Block shells from receiving piped input from download commands
+# This catches both direct (curl | bash) and indirect (curl | cat | bash) pipes
 [[rule]]
-command = "curl"
+command = "bash"
 action = "deny"
-message = "No piping curl to shell"
+message = "bash cannot receive piped input from download commands"
 [rule.pipe]
-to = ["bash", "sh", "zsh", "eval"]
+from = ["curl", "wget"]
 
 [[rule]]
-command = "wget"
+command = "sh"
 action = "deny"
-message = "No piping wget to shell"
+message = "sh cannot receive piped input from download commands"
 [rule.pipe]
-to = ["bash", "sh", "zsh", "eval"]
+from = ["curl", "wget"]
+
+[[rule]]
+command = "zsh"
+action = "deny"
+message = "zsh cannot receive piped input from download commands"
+[rule.pipe]
+from = ["curl", "wget"]
 
 # Block writes to sensitive paths
 [[redirect]]

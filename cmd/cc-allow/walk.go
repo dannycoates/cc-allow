@@ -9,10 +9,11 @@ import (
 
 // Command represents an extracted command with its context.
 type Command struct {
-	Name      string   // command name (may contain $VAR for dynamic)
-	Args      []string // all arguments including command name
-	IsDynamic bool     // true if command name contains variables/substitutions
-	PipesTo   []string // commands this pipes to (for pipe context rules)
+	Name      string       // command name (may contain $VAR for dynamic)
+	Args      []string     // all arguments including command name
+	IsDynamic bool         // true if command name contains variables/substitutions
+	PipesTo   []string     // commands this pipes to (immediate next in pipeline)
+	PipesFrom []string     // all commands upstream in the pipeline
 	Stmt      *syntax.Stmt // original statement for redirect access
 }
 
@@ -65,14 +66,16 @@ func ExtractFromFile(f *syntax.File) *ExtractedInfo {
 
 	// Second pass: extract commands and their contexts
 	for _, stmt := range f.Stmts {
-		extractFromStmt(stmt, info, nil)
+		extractFromStmt(stmt, info, nil, nil)
 	}
 
 	return info
 }
 
 // extractFromStmt processes a statement and extracts commands/redirects.
-func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeContext []string) {
+// pipeToContext: commands this statement pipes TO (downstream)
+// pipeFromContext: commands this statement receives FROM (upstream)
+func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []string, pipeFromContext []string) {
 	// Check for background execution
 	if stmt.Background {
 		info.Constructs.HasBackground = true
@@ -92,12 +95,14 @@ func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeContext []strin
 
 	// Process the command
 	if stmt.Cmd != nil {
-		extractFromCmd(stmt.Cmd, info, pipeContext, stmt)
+		extractFromCmd(stmt.Cmd, info, pipeToContext, pipeFromContext, stmt)
 	}
 }
 
 // extractFromCmd processes different command types.
-func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeContext []string, stmt *syntax.Stmt) {
+// pipeToContext: commands this pipes TO (downstream)
+// pipeFromContext: commands this receives FROM (upstream)
+func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeToContext []string, pipeFromContext []string, stmt *syntax.Stmt) {
 	switch c := cmd.(type) {
 	case *syntax.CallExpr:
 		if len(c.Args) > 0 {
@@ -110,7 +115,8 @@ func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeContext []strin
 				Name:      name,
 				Args:      args,
 				IsDynamic: isDynamic,
-				PipesTo:   pipeContext,
+				PipesTo:   pipeToContext,
+				PipesFrom: pipeFromContext,
 				Stmt:      stmt,
 			})
 		}
@@ -118,57 +124,61 @@ func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeContext []strin
 	case *syntax.BinaryCmd:
 		// Handle pipes
 		if c.Op == syntax.Pipe || c.Op == syntax.PipeAll {
-			// Get commands on the right side to build pipe context
+			// Get commands on each side
 			rightCmds := extractCommandNames(c.Y)
+			leftCmds := extractCommandNames(c.X)
 
-			// Left side pipes to right side
-			extractFromStmt(c.X, info, rightCmds)
-			// Right side inherits any existing pipe context
-			extractFromStmt(c.Y, info, pipeContext)
+			// Left side: pipes to right side, receives from current upstream
+			extractFromStmt(c.X, info, rightCmds, pipeFromContext)
+
+			// Right side: pipes to outer context, receives from left + current upstream
+			newFromContext := append([]string{}, pipeFromContext...)
+			newFromContext = append(newFromContext, leftCmds...)
+			extractFromStmt(c.Y, info, pipeToContext, newFromContext)
 		} else {
-			// && or || - both sides get same pipe context
-			extractFromStmt(c.X, info, pipeContext)
-			extractFromStmt(c.Y, info, pipeContext)
+			// && or || - both sides get same pipe context (no pipe relationship)
+			extractFromStmt(c.X, info, pipeToContext, pipeFromContext)
+			extractFromStmt(c.Y, info, pipeToContext, pipeFromContext)
 		}
 
 	case *syntax.Subshell:
 		for _, s := range c.Stmts {
-			extractFromStmt(s, info, pipeContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext)
 		}
 
 	case *syntax.Block:
 		for _, s := range c.Stmts {
-			extractFromStmt(s, info, pipeContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext)
 		}
 
 	case *syntax.IfClause:
 		for _, s := range c.Cond {
-			extractFromStmt(s, info, pipeContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext)
 		}
 		for _, s := range c.Then {
-			extractFromStmt(s, info, pipeContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext)
 		}
 		if c.Else != nil {
-			extractFromCmd(c.Else, info, pipeContext, stmt)
+			extractFromCmd(c.Else, info, pipeToContext, pipeFromContext, stmt)
 		}
 
 	case *syntax.WhileClause:
 		for _, s := range c.Cond {
-			extractFromStmt(s, info, pipeContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext)
 		}
 		for _, s := range c.Do {
-			extractFromStmt(s, info, pipeContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext)
 		}
 
 	case *syntax.ForClause:
 		for _, s := range c.Do {
-			extractFromStmt(s, info, pipeContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext)
 		}
 
 	case *syntax.CaseClause:
 		for _, item := range c.Items {
 			for _, s := range item.Stmts {
-				extractFromStmt(s, info, pipeContext)
+				extractFromStmt(s, info, pipeToContext, pipeFromContext)
 			}
 		}
 
@@ -177,12 +187,12 @@ func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeContext []strin
 
 	case *syntax.CoprocClause:
 		if c.Stmt != nil {
-			extractFromStmt(c.Stmt, info, pipeContext)
+			extractFromStmt(c.Stmt, info, pipeToContext, pipeFromContext)
 		}
 
 	case *syntax.TimeClause:
 		if c.Stmt != nil {
-			extractFromStmt(c.Stmt, info, pipeContext)
+			extractFromStmt(c.Stmt, info, pipeToContext, pipeFromContext)
 		}
 	}
 }

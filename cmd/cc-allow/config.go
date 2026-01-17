@@ -52,9 +52,10 @@ type ArgsMatch struct {
 	Position map[int]string    `toml:"position"`   // specific positional arg matching
 }
 
-// PipeContext specifies rules about what a command can pipe to.
+// PipeContext specifies rules about pipe relationships.
 type PipeContext struct {
-	To []string `toml:"to"` // deny if piped to any of these commands
+	To   []string `toml:"to"`   // deny if piped to any of these commands (immediate)
+	From []string `toml:"from"` // deny if receiving piped input from any of these (or "*" for any)
 }
 
 // RedirectRule controls output/input redirection.

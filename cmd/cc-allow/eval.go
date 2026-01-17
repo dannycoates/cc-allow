@@ -293,6 +293,31 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 		}
 	}
 
+	// Check pipe.from context
+	if len(rule.Pipe.From) > 0 {
+		// This rule only matches if the command receives from a restricted source
+		receivesFromRestricted := false
+
+		// Check for wildcard "*" - matches any piped input
+		if ContainsExact([]string{"*"}, rule.Pipe.From) {
+			// If command has ANY upstream commands, it matches
+			if len(cmd.PipesFrom) > 0 {
+				receivesFromRestricted = true
+			}
+		} else {
+			// Check if any upstream command is in the restricted list
+			for _, pipeSource := range cmd.PipesFrom {
+				if ContainsExact([]string{pipeSource}, rule.Pipe.From) {
+					receivesFromRestricted = true
+					break
+				}
+			}
+		}
+		if !receivesFromRestricted {
+			return Result{}, false
+		}
+	}
+
 	// Rule matched - return the action
 	msg := rule.Message
 	if msg == "" && rule.Action == "deny" {
