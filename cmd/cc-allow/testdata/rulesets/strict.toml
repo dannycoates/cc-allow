@@ -1,0 +1,34 @@
+# Strict ruleset - denies most things, only allows safe read-only commands
+
+[policy]
+default = "deny"
+dynamic_commands = "deny"
+default_message = "Command not allowed by strict policy"
+
+[commands.allow]
+names = ["ls", "cat", "head", "tail", "wc", "pwd", "date", "echo", "printf", "grep", "cd"]
+
+[commands.deny]
+names = ["sudo", "su", "rm", "rmdir", "dd", "mkfs", "shutdown", "reboot", "kill", "killall"]
+message = "Dangerous command denied"
+
+[constructs]
+function_definitions = "deny"
+background = "deny"
+subshells = "pass"
+
+[[rule]]
+command = "curl"
+action = "deny"
+message = "Network commands not allowed"
+
+[[rule]]
+command = "wget"
+action = "deny"
+message = "Network commands not allowed"
+
+[[redirect]]
+action = "deny"
+message = "Redirects not allowed"
+[redirect.to]
+pattern = ["re:.*"]

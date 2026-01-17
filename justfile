@@ -16,3 +16,15 @@ test:
 
 test-v:
     go test -v ./...
+
+# Run the test harness (matrix of commands × rulesets)
+harness:
+    go test ./cmd/cc-allow/... -run TestHarness -v
+
+# Run harness for a specific ruleset (strict, permissive, default)
+harness-ruleset ruleset:
+    go test ./cmd/cc-allow/... -run "TestHarness/{{ruleset}}" -v
+
+# Run harness for a specific test case
+harness-case ruleset name:
+    go test ./cmd/cc-allow/... -run "TestHarness/{{ruleset}}/{{name}}" -v

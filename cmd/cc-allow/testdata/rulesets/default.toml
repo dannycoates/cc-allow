@@ -1,0 +1,14 @@
+# Default ruleset - minimal rules, mostly passes through to Claude Code
+
+[policy]
+default = "pass"
+dynamic_commands = "pass"
+
+[commands.deny]
+names = ["sudo", "su"]
+message = "Privilege escalation not allowed"
+
+[constructs]
+function_definitions = "pass"
+background = "pass"
+subshells = "pass"
