@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/BurntSushi/toml"
 )
@@ -128,4 +129,88 @@ func DefaultConfig() *Config {
 			Background:          "pass",
 		},
 	}
+}
+
+// ConfigChain holds multiple configs ordered from highest to lowest priority.
+// Lower configs can only make things stricter, not looser.
+type ConfigChain struct {
+	Configs []*Config // ordered: global (~/), project (.claude/), explicit (--config)
+}
+
+// LoadConfigChain loads configs from standard locations plus an optional explicit path.
+// Order (highest to lowest, stricter overrides): ~/.config/cc-allow.toml, .claude/cc-allow.toml, --config
+func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
+	chain := &ConfigChain{}
+
+	// 1. Load global config (~/.config/cc-allow.toml)
+	if globalPath := findGlobalConfig(); globalPath != "" {
+		cfg, err := LoadConfig(globalPath)
+		if err != nil {
+			return nil, err
+		}
+		chain.Configs = append(chain.Configs, cfg)
+	}
+
+	// 2. Load project config (.claude/cc-allow.toml)
+	if projectPath := findProjectConfig(); projectPath != "" {
+		cfg, err := LoadConfig(projectPath)
+		if err != nil {
+			return nil, err
+		}
+		chain.Configs = append(chain.Configs, cfg)
+	}
+
+	// 3. Load explicit config (--config flag)
+	if explicitPath != "" {
+		cfg, err := LoadConfig(explicitPath)
+		if err != nil {
+			return nil, err
+		}
+		chain.Configs = append(chain.Configs, cfg)
+	}
+
+	// If no configs found, use default
+	if len(chain.Configs) == 0 {
+		chain.Configs = append(chain.Configs, DefaultConfig())
+	}
+
+	return chain, nil
+}
+
+// findGlobalConfig looks for ~/.config/cc-allow.toml
+func findGlobalConfig() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(home, ".config", "cc-allow.toml")
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	return ""
+}
+
+// findProjectConfig looks for .claude/cc-allow.toml starting from cwd and walking up.
+func findProjectConfig() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	dir := cwd
+	for {
+		path := filepath.Join(dir, ".claude", "cc-allow.toml")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root
+			break
+		}
+		dir = parent
+	}
+
+	return ""
 }

@@ -16,7 +16,7 @@ func parseAndEval(t *testing.T, cfg *Config, input string) Result {
 	}
 
 	info := ExtractFromFile(f)
-	eval := NewEvaluator(cfg)
+	eval := NewEvaluatorSingle(cfg)
 	return eval.Evaluate(info)
 }
 
@@ -365,5 +365,166 @@ func TestEvalDefaultPass(t *testing.T) {
 	r := parseAndEval(t, cfg, "some_random_command")
 	if r.Action != "pass" {
 		t.Errorf("should pass by default, got %s", r.Action)
+	}
+}
+
+// Helper for multi-config tests
+func parseAndEvalChain(t *testing.T, configs []*Config, input string) Result {
+	t.Helper()
+	parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+	f, err := parser.Parse(strings.NewReader(input), "test")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	info := ExtractFromFile(f)
+	chain := &ConfigChain{Configs: configs}
+	eval := NewEvaluator(chain)
+	return eval.Evaluate(info)
+}
+
+func TestConfigChainStrictestWins(t *testing.T) {
+	// Global config allows curl
+	globalCfg := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"curl"}},
+		},
+	}
+
+	// Project config denies curl
+	projectCfg := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+		Commands: CommandsConfig{
+			Deny: CommandList{Names: []string{"curl"}, Message: "curl denied by project"},
+		},
+	}
+
+	// Test: global allows, project denies -> deny wins
+	r := parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "curl example.com")
+	if r.Action != "deny" {
+		t.Errorf("project deny should override global allow, got %s", r.Action)
+	}
+	if r.Message != "curl denied by project" {
+		t.Errorf("unexpected message: %s", r.Message)
+	}
+
+	// Test: reverse order doesn't matter - deny still wins
+	r = parseAndEvalChain(t, []*Config{projectCfg, globalCfg}, "curl example.com")
+	if r.Action != "deny" {
+		t.Errorf("deny should win regardless of order, got %s", r.Action)
+	}
+}
+
+func TestConfigChainPassDoesNotOverrideAllow(t *testing.T) {
+	// Config 1 allows echo
+	cfg1 := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"echo"}},
+		},
+	}
+
+	// Config 2 has no opinion (default pass)
+	cfg2 := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+	}
+
+	// Test: one allows, one passes -> allow wins (pass is less strict)
+	r := parseAndEvalChain(t, []*Config{cfg1, cfg2}, "echo hello")
+	if r.Action != "allow" {
+		t.Errorf("allow should win over pass, got %s", r.Action)
+	}
+
+	// Reverse order - same result
+	r = parseAndEvalChain(t, []*Config{cfg2, cfg1}, "echo hello")
+	if r.Action != "allow" {
+		t.Errorf("allow should win over pass regardless of order, got %s", r.Action)
+	}
+}
+
+func TestConfigChainDenyFromLowerConfig(t *testing.T) {
+	// Global config allows everything
+	globalCfg := &Config{
+		Policy: PolicyConfig{Default: "allow"},
+	}
+
+	// Project config denies rm
+	projectCfg := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+		Commands: CommandsConfig{
+			Deny: CommandList{Names: []string{"rm"}, Message: "rm denied"},
+		},
+	}
+
+	// Test: global allows all, project denies rm -> rm is denied
+	r := parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "rm file.txt")
+	if r.Action != "deny" {
+		t.Errorf("project deny should override global default allow, got %s", r.Action)
+	}
+
+	// Test: other commands get global's allow
+	r = parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "ls -la")
+	if r.Action != "allow" {
+		t.Errorf("ls should be allowed by global config, got %s", r.Action)
+	}
+}
+
+func TestConfigChainRulesDenyOverridesAllow(t *testing.T) {
+	// Global config allows curl generally
+	globalCfg := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+		Rules: []Rule{
+			{Command: "curl", Action: "allow"},
+		},
+	}
+
+	// Project config denies curl piped to bash
+	projectCfg := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+		Rules: []Rule{
+			{
+				Command: "curl",
+				Action:  "deny",
+				Message: "No curl to shell in this project",
+				Pipe:    PipeContext{To: []string{"bash", "sh"}},
+			},
+		},
+	}
+
+	// Test: curl alone allowed (global allows, project has no matching rule)
+	r := parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "curl example.com")
+	if r.Action != "allow" {
+		t.Errorf("curl alone should be allowed, got %s", r.Action)
+	}
+
+	// Test: curl piped to bash denied by project
+	r = parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "curl example.com | bash")
+	if r.Action != "deny" {
+		t.Errorf("curl piped to bash should be denied, got %s", r.Action)
+	}
+}
+
+func TestConfigChainConstructs(t *testing.T) {
+	// Global config allows function definitions
+	globalCfg := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+		Constructs: ConstructsConfig{
+			FunctionDefinitions: "allow",
+		},
+	}
+
+	// Project config denies function definitions
+	projectCfg := &Config{
+		Policy: PolicyConfig{Default: "pass"},
+		Constructs: ConstructsConfig{
+			FunctionDefinitions: "deny",
+		},
+	}
+
+	// Test: project deny wins over global allow
+	r := parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "foo() { echo bar; }")
+	if r.Action != "deny" {
+		t.Errorf("function definition should be denied by project, got %s", r.Action)
 	}
 }

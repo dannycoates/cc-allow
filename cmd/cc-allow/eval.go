@@ -11,17 +11,69 @@ type Result struct {
 	Command string // the command that caused denial (if any)
 }
 
+// combineActions merges two actions following these rules:
+// - deny always wins (any config can deny, and it can't be undone)
+// - allow is preserved unless denied (pass doesn't override allow)
+// - pass means "no opinion" and defers to the other action
+func combineActions(current, new string) string {
+	// If already denied, stay denied (deny is sticky)
+	if current == "deny" {
+		return "deny"
+	}
+	// New deny overrides anything
+	if new == "deny" {
+		return "deny"
+	}
+	// If current is allow and new is pass, keep allow (pass doesn't override)
+	if current == "allow" && new == "pass" {
+		return "allow"
+	}
+	// If current is pass and new is allow, become allow
+	if current == "pass" && new == "allow" {
+		return "allow"
+	}
+	// Both same, or both pass
+	return current
+}
+
+// combineResults merges two results, keeping the message from the stricter action.
+func combineResults(current, new Result) Result {
+	combined := combineActions(current.Action, new.Action)
+
+	// Keep the message from whichever result determined the action
+	if combined == "deny" {
+		if new.Action == "deny" {
+			return new
+		}
+		return current
+	}
+	if combined == "allow" {
+		if new.Action == "allow" {
+			return new
+		}
+		return current
+	}
+	// Both pass
+	return Result{Action: "pass"}
+}
+
 // Evaluator applies configuration rules to extracted commands.
 type Evaluator struct {
-	cfg *Config
+	chain *ConfigChain
 }
 
-// NewEvaluator creates a new evaluator with the given configuration.
-func NewEvaluator(cfg *Config) *Evaluator {
-	return &Evaluator{cfg: cfg}
+// NewEvaluator creates a new evaluator with the given configuration chain.
+func NewEvaluator(chain *ConfigChain) *Evaluator {
+	return &Evaluator{chain: chain}
 }
 
-// Evaluate checks all extracted info against the configuration.
+// NewEvaluatorSingle creates an evaluator from a single config (for backwards compatibility).
+func NewEvaluatorSingle(cfg *Config) *Evaluator {
+	return &Evaluator{chain: &ConfigChain{Configs: []*Config{cfg}}}
+}
+
+// Evaluate checks all extracted info against all configurations.
+// Combines results: deny wins over all, allow preserved unless denied, pass is neutral.
 func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	// Check parse error
 	if info.ParseError != nil {
@@ -31,22 +83,40 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 		}
 	}
 
+	// Track overall result across all configs
+	overallResult := Result{Action: "pass"} // start with "no opinion"
+
+	// Evaluate against each config, combining results
+	for _, cfg := range e.chain.Configs {
+		result := e.evaluateWithConfig(cfg, info)
+		overallResult = combineResults(overallResult, result)
+
+		// Early exit: if already denied, no point checking more configs
+		if overallResult.Action == "deny" {
+			return overallResult
+		}
+	}
+
+	return overallResult
+}
+
+// evaluateWithConfig evaluates info against a single config.
+// Within a single config: deny beats all, then allow beats pass.
+func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result {
 	// Check constructs
-	if result := e.checkConstructs(info); result.Action != "" {
+	if result := e.checkConstructsWithConfig(cfg, info); result.Action == "deny" {
 		return result
 	}
 
-	// Check each command - collect results
-	// If any command is denied, return deny immediately
-	// If any command is explicitly allowed, track it
-	// Otherwise, all commands pass through
+	// Track whether any command/redirect was explicitly allowed
 	hasExplicitAllow := false
 
+	// Check each command
 	for _, cmd := range info.Commands {
-		result := e.evaluateCommand(cmd)
-		switch result.Action {
+		cmdResult := e.evaluateCommandWithConfig(cfg, cmd)
+		switch cmdResult.Action {
 		case "deny":
-			return result
+			return cmdResult // deny beats all
 		case "allow":
 			hasExplicitAllow = true
 		}
@@ -55,10 +125,10 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 
 	// Check redirects
 	for _, redir := range info.Redirects {
-		result := e.evaluateRedirect(redir)
-		switch result.Action {
+		redirResult := e.evaluateRedirectWithConfig(cfg, redir)
+		switch redirResult.Action {
 		case "deny":
-			return result
+			return redirResult
 		case "allow":
 			hasExplicitAllow = true
 		}
@@ -73,10 +143,10 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	return Result{Action: "pass"}
 }
 
-// checkConstructs verifies shell constructs against policy.
-func (e *Evaluator) checkConstructs(info *ExtractedInfo) Result {
+// checkConstructsWithConfig verifies shell constructs against a single config's policy.
+func (e *Evaluator) checkConstructsWithConfig(cfg *Config, info *ExtractedInfo) Result {
 	if info.Constructs.HasFunctionDefs {
-		switch e.cfg.Constructs.FunctionDefinitions {
+		switch cfg.Constructs.FunctionDefinitions {
 		case "deny":
 			return Result{
 				Action:  "deny",
@@ -89,7 +159,7 @@ func (e *Evaluator) checkConstructs(info *ExtractedInfo) Result {
 	}
 
 	if info.Constructs.HasBackground {
-		switch e.cfg.Constructs.Background {
+		switch cfg.Constructs.Background {
 		case "deny":
 			return Result{
 				Action:  "deny",
@@ -100,15 +170,15 @@ func (e *Evaluator) checkConstructs(info *ExtractedInfo) Result {
 		}
 	}
 
-	// No decision from constructs
-	return Result{}
+	// No denial from constructs
+	return Result{Action: "pass"}
 }
 
-// evaluateCommand checks a single command against all rules.
-func (e *Evaluator) evaluateCommand(cmd Command) Result {
+// evaluateCommandWithConfig checks a single command against a single config's rules.
+func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 	// Handle dynamic commands
 	if cmd.IsDynamic {
-		switch e.cfg.Policy.DynamicCommands {
+		switch cfg.Policy.DynamicCommands {
 		case "deny":
 			return Result{
 				Action:  "deny",
@@ -123,10 +193,10 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 	}
 
 	// Check quick deny list
-	if ContainsExact([]string{cmd.Name}, e.cfg.Commands.Deny.Names) {
-		msg := e.cfg.Commands.Deny.Message
+	if ContainsExact([]string{cmd.Name}, cfg.Commands.Deny.Names) {
+		msg := cfg.Commands.Deny.Message
 		if msg == "" {
-			msg = e.cfg.Policy.DefaultMessage
+			msg = cfg.Policy.DefaultMessage
 		}
 		return Result{
 			Action:  "deny",
@@ -136,11 +206,11 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 	}
 
 	// Check quick allow list (but still need to check rules for context)
-	inAllowList := ContainsExact([]string{cmd.Name}, e.cfg.Commands.Allow.Names)
+	inAllowList := ContainsExact([]string{cmd.Name}, cfg.Commands.Allow.Names)
 
 	// Evaluate detailed rules in order (first match wins)
-	for _, rule := range e.cfg.Rules {
-		if result, matched := e.matchRule(rule, cmd); matched {
+	for _, rule := range cfg.Rules {
+		if result, matched := e.matchRuleWithConfig(cfg, rule, cmd); matched {
 			return result
 		}
 	}
@@ -152,15 +222,15 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 
 	// Use default policy
 	return Result{
-		Action:  e.cfg.Policy.Default,
-		Message: e.cfg.Policy.DefaultMessage,
+		Action:  cfg.Policy.Default,
+		Message: cfg.Policy.DefaultMessage,
 		Command: cmd.Name,
 	}
 }
 
-// matchRule checks if a rule matches the command and returns the result.
+// matchRuleWithConfig checks if a rule matches the command and returns the result.
 // Returns (result, matched) where matched indicates if the rule applied.
-func (e *Evaluator) matchRule(rule Rule, cmd Command) (Result, bool) {
+func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Result, bool) {
 	// Check command name match
 	if rule.Command != "*" && rule.Command != cmd.Name {
 		return Result{}, false
@@ -226,7 +296,7 @@ func (e *Evaluator) matchRule(rule Rule, cmd Command) (Result, bool) {
 	// Rule matched - return the action
 	msg := rule.Message
 	if msg == "" && rule.Action == "deny" {
-		msg = e.cfg.Policy.DefaultMessage
+		msg = cfg.Policy.DefaultMessage
 	}
 
 	return Result{
@@ -236,11 +306,11 @@ func (e *Evaluator) matchRule(rule Rule, cmd Command) (Result, bool) {
 	}, true
 }
 
-// evaluateRedirect checks a redirect against redirect rules.
-func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
+// evaluateRedirectWithConfig checks a redirect against a single config's rules.
+func (e *Evaluator) evaluateRedirectWithConfig(cfg *Config, redir Redirect) Result {
 	// Dynamic redirects
 	if redir.IsDynamic {
-		switch e.cfg.Policy.DynamicCommands {
+		switch cfg.Policy.DynamicCommands {
 		case "deny":
 			return Result{
 				Action:  "deny",
@@ -254,8 +324,8 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 	}
 
 	// Evaluate redirect rules in order
-	for _, rule := range e.cfg.Redirects {
-		if result, matched := e.matchRedirectRule(rule, redir); matched {
+	for _, rule := range cfg.Redirects {
+		if result, matched := e.matchRedirectRuleWithConfig(cfg, rule, redir); matched {
 			return result
 		}
 	}
@@ -264,8 +334,8 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 	return Result{Action: "pass"}
 }
 
-// matchRedirectRule checks if a redirect rule matches.
-func (e *Evaluator) matchRedirectRule(rule RedirectRule, redir Redirect) (Result, bool) {
+// matchRedirectRuleWithConfig checks if a redirect rule matches.
+func (e *Evaluator) matchRedirectRuleWithConfig(cfg *Config, rule RedirectRule, redir Redirect) (Result, bool) {
 	// Check append mode filter
 	if rule.Append != nil {
 		if *rule.Append != redir.Append {
@@ -296,7 +366,7 @@ func (e *Evaluator) matchRedirectRule(rule RedirectRule, redir Redirect) (Result
 	// Rule matched
 	msg := rule.Message
 	if msg == "" && rule.Action == "deny" {
-		msg = e.cfg.Policy.DefaultMessage
+		msg = cfg.Policy.DefaultMessage
 	}
 
 	return Result{

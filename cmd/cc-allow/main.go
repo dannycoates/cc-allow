@@ -18,20 +18,14 @@ const (
 )
 
 func main() {
-	configPath := flag.String("config", "", "path to TOML configuration file")
+	configPath := flag.String("config", "", "path to TOML configuration file (adds to config chain)")
 	flag.Parse()
 
-	// Load configuration
-	var cfg *Config
-	var err error
-	if *configPath != "" {
-		cfg, err = LoadConfig(*configPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-			os.Exit(ExitError)
-		}
-	} else {
-		cfg = DefaultConfig()
+	// Load configuration chain from standard locations + explicit path
+	chain, err := LoadConfigChain(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(ExitError)
 	}
 
 	// Parse bash input from stdin
@@ -45,8 +39,8 @@ func main() {
 	// Extract commands and context from AST
 	info := ExtractFromFile(f)
 
-	// Evaluate against rules
-	eval := NewEvaluator(cfg)
+	// Evaluate against all configs (strictest wins)
+	eval := NewEvaluator(chain)
 	result := eval.Evaluate(info)
 
 	switch result.Action {
