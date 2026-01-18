@@ -28,3 +28,6 @@ DOWNLOAD_URL=$(curl -sL "$RELEASE_URL" | grep "browser_download_url.*${OS}_${ARC
 # Download and extract
 curl -sL "$DOWNLOAD_URL" | tar -xz -C "$BIN_DIR"
 chmod +x "$CC_ALLOW_PATH"
+
+# Initialize project config if it doesn't exist
+"$CC_ALLOW_PATH" --init

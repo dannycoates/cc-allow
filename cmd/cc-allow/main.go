@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,6 +13,12 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 )
+
+//go:embed templates/stub.toml
+var stubTemplate string
+
+//go:embed templates/full.toml
+var fullTemplate string
 
 // Version info set via ldflags
 var (
@@ -55,11 +62,17 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and $TMPDIR/cc-allow.log")
 	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
+	initMode := flag.Bool("init", false, "create project config at .claude/cc-allow.toml")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("cc-allow %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
+	}
+
+	if *initMode {
+		runInit()
+		return
 	}
 
 	if *fmtMode {
@@ -586,4 +599,45 @@ func formatHeredocRule(r HeredocRule) string {
 	}
 
 	return result
+}
+
+// Init mode - create project config file
+
+func runInit() {
+	// 1. Find project root
+	root := findProjectRoot()
+	if root == "" {
+		fmt.Fprintln(os.Stderr, "Could not determine project root (no .claude/ or .git/ found)")
+		os.Exit(1)
+	}
+
+	// 2. Check if config already exists
+	configPath := filepath.Join(root, ".claude", "cc-allow.toml")
+	if _, err := os.Stat(configPath); err == nil {
+		fmt.Printf("Config already exists: %s\n", configPath)
+		os.Exit(0)
+	}
+
+	// 3. Ensure .claude directory exists
+	claudeDir := filepath.Join(root, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create .claude directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 4. Choose template based on user config existence
+	var content string
+	if findGlobalConfig() == "" {
+		content = fullTemplate
+	} else {
+		content = stubTemplate
+	}
+
+	// 5. Write config
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to write config: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Created %s\n", configPath)
 }

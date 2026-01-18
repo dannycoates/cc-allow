@@ -145,6 +145,10 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 
 ## Workflow
 
+0. If no project config exists, initialize one:
+   ```bash
+   cc-allow --init
+   ```
 1. Read the existing config at `.claude/cc-allow.toml`
 2. Determine what change is needed
 3. Add new rules
