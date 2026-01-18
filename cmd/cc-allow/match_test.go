@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cc-allow/pkg/pathutil"
 	"testing"
 )
 
@@ -136,5 +137,148 @@ func TestMatchPosition(t *testing.T) {
 
 	if MatchPosition(args, 5, "anything") {
 		t.Error("expected out of bounds to not match")
+	}
+}
+
+func TestParsePatternPath(t *testing.T) {
+	p, err := ParsePattern("path:$PROJECT_ROOT/**")
+	if err != nil {
+		t.Fatalf("ParsePattern error: %v", err)
+	}
+	if p.Type != PatternPath {
+		t.Errorf("expected PatternPath, got %v", p.Type)
+	}
+	if p.PathPattern != "$PROJECT_ROOT/**" {
+		t.Errorf("expected PathPattern '$PROJECT_ROOT/**', got %q", p.PathPattern)
+	}
+}
+
+func TestPathPatternWithContext(t *testing.T) {
+	tests := []struct {
+		name        string
+		pattern     string
+		input       string
+		projectRoot string
+		home        string
+		cwd         string
+		want        bool
+	}{
+		{
+			name:        "match under project root",
+			pattern:     "path:$PROJECT_ROOT/**",
+			input:       "./subdir/file.txt",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/project",
+			want:        true,
+		},
+		{
+			name:        "match exact project root",
+			pattern:     "path:$PROJECT_ROOT",
+			input:       ".",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/project",
+			want:        true,
+		},
+		{
+			name:        "no match outside project root",
+			pattern:     "path:$PROJECT_ROOT/**",
+			input:       "/etc/passwd",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/project",
+			want:        false,
+		},
+		{
+			name:        "match under home",
+			pattern:     "path:$HOME/.config/**",
+			input:       "~/.config/app/settings.json",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/project",
+			want:        true,
+		},
+		{
+			name:        "absolute path under project root",
+			pattern:     "path:$PROJECT_ROOT/**",
+			input:       "/home/user/project/src/main.go",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/project",
+			want:        true,
+		},
+		{
+			name:        "relative path resolves correctly",
+			pattern:     "path:$PROJECT_ROOT/**",
+			input:       "../project/file.txt",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/other",
+			want:        true,
+		},
+		{
+			name:        "non-path-like string doesn't match",
+			pattern:     "path:$PROJECT_ROOT/**",
+			input:       "--flag",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/project",
+			want:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := ParsePattern(tt.pattern)
+			if err != nil {
+				t.Fatalf("ParsePattern error: %v", err)
+			}
+
+			ctx := &MatchContext{
+				PathVars: &pathutil.PathVars{
+					ProjectRoot: tt.projectRoot,
+					Home:        tt.home,
+					Cwd:         tt.cwd,
+				},
+			}
+
+			got := p.MatchWithContext(tt.input, ctx)
+			if got != tt.want {
+				t.Errorf("MatchWithContext(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPathPatternWithoutContext(t *testing.T) {
+	p, err := ParsePattern("path:$PROJECT_ROOT/**")
+	if err != nil {
+		t.Fatalf("ParsePattern error: %v", err)
+	}
+
+	// Path patterns should return false without context
+	if p.Match("./file.txt") {
+		t.Error("path pattern should return false without context")
+	}
+}
+
+func TestDoublestarGlobbing(t *testing.T) {
+	// Test that ** works for recursive matching (via doublestar library)
+	p, err := ParsePattern("src/**/*.go")
+	if err != nil {
+		t.Fatalf("ParsePattern error: %v", err)
+	}
+
+	if !p.Match("src/main.go") {
+		t.Error("expected src/main.go to match")
+	}
+
+	if !p.Match("src/pkg/util.go") {
+		t.Error("expected src/pkg/util.go to match")
+	}
+
+	if p.Match("test/main.go") {
+		t.Error("expected test/main.go not to match")
 	}
 }

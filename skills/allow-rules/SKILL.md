@@ -127,9 +127,41 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 
 | Prefix | Description | Example |
 |--------|-------------|---------|
-| `glob:` | Shell glob (`*` doesn't match `/`) | `glob:*.txt` |
+| `glob:` | Shell glob (supports `**`) | `glob:*.txt`, `src/**/*.go` |
 | `re:` | Regular expression | `re:^/etc/.*` |
-| (none) | Exact match | `--verbose` |
+| `path:` | Path pattern with variable expansion | `path:$PROJECT_ROOT/**` |
+| (none) | Exact match (or glob if contains `*?[`) | `--verbose` |
+
+### Path Patterns
+
+Path patterns resolve arguments to absolute paths and expand variables:
+
+| Variable | Description |
+|----------|-------------|
+| `$PROJECT_ROOT` | Directory containing `.claude/` or `.git/` |
+| `$HOME` | User's home directory |
+
+```toml
+# Allow rm only under project root
+[[rule]]
+command = "rm"
+action = "allow"
+[rule.args]
+any_match = ["path:$PROJECT_ROOT/**"]
+
+# Block rm outside project
+[[rule]]
+command = "rm"
+action = "deny"
+message = "Cannot delete files outside project"
+```
+
+Path matching:
+- Expands `~` to `$HOME`
+- Resolves relative paths against cwd
+- Follows symlinks (security)
+- Uses gitignore-style `**` for recursive matching
+- Only matches path-like arguments (starts with `/`, `./`, `../`, `~`, or contains `/`)
 
 ## Common Tasks
 
@@ -138,6 +170,8 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 **Block a command**: Add to `[commands.deny].names`
 
 **Block with specific args**: Add `[[rule]]` with `[rule.args]`
+
+**Restrict to project directory**: Use `path:$PROJECT_ROOT/**` in `[rule.args].any_match`
 
 **Allow redirect target**: Add `[[redirect]]` with `action = "allow"` (redirect rules still use first-match)
 

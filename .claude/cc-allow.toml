@@ -91,12 +91,18 @@ action = "allow"
 [redirect.to]
 exact = ["/dev/null"]
 
+# Allow writes to /tmp
+[[redirect]]
+action = "allow"
+[redirect.to]
+pattern = ["path:/tmp/**"]
+
 # Block writes to system directories
 [[redirect]]
 action = "deny"
 message = "Cannot write to system directories"
 [redirect.to]
-pattern = ["re:^/etc/.*", "re:^/usr/.*", "re:^/bin/.*", "re:^/sbin/.*", "re:^/var/.*"]
+pattern = ["path:etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**", "path:/var/**"]
 
 # Block writes to home directory dotfiles
 [[redirect]]

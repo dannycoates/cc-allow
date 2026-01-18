@@ -240,18 +240,34 @@ heredocs = "allow"                 # heredocs are generally safe
 # Fine-grained control for commands that are generally safe but have
 # dangerous modes.
 
-# --- rm: Block recursive deletion ---
-[[rule]]
-command = "rm"
-action = "deny"
-message = "Recursive rm not allowed"
-[rule.args]
-any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
-
-# --- rm: Allow non-recursive rm ---
+# --- rm: Allow recursive deletion within project ---
 [[rule]]
 command = "rm"
 action = "allow"
+[rule.args]
+any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
+all_match = ["path:$PROJECT_ROOT/**"]
+
+# --- rm: Block recursive deletion outside project ---
+[[rule]]
+command = "rm"
+action = "deny"
+message = "Recursive rm only allowed within project directory"
+[rule.args]
+any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
+
+# --- rm: Allow non-recursive rm within project ---
+[[rule]]
+command = "rm"
+action = "allow"
+[rule.args]
+any_match = ["path:$PROJECT_ROOT/**"]
+
+# --- rm: Ask for non-recursive rm outside project ---
+[[rule]]
+command = "rm"
+action = "ask"
+message = "Deleting files outside project directory"
 
 # --- rmdir: Allow (only removes empty directories) ---
 [[rule]]
@@ -382,15 +398,15 @@ action = "deny"
 message = "Cannot write to system directories"
 [redirect.to]
 pattern = [
-    "re:^/etc/.*",
-    "re:^/usr/.*",
-    "re:^/bin/.*",
-    "re:^/sbin/.*",
-    "re:^/lib/.*",
-    "re:^/lib64/.*",
-    "re:^/var/.*",
-    "re:^/boot/.*",
-    "re:^/root/.*",
+    "path:/etc/**",
+    "path:/usr/**",
+    "path:/bin/**",
+    "path:/sbin/**",
+    "path:/lib/**",
+    "path:/lib64/**",
+    "path:/var/**",
+    "path:/boot/**",
+    "path:/root/**",
 ]
 
 # Block writes to shell configs
@@ -398,7 +414,24 @@ pattern = [
 action = "deny"
 message = "Cannot modify shell configuration files"
 [redirect.to]
-pattern = ["re:.*rc$", "re:.*profile$", "re:.*_login", "re:.*_logout"]
+pattern = [
+    # Shell rc files
+    "path:$HOME/.*rc",
+    "path:$HOME/.*shrc",
+    # Profile files
+    "path:$HOME/.*profile",
+    "path:$HOME/.*_profile",
+    # Login/logout files
+    "path:$HOME/.*login",
+    "path:$HOME/.*_login",
+    "path:$HOME/.*logout",
+    "path:$HOME/.*_logout",
+    # System-wide shell configs (already blocked by /etc/**, but explicit)
+    "path:/etc/profile",
+    "path:/etc/profile.d/**",
+    "path:/etc/bash*",
+    "path:/etc/zsh/**",
+]
 
 # Block appending to shell configs
 [[redirect]]
@@ -406,4 +439,13 @@ action = "deny"
 append = true
 message = "Cannot append to shell configuration"
 [redirect.to]
-pattern = ["re:.*rc$", "re:.*profile$", "re:.*_login", "re:.*_logout"]
+pattern = [
+    "path:$HOME/.*rc",
+    "path:$HOME/.*shrc",
+    "path:$HOME/.*profile",
+    "path:$HOME/.*_profile",
+    "path:$HOME/.*login",
+    "path:$HOME/.*_login",
+    "path:$HOME/.*logout",
+    "path:$HOME/.*_logout",
+]

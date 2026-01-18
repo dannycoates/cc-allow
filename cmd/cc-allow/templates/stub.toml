@@ -18,3 +18,10 @@
 # command = "example"
 # action = "deny"
 # message = "Example rule"
+
+# Path patterns: use path:$PROJECT_ROOT/** or path:$HOME/** to match paths
+# [[rule]]
+# command = "rm"
+# action = "allow"
+# [rule.args]
+# any_match = ["path:$PROJECT_ROOT/**"]

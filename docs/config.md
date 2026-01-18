@@ -253,26 +253,92 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 
 ## Pattern Matching
 
-Patterns support two prefixes:
+Patterns support three prefixes:
 
 | Prefix | Description | Example |
 |--------|-------------|---------|
-| `glob:` | Shell-style glob (uses `filepath.Match`) | `glob:*.txt` |
+| `glob:` | Shell-style glob (supports `**`) | `glob:*.txt` |
 | `re:` | Regular expression | `re:^/etc/.*` |
+| `path:` | Path pattern with variable expansion | `path:$PROJECT_ROOT/**` |
 
-Without a prefix, the string is matched exactly.
+Without a prefix, the string is matched exactly (or treated as glob if it contains `*`, `?`, or `[`).
 
-**Note:** Glob patterns use Go's `filepath.Match`, where `*` does not match path separators. Use `re:` for paths with `/`.
+### Glob Patterns
+
+Glob patterns support `**` for recursive matching (via the doublestar library):
 
 ```toml
-# These are equivalent for simple cases:
-any_match = ["--verbose"]           # exact match
-any_match = ["glob:--verbose"]      # glob (same result)
+any_match = ["*.txt"]              # matches file.txt
+any_match = ["src/**/*.go"]        # matches src/main.go, src/pkg/util.go, etc.
+```
 
+### Path Patterns
+
+Path patterns provide filesystem-aware matching with variable expansion. Use these to write rules based on where files are located relative to project root or home directory.
+
+**Variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `$PROJECT_ROOT` | Detected project root (directory containing `.claude/` or `.git/`) |
+| `$HOME` | User's home directory |
+
+**Example: Allow rm only under project root:**
+
+```toml
+[[rule]]
+command = "rm"
+action = "allow"
+[rule.args]
+any_match = ["path:$PROJECT_ROOT/**"]
+
+[[rule]]
+command = "rm"
+action = "deny"
+message = "Cannot delete files outside project"
+```
+
+**Example: Allow editing config files under home:**
+
+```toml
+[[rule]]
+command = "vim"
+action = "allow"
+[rule.args]
+any_match = ["path:$HOME/.config/**", "path:$HOME/.local/**"]
+```
+
+**Example: Positional path matching:**
+
+```toml
+[[rule]]
+command = "rm"
+action = "allow"
+[rule.args]
+position = { "0" = "-rf", "1" = "path:$PROJECT_ROOT/**" }
+```
+
+**Path Resolution:**
+
+When matching, cc-allow:
+1. Expands `~` in the argument to `$HOME`
+2. Resolves relative paths against the current working directory
+3. Normalizes the path (cleaning `.`, `..`, etc.)
+4. Follows symlinks (prevents escaping via symlinks)
+5. Expands variables in the pattern (`$PROJECT_ROOT`, `$HOME`)
+6. Matches using gitignore-style globbing (`**` works)
+
+Only arguments that look like paths (start with `/`, `./`, `../`, `~`, or contain `/`) are matched against path patterns. Non-path arguments like `--flag` are not matched.
+
+### Regex Patterns
+
+Use regex for complex patterns:
+
+```toml
 # Use regex for complex patterns:
 any_match = ["re:^--(?:verbose|debug)$"]
 
-# Use regex for paths:
+# Use regex for paths (alternative to path: when you don't need resolution):
 pattern = ["re:^/etc/.*"]           # matches /etc/passwd, /etc/hosts, etc.
 ```
 

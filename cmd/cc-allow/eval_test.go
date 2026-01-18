@@ -852,3 +852,79 @@ func TestHeredocNotTreatedAsRedirect(t *testing.T) {
 		t.Errorf("file redirect should be denied, got %s", r.Action)
 	}
 }
+
+func TestPathPatternInRules(t *testing.T) {
+	// Test path patterns in rule evaluation
+	// Uses $HOME which is always available
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:         "ask",
+			DynamicCommands: "ask",
+			DefaultMessage:  "Not allowed",
+		},
+		Rules: []Rule{
+			{
+				Command: "rm",
+				Action:  "allow",
+				Args: ArgsMatch{
+					AnyMatch: []string{"path:$HOME/**"},
+				},
+			},
+			{
+				Command: "rm",
+				Action:  "deny",
+				Message: "Cannot delete outside home",
+				Args: ArgsMatch{
+					AnyMatch: []string{"path:/etc/**"},
+				},
+			},
+		},
+	}
+
+	// rm with path under home should be allowed
+	r := parseAndEval(t, cfg, "rm ~/file.txt")
+	if r.Action != "allow" {
+		t.Errorf("rm ~/file.txt should be allowed (path under $HOME), got %s", r.Action)
+	}
+
+	// rm with path under /etc should be denied
+	r = parseAndEval(t, cfg, "rm /etc/passwd")
+	if r.Action != "deny" {
+		t.Errorf("rm /etc/passwd should be denied, got %s", r.Action)
+	}
+}
+
+func TestPathPatternPosition(t *testing.T) {
+	// Test path patterns in positional matching
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:         "ask",
+			DynamicCommands: "ask",
+			DefaultMessage:  "Not allowed",
+		},
+		Rules: []Rule{
+			{
+				Command: "rm",
+				Action:  "allow",
+				Args: ArgsMatch{
+					Position: map[string]string{
+						"0": "-rf",
+						"1": "path:$HOME/**",
+					},
+				},
+			},
+		},
+	}
+
+	// rm -rf with path under home should be allowed
+	r := parseAndEval(t, cfg, "rm -rf ~/temp")
+	if r.Action != "allow" {
+		t.Errorf("rm -rf ~/temp should be allowed, got %s", r.Action)
+	}
+
+	// rm -rf with path outside home should not match the rule
+	r = parseAndEval(t, cfg, "rm -rf /tmp/foo")
+	if r.Action != "ask" {
+		t.Errorf("rm -rf /tmp/foo should ask (rule didn't match), got %s", r.Action)
+	}
+}

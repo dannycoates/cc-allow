@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+
+	"cc-allow/pkg/pathutil"
 )
 
 // Result represents the evaluation result.
@@ -111,17 +113,30 @@ func actionPriority(action string) int {
 
 // Evaluator applies configuration rules to extracted commands.
 type Evaluator struct {
-	chain *ConfigChain
+	chain    *ConfigChain
+	matchCtx *MatchContext
 }
 
 // NewEvaluator creates a new evaluator with the given configuration chain.
 func NewEvaluator(chain *ConfigChain) *Evaluator {
-	return &Evaluator{chain: chain}
+	projectRoot := findProjectRoot()
+	return &Evaluator{
+		chain: chain,
+		matchCtx: &MatchContext{
+			PathVars: pathutil.NewPathVars(projectRoot),
+		},
+	}
 }
 
 // NewEvaluatorSingle creates an evaluator from a single config (for backwards compatibility).
 func NewEvaluatorSingle(cfg *Config) *Evaluator {
-	return &Evaluator{chain: &ConfigChain{Configs: []*Config{cfg}}}
+	projectRoot := findProjectRoot()
+	return &Evaluator{
+		chain: &ConfigChain{Configs: []*Config{cfg}},
+		matchCtx: &MatchContext{
+			PathVars: pathutil.NewPathVars(projectRoot),
+		},
+	}
 }
 
 // Evaluate checks all extracted info against all configurations.
@@ -395,7 +410,7 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 		if err != nil {
 			return Result{}, false
 		}
-		if !matcher.AnyMatch(args) {
+		if !matcher.AnyMatchWithContext(args, e.matchCtx) {
 			return Result{}, false
 		}
 	}
@@ -406,7 +421,7 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 		if err != nil {
 			return Result{}, false
 		}
-		if !matcher.AllMatch(args) {
+		if !matcher.AllMatchWithContext(args, e.matchCtx) {
 			return Result{}, false
 		}
 	}
@@ -414,7 +429,7 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 	// Check args.position
 	for posStr, pattern := range rule.Args.Position {
 		pos, _ := strconv.Atoi(posStr) // Already validated in Config.Validate()
-		if !MatchPosition(args, pos, pattern) {
+		if !MatchPositionWithContext(args, pos, pattern, e.matchCtx) {
 			return Result{}, false
 		}
 	}
@@ -565,7 +580,7 @@ func (e *Evaluator) matchRedirectRuleWithConfig(cfg *Config, rule RedirectRule, 
 		if err != nil {
 			return Result{}, false
 		}
-		if !matcher.AnyMatch([]string{redir.Target}) {
+		if !matcher.AnyMatchWithContext([]string{redir.Target}, e.matchCtx) {
 			return Result{}, false
 		}
 	}
