@@ -9,11 +9,18 @@ import (
 
 // Config represents the complete configuration for cc-allow.
 type Config struct {
-	Policy    PolicyConfig    `toml:"policy"`
-	Commands  CommandsConfig  `toml:"commands"`
-	Rules     []Rule          `toml:"rule"`
-	Redirects []RedirectRule  `toml:"redirect"`
+	Path       string           `toml:"-"` // path this config was loaded from (not in TOML)
+	Policy     PolicyConfig     `toml:"policy"`
+	Commands   CommandsConfig   `toml:"commands"`
+	Rules      []Rule           `toml:"rule"`
+	Redirects  []RedirectRule   `toml:"redirect"`
 	Constructs ConstructsConfig `toml:"constructs"`
+	Debug      DebugConfig      `toml:"debug"`
+}
+
+// DebugConfig controls debug logging behavior.
+type DebugConfig struct {
+	LogFile string `toml:"log_file"` // path to debug log file (default: $TMPDIR/cc-allow.log)
 }
 
 // PolicyConfig defines the default behavior when no rules match.
@@ -85,7 +92,12 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ParseConfig(string(data))
+	cfg, err := ParseConfig(string(data))
+	if err != nil {
+		return nil, err
+	}
+	cfg.Path = path
+	return cfg, nil
 }
 
 // ParseConfig parses a TOML configuration string.
@@ -119,6 +131,7 @@ func ParseConfig(data string) (*Config, error) {
 // DefaultConfig returns a minimal default configuration.
 func DefaultConfig() *Config {
 	return &Config{
+		Path: "(default)",
 		Policy: PolicyConfig{
 			Default:         "ask",
 			DynamicCommands: "ask",

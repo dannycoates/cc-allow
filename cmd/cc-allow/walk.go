@@ -19,9 +19,10 @@ type Command struct {
 
 // Redirect represents an extracted redirect operation.
 type Redirect struct {
-	Target   string // file path being redirected to
-	Append   bool   // true if >> (append mode)
-	IsDynamic bool  // true if target contains variables
+	Target     string // file path being redirected to
+	Append     bool   // true if >> (append mode)
+	IsDynamic  bool   // true if target contains variables
+	IsFdRedirect bool // true if redirecting to a file descriptor (e.g., 2>&1)
 }
 
 // FuncDef represents a function definition.
@@ -85,10 +86,13 @@ func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []str
 	for _, redir := range stmt.Redirs {
 		if redir.Word != nil {
 			target, isDynamic := extractWord(redir.Word)
+			// Check if this is a file descriptor redirect (>&N or N>&M)
+			isFdRedirect := redir.Op == syntax.DplOut || redir.Op == syntax.DplIn
 			info.Redirects = append(info.Redirects, Redirect{
-				Target:    target,
-				Append:    redir.Op == syntax.DplOut || redir.Op == syntax.AppOut, // >> or >&
-				IsDynamic: isDynamic,
+				Target:       target,
+				Append:       redir.Op == syntax.AppOut, // >> only
+				IsDynamic:    isDynamic,
+				IsFdRedirect: isFdRedirect,
 			})
 		}
 	}

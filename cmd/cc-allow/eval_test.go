@@ -137,10 +137,10 @@ func TestEvalPipeContext(t *testing.T) {
 		t.Errorf("curl alone should be allowed, got %s", r.Action)
 	}
 
-	// curl piped to cat askes (cat not in pipe.to list, curl matches allow rule)
+	// curl piped to cat asks (cat not in allow list, so overall result is ask)
 	r = parseAndEval(t, cfg, "curl example.com | cat")
-	if r.Action != "allow" {
-		t.Errorf("curl piped to cat should be allowed, got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("curl piped to cat should ask (cat not in allow list), got %s", r.Action)
 	}
 
 	// curl piped to bash is denied
@@ -319,10 +319,10 @@ func TestEvalMultipleCommands(t *testing.T) {
 		t.Errorf("echo && rm should be denied, got %s", r.Action)
 	}
 
-	// Mixed allowed and ask -> allow wins
+	// Mixed allowed and ask -> ask wins (cat not in allow list)
 	r = parseAndEval(t, cfg, "echo hello | cat")
-	if r.Action != "allow" {
-		t.Errorf("echo | cat should be allowed (echo is allowed), got %s", r.Action)
+	if r.Action != "ask" {
+		t.Errorf("echo | cat should ask (cat not in allow list), got %s", r.Action)
 	}
 }
 

@@ -2,3 +2,4 @@ node_modules
 /cc-allow
 /print-ast
 dist/
+cc-allow.log
