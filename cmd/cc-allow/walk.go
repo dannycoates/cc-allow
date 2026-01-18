@@ -19,10 +19,17 @@ type Command struct {
 
 // Redirect represents an extracted redirect operation.
 type Redirect struct {
-	Target     string // file path being redirected to
-	Append     bool   // true if >> (append mode)
-	IsDynamic  bool   // true if target contains variables
-	IsFdRedirect bool // true if redirecting to a file descriptor (e.g., 2>&1)
+	Target       string // file path being redirected to
+	Append       bool   // true if >> (append mode)
+	IsDynamic    bool   // true if target contains variables
+	IsFdRedirect bool   // true if redirecting to a file descriptor (e.g., 2>&1)
+}
+
+// Heredoc represents an extracted heredoc (<<EOF ... EOF).
+type Heredoc struct {
+	Delimiter string // the delimiter word (e.g., "EOF")
+	Body      string // the heredoc content
+	IsDynamic bool   // true if body contains variable expansions (unquoted delimiter)
 }
 
 // FuncDef represents a function definition.
@@ -39,6 +46,7 @@ type BackgroundCmd struct {
 type Constructs struct {
 	HasFunctionDefs bool
 	HasBackground   bool
+	HasHeredocs     bool
 	FuncDefs        []FuncDef
 }
 
@@ -46,6 +54,7 @@ type Constructs struct {
 type ExtractedInfo struct {
 	Commands   []Command
 	Redirects  []Redirect
+	Heredocs   []Heredoc
 	Constructs Constructs
 	ParseError error
 }
@@ -82,8 +91,21 @@ func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []str
 		info.Constructs.HasBackground = true
 	}
 
-	// Extract redirects from the statement
+	// Extract redirects and heredocs from the statement
 	for _, redir := range stmt.Redirs {
+		// Check if this is a heredoc (<<, <<-, <<<)
+		if redir.Hdoc != nil {
+			info.Constructs.HasHeredocs = true
+			delimiter, _ := extractWord(redir.Word)
+			body, isDynamic := extractWord(redir.Hdoc)
+			info.Heredocs = append(info.Heredocs, Heredoc{
+				Delimiter: delimiter,
+				Body:      body,
+				IsDynamic: isDynamic,
+			})
+			continue
+		}
+
 		if redir.Word != nil {
 			target, isDynamic := extractWord(redir.Word)
 			// Check if this is a file descriptor redirect (>&N or N>&M)

@@ -16,6 +16,7 @@ message = "Dangerous command denied"
 function_definitions = "deny"
 background = "deny"
 subshells = "ask"
+heredocs = "deny"
 
 [[rule]]
 command = "curl"

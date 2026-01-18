@@ -7,7 +7,7 @@ cc-allow evaluates bash commands against a set of rules and returns an exit code
 | Code | Action | Meaning |
 |------|--------|---------|
 | 0 | allow | Command explicitly allowed |
-| 1 | pass | No opinion, defer to caller's default behavior |
+| 1 | ask | Defer to caller's default behavior (e.g., Claude Code's permission system) |
 | 2 | deny | Command explicitly denied |
 | 3 | error | Configuration or parse error |
 
@@ -21,13 +21,13 @@ cc-allow loads configuration from multiple locations, in order:
 
 ### Merge Behavior
 
-When multiple configs are loaded:
+All configs are evaluated and results are combined:
 
 - **deny** always wins — any config can deny, and it cannot be overridden
-- **allow** is preserved unless denied — pass doesn't override allow
-- **pass** means "no opinion" — defers to other configs
+- **allow** wins over ask — explicit allow is preserved unless denied
+- **ask** means "no opinion" — defers to other configs
 
-This ensures lower-level configs (project, explicit) can make rules stricter but never looser.
+Within a single config, when multiple rules match a command, the **most specific rule wins** (see Rule Specificity below). Across configs, results are combined using the precedence above.
 
 ## Config Format
 
@@ -35,8 +35,8 @@ This ensures lower-level configs (project, explicit) can make rules stricter but
 
 ```toml
 [policy]
-default = "pass"              # "allow", "deny", or "pass"
-dynamic_commands = "pass"     # action for $VAR or $(cmd) as command name
+default = "ask"               # "allow", "deny", or "ask"
+dynamic_commands = "ask"      # action for $VAR or $(cmd) as command name
 default_message = "Command not allowed"
 ```
 
@@ -63,7 +63,8 @@ Control shell constructs independently of commands:
 [constructs]
 function_definitions = "deny"  # foo() { ... }
 background = "deny"            # command &
-subshells = "pass"             # (command)
+subshells = "ask"              # (command)
+heredocs = "allow"             # cat <<EOF ... EOF (default: allow)
 ```
 
 ### Rules
@@ -90,14 +91,58 @@ command = "curl"
 action = "allow"  # allow curl when not piped to shell
 ```
 
-Rules are evaluated in order. The first matching rule wins.
+When multiple rules match a command, the **most specific rule wins** based on a CSS-like specificity score. This means rule order doesn't matter — you can write rules in any order and the most specific matching rule will be selected. Results from different configs are then combined (see Merge Behavior above).
+
+### Rule Specificity
+
+Specificity is calculated by summing points for each condition in a rule:
+
+| Condition | Points | Rationale |
+|-----------|--------|-----------|
+| Named command (not `*`) | 100 | Specific command vs wildcard |
+| Each `args.position` entry | 20 | Exact positional match |
+| Each `args.contains` entry | 10 | Exact substring |
+| Each `args.any_match` entry | 5 | Pattern match |
+| Each `args.all_match` entry | 5 | Pattern match |
+| Each `pipe.to` entry | 10 | Specific pipe target |
+| Each named `pipe.from` entry | 10 | Specific pipe source |
+| `pipe.from = ["*"]` | 5 | Any piped input |
+
+**Example:**
+
+```toml
+# Specificity: 100 (command only)
+[[rule]]
+command = "rm"
+action = "allow"
+
+# Specificity: 130 (100 + 10 + 20)
+[[rule]]
+command = "rm"
+action = "deny"
+message = "Cannot rm -rf from root"
+[rule.args]
+contains = ["-rf"]       # +10
+position = { 0 = "/" }   # +20
+```
+
+When running `rm -rf /`:
+- Both rules match (command is "rm")
+- The deny rule has higher specificity (130 > 100)
+- Result: **deny** (regardless of rule order)
+
+When running `rm file.txt`:
+- Only the first rule matches (no `-rf` or position `/`)
+- Result: **allow**
+
+**Tie-breaking:** If two rules have equal specificity, the most restrictive action wins: deny > ask > allow.
 
 #### Rule Fields
 
 | Field | Description |
 |-------|-------------|
 | `command` | Command name to match, or `"*"` for any command |
-| `action` | `"allow"`, `"deny"`, or `"pass"` |
+| `action` | `"allow"`, `"deny"`, or `"ask"` |
 | `message` | Message to display when denied |
 
 #### Argument Matching
@@ -164,7 +209,7 @@ exact = [".bashrc", ".zshrc"]
 
 | Field | Description |
 |-------|-------------|
-| `action` | `"allow"`, `"deny"`, or `"pass"` |
+| `action` | `"allow"`, `"deny"`, or `"ask"` |
 | `message` | Message to display when denied |
 | `append` | If set, only match append (`>>`) or overwrite (`>`) mode |
 
@@ -175,6 +220,35 @@ exact = [".bashrc", ".zshrc"]
 exact = [".bashrc", "/etc/passwd"]  # exact filename or path match
 pattern = ["glob:*.log", "re:^/tmp/.*"]  # pattern match
 ```
+
+### Heredocs
+
+Heredocs (`<<EOF ... EOF`) are handled separately from redirects. By default, heredocs are allowed (`constructs.heredocs = "allow"`).
+
+To deny all heredocs:
+```toml
+[constructs]
+heredocs = "deny"
+```
+
+For fine-grained control when `constructs.heredocs = "allow"`, use `[[heredoc]]` rules to match heredoc content:
+
+```toml
+[[heredoc]]
+action = "deny"
+message = "Dangerous SQL detected"
+content_match = ["re:DROP TABLE", "re:DELETE FROM"]
+```
+
+#### Heredoc Fields
+
+| Field | Description |
+|-------|-------------|
+| `action` | `"allow"`, `"deny"`, or `"ask"` |
+| `message` | Message to display when denied |
+| `content_match` | Patterns to match against heredoc body |
+
+**Note:** If `constructs.heredocs = "deny"`, all heredocs are denied and `[[heredoc]]` rules are not checked.
 
 ## Pattern Matching
 
@@ -221,7 +295,7 @@ message = "Dangerous system command"
 [constructs]
 function_definitions = "deny"
 background = "deny"
-subshells = "pass"
+subshells = "ask"
 
 # Block shells from receiving piped input from download commands
 # This catches both direct (curl | bash) and indirect (curl | cat | bash)

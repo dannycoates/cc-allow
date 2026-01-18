@@ -1,0 +1,31 @@
+#!/bin/bash
+set -e
+
+REPO="dannycoates/cc-allow"
+VERSION="latest"
+CACHE_DIR="${HOME}/.cache/cc-allow"
+
+# Detect platform
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+case $ARCH in
+  x86_64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+esac
+
+BINARY_PATH="${CACHE_DIR}/cc-allow"
+
+# Already installed - fast exit
+if [ -x "$BINARY_PATH" ]; then
+  exit 0
+fi
+
+mkdir -p "$CACHE_DIR"
+
+# Get download URL from latest release
+RELEASE_URL="https://api.github.com/repos/${REPO}/releases/latest"
+DOWNLOAD_URL=$(curl -sL "$RELEASE_URL" | grep "browser_download_url.*${OS}_${ARCH}" | cut -d'"' -f4)
+
+# Download and extract
+curl -sL "$DOWNLOAD_URL" | tar -xz -C "$CACHE_DIR"
+chmod +x "$BINARY_PATH"

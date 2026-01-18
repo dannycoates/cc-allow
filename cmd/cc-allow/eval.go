@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"sort"
 )
 
 // Result represents the evaluation result.
@@ -94,6 +95,60 @@ func combineResultsAcrossConfigs(current, new Result) Result {
 	return current
 }
 
+// Specificity scoring constants for CSS-like rule matching.
+// Higher scores indicate more specific rules. When multiple rules match,
+// the rule with the highest specificity wins.
+const (
+	specificityCommand      = 100 // named command (vs "*" wildcard)
+	specificityPositionArg  = 20  // each args.position entry
+	specificityContainsArg  = 10  // each args.contains entry
+	specificityPatternArg   = 5   // each args.any_match or args.all_match entry
+	specificityPipeNamed    = 10  // each named pipe.to or pipe.from entry
+	specificityPipeWildcard = 5   // pipe.from = ["*"]
+)
+
+// calculateSpecificity computes a CSS-like specificity score for a rule.
+// More specific rules (with more conditions) get higher scores.
+func calculateSpecificity(rule Rule) int {
+	score := 0
+
+	// Command name specificity
+	if rule.Command != "*" {
+		score += specificityCommand
+	}
+
+	// Args specificity
+	score += len(rule.Args.Position) * specificityPositionArg
+	score += len(rule.Args.Contains) * specificityContainsArg
+	score += len(rule.Args.AnyMatch) * specificityPatternArg
+	score += len(rule.Args.AllMatch) * specificityPatternArg
+
+	// Pipe specificity
+	score += len(rule.Pipe.To) * specificityPipeNamed
+	for _, from := range rule.Pipe.From {
+		if from == "*" {
+			score += specificityPipeWildcard
+		} else {
+			score += specificityPipeNamed
+		}
+	}
+
+	return score
+}
+
+// actionPriority returns a priority value for tie-breaking when rules have equal specificity.
+// Higher values win. Order: deny (2) > ask (1) > allow (0)
+func actionPriority(action string) int {
+	switch action {
+	case "deny":
+		return 2
+	case "ask":
+		return 1
+	default:
+		return 0
+	}
+}
+
 // Evaluator applies configuration rules to extracted commands.
 type Evaluator struct {
 	chain *ConfigChain
@@ -172,9 +227,21 @@ func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result 
 		}
 	}
 
+	// Check heredocs (only if constructs.heredocs != "deny", which already returned above)
+	// If constructs.heredocs = "allow", check [[heredoc]] rules for fine-grained control
+	if cfg.Constructs.Heredocs == "allow" {
+		for _, hdoc := range info.Heredocs {
+			hdocResult := e.evaluateHeredocWithConfig(cfg, hdoc)
+			result = combineResults(result, hdocResult)
+			if result.Action == "deny" {
+				return result // early exit on deny
+			}
+		}
+	}
+
 	// If no actual runnable commands, ask - don't auto-allow
 	// (Function definitions define but don't execute; background is just a modifier)
-	if len(info.Commands) == 0 && len(info.Redirects) == 0 {
+	if len(info.Commands) == 0 && len(info.Redirects) == 0 && len(info.Heredocs) == 0 {
 		return Result{Action: "ask", Source: "no executable commands in input"}
 	}
 
@@ -219,6 +286,24 @@ func (e *Evaluator) checkConstructsWithConfig(cfg *Config, info *ExtractedInfo) 
 				Source:  cfg.Path + ": constructs.background=ask",
 			})
 		}
+	}
+
+	if info.Constructs.HasHeredocs {
+		switch cfg.Constructs.Heredocs {
+		case "deny":
+			return Result{
+				Action:  "deny",
+				Message: "Heredocs are not allowed",
+				Source:  cfg.Path + ": constructs.heredocs=deny",
+			}
+		case "ask":
+			result = combineResults(result, Result{
+				Action:  "ask",
+				Message: "Heredocs need approval",
+				Source:  cfg.Path + ": constructs.heredocs=ask",
+			})
+		}
+		// "allow" continues to check [[heredoc]] rules
 	}
 
 	return result
@@ -271,12 +356,40 @@ func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 		logDebug("    In commands.allow.names (checking rules for context)")
 	}
 
-	// Evaluate detailed rules in order (first match wins)
+	// Collect all matching rules with their specificity scores
+	type ruleMatch struct {
+		index       int
+		rule        Rule
+		specificity int
+		result      Result
+	}
+	var matches []ruleMatch
+
 	for i, rule := range cfg.Rules {
 		if result, matched := e.matchRuleWithConfig(cfg, rule, cmd); matched {
-			logDebug("    Matched rule[%d]: command=%q action=%s", i, rule.Command, rule.Action)
-			return result
+			spec := calculateSpecificity(rule)
+			logDebug("    Rule[%d] matched: command=%q action=%s specificity=%d", i, rule.Command, rule.Action, spec)
+			matches = append(matches, ruleMatch{
+				index:       i,
+				rule:        rule,
+				specificity: spec,
+				result:      result,
+			})
 		}
+	}
+
+	// If we have matches, pick the most specific one
+	// Tie-break: deny > ask > allow (most restrictive wins)
+	if len(matches) > 0 {
+		sort.SliceStable(matches, func(i, j int) bool {
+			if matches[i].specificity != matches[j].specificity {
+				return matches[i].specificity > matches[j].specificity
+			}
+			return actionPriority(matches[i].rule.Action) > actionPriority(matches[j].rule.Action)
+		})
+		winner := matches[0]
+		logDebug("    Selected rule[%d] with specificity=%d action=%s", winner.index, winner.specificity, winner.rule.Action)
+		return winner.result
 	}
 
 	// If in allow list and no rule matched, allow
@@ -514,6 +627,57 @@ func (e *Evaluator) matchRedirectRuleWithConfig(cfg *Config, rule RedirectRule, 
 		source += ", to.pattern"
 	}
 	source += ")"
+
+	return Result{
+		Action:  rule.Action,
+		Message: msg,
+		Source:  source,
+	}, true
+}
+
+// evaluateHeredocWithConfig checks a heredoc against a single config's [[heredoc]] rules.
+// This is only called when constructs.heredocs = "allow" (deny already returned above).
+func (e *Evaluator) evaluateHeredocWithConfig(cfg *Config, hdoc Heredoc) Result {
+	logDebug("  Evaluating heredoc (delimiter=%q, body length=%d)", hdoc.Delimiter, len(hdoc.Body))
+
+	// Evaluate heredoc rules in order (first match wins, like redirects)
+	for i, rule := range cfg.Heredocs {
+		if result, matched := e.matchHeredocRuleWithConfig(cfg, rule, hdoc); matched {
+			logDebug("    Matched heredoc rule[%d]: action=%s", i, rule.Action)
+			return result
+		}
+	}
+
+	// No rule matched - heredocs are allowed by default when constructs.heredocs = "allow"
+	logDebug("    No heredoc rules matched, allowing")
+	return Result{Action: "allow"}
+}
+
+// matchHeredocRuleWithConfig checks if a heredoc rule matches.
+func (e *Evaluator) matchHeredocRuleWithConfig(cfg *Config, rule HeredocRule, hdoc Heredoc) (Result, bool) {
+	// Check content_match patterns against the heredoc body
+	if len(rule.ContentMatch) > 0 {
+		matcher, err := NewMatcher(rule.ContentMatch)
+		if err != nil {
+			return Result{}, false
+		}
+		// Match against the heredoc body content
+		if !matcher.AnyMatch([]string{hdoc.Body}) {
+			return Result{}, false
+		}
+	}
+
+	// Rule matched (or had no conditions, which matches all heredocs)
+	msg := rule.Message
+	if msg == "" && rule.Action == "deny" {
+		msg = cfg.Policy.DefaultMessage
+	}
+
+	// Build source description
+	source := cfg.Path + ": heredoc rule matched"
+	if len(rule.ContentMatch) > 0 {
+		source += " (content_match)"
+	}
 
 	return Result{
 		Action:  rule.Action,

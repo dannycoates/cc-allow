@@ -14,6 +14,7 @@ type Config struct {
 	Commands   CommandsConfig   `toml:"commands"`
 	Rules      []Rule           `toml:"rule"`
 	Redirects  []RedirectRule   `toml:"redirect"`
+	Heredocs   []HeredocRule    `toml:"heredoc"`
 	Constructs ConstructsConfig `toml:"constructs"`
 	Debug      DebugConfig      `toml:"debug"`
 }
@@ -79,11 +80,19 @@ type RedirectTarget struct {
 	Exact   []string `toml:"exact"`   // exact filename matches
 }
 
+// HeredocRule controls heredoc (<<EOF) handling.
+type HeredocRule struct {
+	Action       string   `toml:"action"`        // "allow", "deny", or "ask"
+	Message      string   `toml:"message"`       // custom message
+	ContentMatch []string `toml:"content_match"` // patterns to match against heredoc body
+}
+
 // ConstructsConfig controls handling of shell constructs.
 type ConstructsConfig struct {
-	Subshells           string `toml:"subshells"`            // "allow" or "deny"
-	FunctionDefinitions string `toml:"function_definitions"` // "allow" or "deny"
-	Background          string `toml:"background"`           // "allow" or "deny"
+	Subshells           string `toml:"subshells"`            // "allow", "deny", or "ask"
+	FunctionDefinitions string `toml:"function_definitions"` // "allow", "deny", or "ask"
+	Background          string `toml:"background"`           // "allow", "deny", or "ask"
+	Heredocs            string `toml:"heredocs"`             // "allow", "deny", or "ask"
 }
 
 // LoadConfig reads and parses a TOML configuration file.
@@ -125,6 +134,9 @@ func ParseConfig(data string) (*Config, error) {
 	if cfg.Constructs.Background == "" {
 		cfg.Constructs.Background = "ask"
 	}
+	if cfg.Constructs.Heredocs == "" {
+		cfg.Constructs.Heredocs = "allow"
+	}
 	return &cfg, nil
 }
 
@@ -141,6 +153,7 @@ func DefaultConfig() *Config {
 			Subshells:           "ask",
 			FunctionDefinitions: "ask",
 			Background:          "ask",
+			Heredocs:            "allow",
 		},
 	}
 }

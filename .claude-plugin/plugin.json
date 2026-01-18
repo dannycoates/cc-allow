@@ -1,5 +1,13 @@
 {
   "name": "cc-allow",
-  "description": "permission tool",
-  "version": "0.1.0"
+  "description": "Bash command permission control for Claude Code",
+  "version": "0.1.0",
+  "author": {
+    "name": "Danny Coates",
+    "url": "https://github.com/dannycoates"
+  },
+  "repository": "https://github.com/dannycoates/cc-allow",
+  "license": "MIT",
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills"
 }

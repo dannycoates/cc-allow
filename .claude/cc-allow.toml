@@ -6,6 +6,9 @@ default = "ask"                    # defer to Claude Code's permission system
 dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
 default_message = "Command not allowed by project policy"
 
+# [debug]
+# log_file = "/home/danny/code/cc-allow/cc-allow.log"
+
 # Common safe commands for development
 [commands.allow]
 names = [
@@ -20,15 +23,15 @@ names = [
     "make", "just", "cargo", "npm", "yarn", "pnpm", "bun",
     # Common utilities
     "echo", "printf", "date", "which", "whereis", "file", "stat",
-    "mkdir", "cp", "mv", "touch", "chmod", "ln",
+    "mkdir", "cp", "mv", "touch", "chmod", "ln", "rm",
     # Editors & viewers
     "vim", "nvim", "nano", "code",
     # Process inspection (read-only)
-    "ps", "top", "htop", "pgrep",
+    "ps", "top", "htop", "pgrep", "rg",
     # Network inspection (read-only)
     "ping", "dig", "nslookup", "host",
     # Us
-    './cc-allow'
+    "./cc-allow", "./cc-fmt", "cc-query"
 ]
 
 # Dangerous commands - always block
@@ -37,7 +40,7 @@ names = [
     "sudo", "su", "doas",           # privilege escalation
     "dd", "mkfs", "fdisk", "parted", # disk operations
     "shutdown", "reboot", "halt",   # system control
-    "rm", "rmdir",                  # deletion (use git for recovery)
+    "rmdir",                        # deletion (use git for recovery)
     "killall", "pkill",             # mass process killing
 ]
 message = "Dangerous command blocked by project policy"
@@ -46,6 +49,14 @@ message = "Dangerous command blocked by project policy"
 function_definitions = "deny"       # prevent command shadowing
 background = "ask"                 # allow but defer to Claude Code
 subshells = "ask"
+
+# Block recursive rm - the -r flag can appear anywhere in a dash group (e.g., -r, -rf, -fr)
+[[rule]]
+command = "rm"
+action = "deny"
+message = "Recursive rm not allowed"
+[rule.args]
+any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
 
 [[rule]]
 command = "curl"
@@ -77,6 +88,12 @@ action = "deny"
 message = "Hard reset not allowed"
 [rule.args]
 contains = ["reset", "--hard"]
+
+# Allow redirecting to /dev/null
+[[redirect]]
+action = "allow"
+[redirect.to]
+exact = ["/dev/null"]
 
 # Block writes to system directories
 [[redirect]]

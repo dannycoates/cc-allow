@@ -266,9 +266,9 @@ default = "ask"
 [[command]]
 name = "heredoc"
 bash = "cat <<EOF\nhello world\nEOF"
-strict = "deny"  # heredocs are redirects, strict denies all redirects
+strict = "deny"  # strict has constructs.heredocs = "deny"
 permissive = "allow"
-default = "ask"
+default = "ask"  # cat not in allow list, so overall result is ask
 
 [[command]]
 name = "complex quoting"
