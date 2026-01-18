@@ -28,3 +28,15 @@ harness-ruleset ruleset:
 # Run harness for a specific test case
 harness-case ruleset name:
     go test ./cmd/cc-allow/... -run "TestHarness/{{ruleset}}/{{name}}" -v
+
+# Validate goreleaser config
+release-check:
+    goreleaser check
+
+# Build snapshot (test release locally)
+release-snapshot:
+    goreleaser build --snapshot --clean
+
+# Full release (requires git tag)
+release:
+    goreleaser release --clean
