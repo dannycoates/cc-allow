@@ -3,6 +3,7 @@ package main
 import (
 	"path/filepath"
 	"sort"
+	"strconv"
 )
 
 // Result represents the evaluation result.
@@ -411,7 +412,8 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 	}
 
 	// Check args.position
-	for pos, pattern := range rule.Args.Position {
+	for posStr, pattern := range rule.Args.Position {
+		pos, _ := strconv.Atoi(posStr) // Already validated in Config.Validate()
 		if !MatchPosition(args, pos, pattern) {
 			return Result{}, false
 		}

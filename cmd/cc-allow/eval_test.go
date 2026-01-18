@@ -556,7 +556,7 @@ func TestCalculateSpecificity(t *testing.T) {
 		},
 		{
 			name:     "command + args.position",
-			rule:     Rule{Command: "rm", Action: "deny", Args: ArgsMatch{Position: map[int]string{0: "/"}}},
+			rule:     Rule{Command: "rm", Action: "deny", Args: ArgsMatch{Position: map[string]string{"0": "/"}}},
 			expected: 120, // 100 + 20
 		},
 		{
@@ -586,7 +586,7 @@ func TestCalculateSpecificity(t *testing.T) {
 				Action:  "deny",
 				Args: ArgsMatch{
 					Contains: []string{"-rf"},
-					Position: map[int]string{0: "/"},
+					Position: map[string]string{"0": "/"},
 				},
 				Pipe: PipeContext{To: []string{"xargs"}},
 			},

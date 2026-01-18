@@ -103,9 +103,10 @@ func TestParseConfigDefaults(t *testing.T) {
 
 func TestParseConfigInvalidPatterns(t *testing.T) {
 	tests := []struct {
-		name    string
-		config  string
-		wantErr string
+		name           string
+		config         string
+		wantErr        string
+		wantPatternErr bool // true if error should include ErrInvalidPattern
 	}{
 		{
 			name: "invalid regex in args.any_match",
@@ -116,7 +117,8 @@ action = "deny"
 [rule.args]
 any_match = ["re:[invalid"]
 `,
-			wantErr: "invalid configuration: rule[0]",
+			wantErr:        "invalid configuration: rule[0]",
+			wantPatternErr: true,
 		},
 		{
 			name: "invalid regex in args.all_match",
@@ -127,11 +129,33 @@ action = "deny"
 [rule.args]
 all_match = ["re:(unclosed"]
 `,
-			wantErr: "invalid configuration: rule[0]",
+			wantErr:        "invalid configuration: rule[0]",
+			wantPatternErr: true,
 		},
-		// NOTE: args.position test skipped - TOML library doesn't support integer map keys
-		// This is a known limitation. Position matching works when Rule structs are
-		// constructed programmatically but not from TOML config files.
+		{
+			name: "invalid regex in args.position",
+			config: `
+[[rule]]
+command = "test"
+action = "deny"
+[rule.args]
+position = { "0" = "re:(unclosed" }
+`,
+			wantErr:        "invalid configuration: rule[0]",
+			wantPatternErr: true,
+		},
+		{
+			name: "invalid position key (non-integer)",
+			config: `
+[[rule]]
+command = "test"
+action = "deny"
+[rule.args]
+position = { "abc" = "foo" }
+`,
+			wantErr:        "is not a valid integer",
+			wantPatternErr: false, // This is a key format error, not a pattern error
+		},
 		{
 			name: "invalid regex in redirect pattern",
 			config: `
@@ -140,7 +164,8 @@ action = "deny"
 [redirect.to]
 pattern = ["re:[bad"]
 `,
-			wantErr: "invalid configuration: redirect[0]",
+			wantErr:        "invalid configuration: redirect[0]",
+			wantPatternErr: true,
 		},
 		{
 			name: "invalid regex in heredoc content_match",
@@ -149,7 +174,8 @@ pattern = ["re:[bad"]
 action = "deny"
 content_match = ["re:+++"]
 `,
-			wantErr: "invalid configuration: heredoc[0]",
+			wantErr:        "invalid configuration: heredoc[0]",
+			wantPatternErr: true,
 		},
 		{
 			name: "valid patterns should pass",
@@ -159,6 +185,17 @@ command = "test"
 action = "deny"
 [rule.args]
 any_match = ["re:^-[a-z]+$", "glob:*.txt"]
+`,
+			wantErr: "",
+		},
+		{
+			name: "valid args.position should pass",
+			config: `
+[[rule]]
+command = "chmod"
+action = "allow"
+[rule.args]
+position = { "0" = "re:^[0-7]{3,4}$", "1" = "glob:*.txt" }
 `,
 			wantErr: "",
 		},
@@ -184,7 +221,7 @@ any_match = ["re:^-[a-z]+$", "glob:*.txt"]
 			if !errors.Is(err, ErrInvalidConfig) {
 				t.Errorf("expected errors.Is(err, ErrInvalidConfig) to be true")
 			}
-			if !errors.Is(err, ErrInvalidPattern) {
+			if tt.wantPatternErr && !errors.Is(err, ErrInvalidPattern) {
 				t.Errorf("expected errors.Is(err, ErrInvalidPattern) to be true")
 			}
 		})

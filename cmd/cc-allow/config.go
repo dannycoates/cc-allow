@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/BurntSushi/toml"
 )
@@ -58,7 +59,7 @@ type ArgsMatch struct {
 	Contains []string          `toml:"contains"`   // literal substring matches
 	AnyMatch []string          `toml:"any_match"`  // any arg matches pattern (glob/regex)
 	AllMatch []string          `toml:"all_match"`  // all patterns must match some arg
-	Position map[int]string    `toml:"position"`   // specific positional arg matching
+	Position map[string]string `toml:"position"`   // specific positional arg matching (keys are string indices: "0", "1", etc.)
 }
 
 // PipeContext specifies rules about pipe relationships.
@@ -215,7 +216,11 @@ func (cfg *Config) Validate() error {
 				return fmt.Errorf("%w: rule[%d] (command=%q): args.all_match: %w", ErrInvalidConfig, i, rule.Command, err)
 			}
 		}
-		for pos, pattern := range rule.Args.Position {
+		for posStr, pattern := range rule.Args.Position {
+			pos, err := strconv.Atoi(posStr)
+			if err != nil {
+				return fmt.Errorf("%w: rule[%d] (command=%q): args.position key %q is not a valid integer", ErrInvalidConfig, i, rule.Command, posStr)
+			}
 			if _, err := ParsePattern(pattern); err != nil {
 				return fmt.Errorf("%w: rule[%d] (command=%q): args.position[%d]: %w", ErrInvalidConfig, i, rule.Command, pos, err)
 			}

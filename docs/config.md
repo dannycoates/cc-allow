@@ -124,7 +124,7 @@ action = "deny"
 message = "Cannot rm -rf from root"
 [rule.args]
 contains = ["-rf"]       # +10
-position = { 0 = "/" }   # +20
+position = { "0" = "/" }   # +20
 ```
 
 When running `rm -rf /`:
@@ -153,7 +153,7 @@ When running `rm file.txt`:
 contains = ["--force"]           # args must contain all of these (exact match)
 any_match = ["-r", "-rf"]        # args must match at least one pattern
 all_match = ["glob:*.txt"]       # all args must match pattern
-position = { 0 = "/etc/*" }      # arg at position must match pattern
+position = { "0" = "/etc/*" }    # arg at position must match pattern (keys are string indices)
 ```
 
 #### Pipe Context
