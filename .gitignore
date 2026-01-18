@@ -1,6 +1,5 @@
 node_modules
 /cc-allow
-/cc-fmt
 /print-ast
 dist/
 cc-allow.log

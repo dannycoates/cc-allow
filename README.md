@@ -37,7 +37,6 @@ Download from [releases](https://github.com/dannycoates/cc-allow/releases) or bu
 
 ```bash
 go install github.com/dannycoates/cc-allow/cmd/cc-allow@latest
-go install github.com/dannycoates/cc-allow/cmd/cc-fmt@latest
 ```
 
 ## Usage
@@ -54,7 +53,7 @@ echo 'ls -la' | cc-allow --config ./my-rules.toml
 cc-allow --hook
 
 # Validate and inspect config
-cc-fmt --config ./my-rules.toml
+cc-allow --fmt
 ```
 
 ### Exit Codes
@@ -141,30 +140,21 @@ pattern = ["re:^/etc/.*", "re:^/usr/.*"]
 
 See [docs/config.md](docs/config.md) for complete configuration reference.
 
-## Tools
-
-### cc-allow
-
-The main binary. Evaluates bash commands against rules.
+## CLI Reference
 
 ```bash
-# Pipe mode
+# Pipe mode - evaluate a command
 echo 'some command' | cc-allow
 
-# Hook mode (for Claude Code PreToolUse)
+# Hook mode - for Claude Code PreToolUse hooks
 cc-allow --hook < tool_input.json
+
+# Fmt mode - validate config and show rules by specificity
+cc-allow --fmt
+cc-allow --fmt --config ./my-rules.toml
 
 # Debug mode
 cc-allow --debug
-```
-
-### cc-fmt
-
-Config validator and inspector. Shows rules sorted by specificity.
-
-```bash
-cc-fmt                           # uses default config locations
-cc-fmt --config ./my-rules.toml  # specific config
 ```
 
 ## How It Works

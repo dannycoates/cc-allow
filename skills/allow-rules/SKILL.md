@@ -149,9 +149,9 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 2. Determine what change is needed
 3. Add new rules
 4. Write the updated config
-5. Validate with `cc-fmt` to check syntax and view rules by specificity:
+5. Validate with `--fmt` to check syntax and view rules by specificity:
    ```bash
-   ./cc-fmt
+   ./cc-allow --fmt
    ```
 6. Test the new rule with a matching command:
    ```bash

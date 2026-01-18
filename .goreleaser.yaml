@@ -23,26 +23,10 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
 
-  - id: cc-fmt
-    main: ./cmd/cc-fmt
-    binary: cc-fmt
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
-
 archives:
   - id: default
     ids:
       - cc-allow
-      - cc-fmt
     formats:
       - tar.gz
     format_overrides:

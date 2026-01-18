@@ -54,11 +54,17 @@ func main() {
 	hookMode := flag.Bool("hook", false, "parse Claude Code hook JSON input (extracts tool_input.command)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and $TMPDIR/cc-allow.log")
+	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("cc-allow %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
+	}
+
+	if *fmtMode {
+		runFmt(*configPath)
+		return
 	}
 
 	// Load configuration chain from standard locations + explicit path
@@ -305,4 +311,279 @@ func logDebugExtractedInfo(info *ExtractedInfo) {
 		logDebug("    [%d] target=%q append=%v dynamic=%v fd=%v", i, redir.Target, redir.Append, redir.IsDynamic, redir.IsFdRedirect)
 	}
 	logDebug("  Constructs: hasFuncDefs=%v hasBackground=%v", info.Constructs.HasFunctionDefs, info.Constructs.HasBackground)
+}
+
+// Fmt mode - validate config and display rules sorted by specificity
+
+type ruleWithScore struct {
+	index       int
+	rule        Rule
+	specificity int
+	source      string
+}
+
+type redirectWithScore struct {
+	index       int
+	rule        RedirectRule
+	specificity int
+	source      string
+}
+
+type heredocWithScore struct {
+	index       int
+	rule        HeredocRule
+	specificity int
+	source      string
+}
+
+func runFmt(configPath string) {
+	// Find config files
+	paths := findFmtConfigFiles(configPath)
+
+	if len(paths) == 0 {
+		fmt.Println("No config files found.")
+		fmt.Println("\nSearched locations:")
+		fmt.Println("  - ~/.config/cc-allow.toml (global)")
+		fmt.Println("  - <project>/.claude/cc-allow.toml (project)")
+		fmt.Println("  - <project>/.claude/cc-allow.local.toml (local)")
+		if configPath != "" {
+			fmt.Printf("  - %s (explicit)\n", configPath)
+		}
+		os.Exit(1)
+	}
+
+	// Load and validate each config
+	var allRules []ruleWithScore
+	var allRedirects []redirectWithScore
+	var allHeredocs []heredocWithScore
+	hasError := false
+
+	fmt.Println("Config Files")
+	fmt.Println("============")
+
+	for i, path := range paths {
+		cfg, err := LoadConfig(path)
+		if err != nil {
+			fmt.Printf("\n[%d] %s\n", i+1, path)
+			fmt.Printf("    ERROR: %v\n", err)
+			hasError = true
+			continue
+		}
+
+		fmt.Printf("\n[%d] %s\n", i+1, path)
+		fmt.Printf("    policy.default = %q\n", cfg.Policy.Default)
+		fmt.Printf("    policy.dynamic_commands = %q\n", cfg.Policy.DynamicCommands)
+
+		if len(cfg.Commands.Allow.Names) > 0 {
+			fmt.Printf("    commands.allow.names = %d command(s)\n", len(cfg.Commands.Allow.Names))
+		}
+		if len(cfg.Commands.Deny.Names) > 0 {
+			fmt.Printf("    commands.deny.names = %d command(s)\n", len(cfg.Commands.Deny.Names))
+		}
+
+		// Collect rules with scores
+		for j, rule := range cfg.Rules {
+			allRules = append(allRules, ruleWithScore{
+				index:       j,
+				rule:        rule,
+				specificity: calculateSpecificity(rule),
+				source:      path,
+			})
+		}
+
+		// Collect redirect rules with scores
+		for j, rule := range cfg.Redirects {
+			allRedirects = append(allRedirects, redirectWithScore{
+				index:       j,
+				rule:        rule,
+				specificity: calculateRedirectSpecificity(rule),
+				source:      path,
+			})
+		}
+
+		// Collect heredoc rules with scores
+		for j, rule := range cfg.Heredocs {
+			allHeredocs = append(allHeredocs, heredocWithScore{
+				index:       j,
+				rule:        rule,
+				specificity: calculateHeredocSpecificity(rule),
+				source:      path,
+			})
+		}
+
+		fmt.Printf("    %d rule(s), %d redirect(s), %d heredoc(s)\n", len(cfg.Rules), len(cfg.Redirects), len(cfg.Heredocs))
+		if cfg.Constructs.Heredocs != "" && cfg.Constructs.Heredocs != "allow" {
+			fmt.Printf("    constructs.heredocs = %q\n", cfg.Constructs.Heredocs)
+		}
+	}
+
+	if hasError {
+		fmt.Println("\nValidation failed with errors.")
+		os.Exit(1)
+	}
+
+	// Print rules sorted by specificity
+	if len(allRules) > 0 {
+		fmt.Println("\n\nCommand Rules (by specificity)")
+		fmt.Println("==============================")
+
+		// Sort by specificity descending
+		sortRulesBySpecificity(allRules)
+
+		for _, r := range allRules {
+			fmt.Printf("\n[%d] %s\n", r.specificity, formatRule(r.rule))
+			fmt.Printf("    source: %s\n", filepath.Base(r.source))
+		}
+	}
+
+	// Print redirect rules
+	if len(allRedirects) > 0 {
+		fmt.Println("\n\nRedirect Rules (by specificity)")
+		fmt.Println("================================")
+		fmt.Println("Note: Redirect rules use first-match, not specificity-based selection.")
+
+		sortRedirectsBySpecificity(allRedirects)
+
+		for _, r := range allRedirects {
+			fmt.Printf("\n[%d] %s\n", r.specificity, formatRedirectRule(r.rule))
+			fmt.Printf("    source: %s\n", filepath.Base(r.source))
+		}
+	}
+
+	// Print heredoc rules
+	if len(allHeredocs) > 0 {
+		fmt.Println("\n\nHeredoc Rules (by specificity)")
+		fmt.Println("===============================")
+		fmt.Println("Note: Heredoc rules use first-match. Only checked if constructs.heredocs = \"allow\".")
+
+		sortHeredocsBySpecificity(allHeredocs)
+
+		for _, r := range allHeredocs {
+			fmt.Printf("\n[%d] %s\n", r.specificity, formatHeredocRule(r.rule))
+			fmt.Printf("    source: %s\n", filepath.Base(r.source))
+		}
+	}
+
+	fmt.Println("\n\nValidation passed.")
+}
+
+func findFmtConfigFiles(explicitPath string) []string {
+	var paths []string
+
+	// 1. Global config
+	if globalPath := findGlobalConfig(); globalPath != "" {
+		paths = append(paths, globalPath)
+	}
+
+	// 2. Project config
+	if projectPath := findProjectConfig(); projectPath != "" {
+		paths = append(paths, projectPath)
+	}
+
+	// 3. Project local config
+	if localPath := findProjectLocalConfig(); localPath != "" {
+		paths = append(paths, localPath)
+	}
+
+	// 4. Explicit config
+	if explicitPath != "" {
+		paths = append(paths, explicitPath)
+	}
+
+	return paths
+}
+
+func sortRulesBySpecificity(rules []ruleWithScore) {
+	for i := 0; i < len(rules)-1; i++ {
+		for j := i + 1; j < len(rules); j++ {
+			if rules[j].specificity > rules[i].specificity {
+				rules[i], rules[j] = rules[j], rules[i]
+			}
+		}
+	}
+}
+
+func sortRedirectsBySpecificity(rules []redirectWithScore) {
+	for i := 0; i < len(rules)-1; i++ {
+		for j := i + 1; j < len(rules); j++ {
+			if rules[j].specificity > rules[i].specificity {
+				rules[i], rules[j] = rules[j], rules[i]
+			}
+		}
+	}
+}
+
+func sortHeredocsBySpecificity(rules []heredocWithScore) {
+	for i := 0; i < len(rules)-1; i++ {
+		for j := i + 1; j < len(rules); j++ {
+			if rules[j].specificity > rules[i].specificity {
+				rules[i], rules[j] = rules[j], rules[i]
+			}
+		}
+	}
+}
+
+func calculateRedirectSpecificity(rule RedirectRule) int {
+	score := 0
+	score += len(rule.To.Exact) * 10
+	score += len(rule.To.Pattern) * 5
+	if rule.Append != nil {
+		score += 5
+	}
+	return score
+}
+
+func calculateHeredocSpecificity(rule HeredocRule) int {
+	return len(rule.ContentMatch) * 10
+}
+
+func formatRule(r Rule) string {
+	result := fmt.Sprintf("command=%q action=%s", r.Command, r.Action)
+
+	if len(r.Args.Contains) > 0 {
+		result += fmt.Sprintf(" args.contains=%v", r.Args.Contains)
+	}
+	if len(r.Args.AnyMatch) > 0 {
+		result += fmt.Sprintf(" args.any_match=%v", r.Args.AnyMatch)
+	}
+	if len(r.Args.AllMatch) > 0 {
+		result += fmt.Sprintf(" args.all_match=%v", r.Args.AllMatch)
+	}
+	if len(r.Args.Position) > 0 {
+		result += fmt.Sprintf(" args.position=%v", r.Args.Position)
+	}
+	if len(r.Pipe.To) > 0 {
+		result += fmt.Sprintf(" pipe.to=%v", r.Pipe.To)
+	}
+	if len(r.Pipe.From) > 0 {
+		result += fmt.Sprintf(" pipe.from=%v", r.Pipe.From)
+	}
+
+	return result
+}
+
+func formatRedirectRule(r RedirectRule) string {
+	result := fmt.Sprintf("action=%s", r.Action)
+
+	if len(r.To.Exact) > 0 {
+		result += fmt.Sprintf(" to.exact=%v", r.To.Exact)
+	}
+	if len(r.To.Pattern) > 0 {
+		result += fmt.Sprintf(" to.pattern=%v", r.To.Pattern)
+	}
+	if r.Append != nil {
+		result += fmt.Sprintf(" append=%v", *r.Append)
+	}
+
+	return result
+}
+
+func formatHeredocRule(r HeredocRule) string {
+	result := fmt.Sprintf("action=%s", r.Action)
+
+	if len(r.ContentMatch) > 0 {
+		result += fmt.Sprintf(" content_match=%v", r.ContentMatch)
+	}
+
+	return result
 }

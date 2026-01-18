@@ -3,12 +3,11 @@ default:
 
 build:
     go build -o cc-allow ./cmd/cc-allow
-    go build -o cc-fmt ./cmd/cc-fmt
     go build -o print-ast ./cmd/print-ast
 
 # Validate and display config rules sorted by specificity
 fmt *args:
-    go run ./cmd/cc-fmt {{args}}
+    go run ./cmd/cc-allow --fmt {{args}}
 
 run:
     go run ./cmd/cc-allow

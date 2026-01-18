@@ -13,10 +13,9 @@ case $ARCH in
 esac
 
 CC_ALLOW_PATH="${BIN_DIR}/cc-allow"
-CC_FMT_PATH="${BIN_DIR}/cc-fmt"
 
 # Already installed - fast exit
-if [ -x "$CC_ALLOW_PATH" ] && [ -x "$CC_FMT_PATH" ]; then
+if [ -x "$CC_ALLOW_PATH" ]; then
   exit 0
 fi
 
@@ -26,6 +25,6 @@ mkdir -p "$BIN_DIR"
 RELEASE_URL="https://api.github.com/repos/${REPO}/releases/latest"
 DOWNLOAD_URL=$(curl -sL "$RELEASE_URL" | grep "browser_download_url.*${OS}_${ARCH}" | cut -d'"' -f4)
 
-# Download and extract (archive contains both cc-allow and cc-fmt)
+# Download and extract
 curl -sL "$DOWNLOAD_URL" | tar -xz -C "$BIN_DIR"
-chmod +x "$CC_ALLOW_PATH" "$CC_FMT_PATH"
+chmod +x "$CC_ALLOW_PATH"

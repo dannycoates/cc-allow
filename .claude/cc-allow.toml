@@ -20,7 +20,7 @@ names = [
     "make", "just", "cargo", "npm", "yarn", "pnpm", "bun",
     # Common utilities
     "echo", "printf", "date", "which", "whereis", "file", "stat",
-    "mkdir", "cp", "mv", "touch", "chmod", "ln", "rm",
+    "mkdir", "cp", "mv", "touch", "chmod", "ln", "rm", "rmdir",
     # Editors & viewers
     "vim", "nvim", "nano", "code",
     # Process inspection (read-only)
@@ -28,7 +28,7 @@ names = [
     # Network inspection (read-only)
     "ping", "dig", "nslookup", "host",
     # Us
-    "./cc-allow", "./cc-fmt", "cc-query"
+    "./cc-allow", "cc-query"
 ]
 
 # Dangerous commands - always block
@@ -37,7 +37,6 @@ names = [
     "sudo", "su", "doas",           # privilege escalation
     "dd", "mkfs", "fdisk", "parted", # disk operations
     "shutdown", "reboot", "halt",   # system control
-    "rmdir",                        # deletion (use git for recovery)
     "killall", "pkill",             # mass process killing
 ]
 message = "Dangerous command blocked by project policy"
