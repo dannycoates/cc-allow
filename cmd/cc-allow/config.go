@@ -155,11 +155,11 @@ type ConstructsConfig struct {
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("reading config %s: %w", path, err)
 	}
 	cfg, err := ParseConfig(string(data))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing config %s: %w", path, err)
 	}
 	cfg.Path = path
 	return cfg, nil
@@ -169,7 +169,7 @@ func LoadConfig(path string) (*Config, error) {
 func ParseConfig(data string) (*Config, error) {
 	var cfg Config
 	if _, err := toml.Decode(data, &cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 	}
 	// Set defaults
 	if cfg.Policy.Default == "" {
@@ -207,17 +207,17 @@ func (cfg *Config) Validate() error {
 	for i, rule := range cfg.Rules {
 		if len(rule.Args.AnyMatch) > 0 {
 			if _, err := NewMatcher(rule.Args.AnyMatch); err != nil {
-				return fmt.Errorf("rule[%d] (command=%q): invalid args.any_match pattern: %w", i, rule.Command, err)
+				return fmt.Errorf("%w: rule[%d] (command=%q): args.any_match: %w", ErrInvalidConfig, i, rule.Command, err)
 			}
 		}
 		if len(rule.Args.AllMatch) > 0 {
 			if _, err := NewMatcher(rule.Args.AllMatch); err != nil {
-				return fmt.Errorf("rule[%d] (command=%q): invalid args.all_match pattern: %w", i, rule.Command, err)
+				return fmt.Errorf("%w: rule[%d] (command=%q): args.all_match: %w", ErrInvalidConfig, i, rule.Command, err)
 			}
 		}
 		for pos, pattern := range rule.Args.Position {
 			if _, err := ParsePattern(pattern); err != nil {
-				return fmt.Errorf("rule[%d] (command=%q): invalid args.position[%d] pattern: %w", i, rule.Command, pos, err)
+				return fmt.Errorf("%w: rule[%d] (command=%q): args.position[%d]: %w", ErrInvalidConfig, i, rule.Command, pos, err)
 			}
 		}
 	}
@@ -226,7 +226,7 @@ func (cfg *Config) Validate() error {
 	for i, rule := range cfg.Redirects {
 		if len(rule.To.Pattern) > 0 {
 			if _, err := NewMatcher(rule.To.Pattern); err != nil {
-				return fmt.Errorf("redirect[%d]: invalid to.pattern: %w", i, err)
+				return fmt.Errorf("%w: redirect[%d]: to.pattern: %w", ErrInvalidConfig, i, err)
 			}
 		}
 	}
@@ -235,7 +235,7 @@ func (cfg *Config) Validate() error {
 	for i, rule := range cfg.Heredocs {
 		if len(rule.ContentMatch) > 0 {
 			if _, err := NewMatcher(rule.ContentMatch); err != nil {
-				return fmt.Errorf("heredoc[%d]: invalid content_match pattern: %w", i, err)
+				return fmt.Errorf("%w: heredoc[%d]: content_match: %w", ErrInvalidConfig, i, err)
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -115,7 +116,7 @@ action = "deny"
 [rule.args]
 any_match = ["re:[invalid"]
 `,
-			wantErr: "rule[0] (command=\"test\"): invalid args.any_match pattern",
+			wantErr: "invalid configuration: rule[0]",
 		},
 		{
 			name: "invalid regex in args.all_match",
@@ -126,7 +127,7 @@ action = "deny"
 [rule.args]
 all_match = ["re:(unclosed"]
 `,
-			wantErr: "rule[0] (command=\"test\"): invalid args.all_match pattern",
+			wantErr: "invalid configuration: rule[0]",
 		},
 		// NOTE: args.position test skipped - TOML library doesn't support integer map keys
 		// This is a known limitation. Position matching works when Rule structs are
@@ -139,7 +140,7 @@ action = "deny"
 [redirect.to]
 pattern = ["re:[bad"]
 `,
-			wantErr: "redirect[0]: invalid to.pattern",
+			wantErr: "invalid configuration: redirect[0]",
 		},
 		{
 			name: "invalid regex in heredoc content_match",
@@ -148,7 +149,7 @@ pattern = ["re:[bad"]
 action = "deny"
 content_match = ["re:+++"]
 `,
-			wantErr: "heredoc[0]: invalid content_match pattern",
+			wantErr: "invalid configuration: heredoc[0]",
 		},
 		{
 			name: "valid patterns should pass",
@@ -178,6 +179,13 @@ any_match = ["re:^-[a-z]+$", "glob:*.txt"]
 			}
 			if !strings.Contains(err.Error(), tt.wantErr) {
 				t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
+			}
+			// Verify sentinel error works with errors.Is()
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Errorf("expected errors.Is(err, ErrInvalidConfig) to be true")
+			}
+			if !errors.Is(err, ErrInvalidPattern) {
+				t.Errorf("expected errors.Is(err, ErrInvalidPattern) to be true")
 			}
 		})
 	}

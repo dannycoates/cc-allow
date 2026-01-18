@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -35,7 +36,7 @@ func ParsePattern(s string) (*Pattern, error) {
 		p.Type = PatternRegex
 		re, err := regexp.Compile(strings.TrimPrefix(s, "re:"))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %s: %w", ErrInvalidPattern, s, err)
 		}
 		p.Regex = re
 	case strings.HasPrefix(s, "glob:"):
