@@ -67,6 +67,45 @@ type PipeContext struct {
 	From []string `toml:"from"` // deny if receiving piped input from any of these (or "*" for any)
 }
 
+// Specificity scoring constants for CSS-like rule matching.
+const (
+	specificityCommand      = 100 // named command (vs "*" wildcard)
+	specificityPositionArg  = 20  // each args.position entry
+	specificityContainsArg  = 10  // each args.contains entry
+	specificityPatternArg   = 5   // each args.any_match or args.all_match entry
+	specificityPipeNamed    = 10  // each named pipe.to or pipe.from entry
+	specificityPipeWildcard = 5   // pipe.from = ["*"]
+	specificityExact        = 10  // each exact match entry
+	specificityPattern      = 5   // each pattern entry
+	specificityAppend       = 5   // append mode specified
+	specificityContentMatch = 10  // each content match pattern
+)
+
+// Specificity computes a CSS-like specificity score for a command rule.
+func (r Rule) Specificity() int {
+	score := 0
+
+	if r.Command != "*" {
+		score += specificityCommand
+	}
+
+	score += len(r.Args.Position) * specificityPositionArg
+	score += len(r.Args.Contains) * specificityContainsArg
+	score += len(r.Args.AnyMatch) * specificityPatternArg
+	score += len(r.Args.AllMatch) * specificityPatternArg
+
+	score += len(r.Pipe.To) * specificityPipeNamed
+	for _, from := range r.Pipe.From {
+		if from == "*" {
+			score += specificityPipeWildcard
+		} else {
+			score += specificityPipeNamed
+		}
+	}
+
+	return score
+}
+
 // RedirectRule controls output/input redirection.
 type RedirectRule struct {
 	Action  string         `toml:"action"`  // "allow" or "deny"
@@ -81,11 +120,27 @@ type RedirectTarget struct {
 	Exact   []string `toml:"exact"`   // exact filename matches
 }
 
+// Specificity computes a specificity score for a redirect rule.
+func (r RedirectRule) Specificity() int {
+	score := 0
+	score += len(r.To.Exact) * specificityExact
+	score += len(r.To.Pattern) * specificityPattern
+	if r.Append != nil {
+		score += specificityAppend
+	}
+	return score
+}
+
 // HeredocRule controls heredoc (<<EOF) handling.
 type HeredocRule struct {
 	Action       string   `toml:"action"`        // "allow", "deny", or "ask"
 	Message      string   `toml:"message"`       // custom message
 	ContentMatch []string `toml:"content_match"` // patterns to match against heredoc body
+}
+
+// Specificity computes a specificity score for a heredoc rule.
+func (r HeredocRule) Specificity() int {
+	return len(r.ContentMatch) * specificityContentMatch
 }
 
 // ConstructsConfig controls handling of shell constructs.

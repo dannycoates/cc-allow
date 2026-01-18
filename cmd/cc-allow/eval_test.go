@@ -605,9 +605,9 @@ func TestCalculateSpecificity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calculateSpecificity(tt.rule)
+			got := tt.rule.Specificity()
 			if got != tt.expected {
-				t.Errorf("calculateSpecificity() = %d, want %d", got, tt.expected)
+				t.Errorf("Rule.Specificity() = %d, want %d", got, tt.expected)
 			}
 		})
 	}

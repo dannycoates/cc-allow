@@ -95,47 +95,6 @@ func combineResultsAcrossConfigs(current, new Result) Result {
 	return current
 }
 
-// Specificity scoring constants for CSS-like rule matching.
-// Higher scores indicate more specific rules. When multiple rules match,
-// the rule with the highest specificity wins.
-const (
-	specificityCommand      = 100 // named command (vs "*" wildcard)
-	specificityPositionArg  = 20  // each args.position entry
-	specificityContainsArg  = 10  // each args.contains entry
-	specificityPatternArg   = 5   // each args.any_match or args.all_match entry
-	specificityPipeNamed    = 10  // each named pipe.to or pipe.from entry
-	specificityPipeWildcard = 5   // pipe.from = ["*"]
-)
-
-// calculateSpecificity computes a CSS-like specificity score for a rule.
-// More specific rules (with more conditions) get higher scores.
-func calculateSpecificity(rule Rule) int {
-	score := 0
-
-	// Command name specificity
-	if rule.Command != "*" {
-		score += specificityCommand
-	}
-
-	// Args specificity
-	score += len(rule.Args.Position) * specificityPositionArg
-	score += len(rule.Args.Contains) * specificityContainsArg
-	score += len(rule.Args.AnyMatch) * specificityPatternArg
-	score += len(rule.Args.AllMatch) * specificityPatternArg
-
-	// Pipe specificity
-	score += len(rule.Pipe.To) * specificityPipeNamed
-	for _, from := range rule.Pipe.From {
-		if from == "*" {
-			score += specificityPipeWildcard
-		} else {
-			score += specificityPipeNamed
-		}
-	}
-
-	return score
-}
-
 // actionPriority returns a priority value for tie-breaking when rules have equal specificity.
 // Higher values win. Order: deny (2) > ask (1) > allow (0)
 func actionPriority(action string) int {
@@ -367,7 +326,7 @@ func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 
 	for i, rule := range cfg.Rules {
 		if result, matched := e.matchRuleWithConfig(cfg, rule, cmd); matched {
-			spec := calculateSpecificity(rule)
+			spec := rule.Specificity()
 			logDebug("    Rule[%d] matched: command=%q action=%s specificity=%d", i, rule.Command, rule.Action, spec)
 			matches = append(matches, ruleMatch{
 				index:       i,
