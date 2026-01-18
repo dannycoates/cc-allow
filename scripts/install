@@ -13,10 +13,11 @@ case $ARCH in
   aarch64|arm64) ARCH="arm64" ;;
 esac
 
-BINARY_PATH="${CACHE_DIR}/cc-allow"
+CC_ALLOW_PATH="${CACHE_DIR}/cc-allow"
+CC_FMT_PATH="${CACHE_DIR}/cc-fmt"
 
 # Already installed - fast exit
-if [ -x "$BINARY_PATH" ]; then
+if [ -x "$CC_ALLOW_PATH" ] && [ -x "$CC_FMT_PATH" ]; then
   exit 0
 fi
 
@@ -26,6 +27,6 @@ mkdir -p "$CACHE_DIR"
 RELEASE_URL="https://api.github.com/repos/${REPO}/releases/latest"
 DOWNLOAD_URL=$(curl -sL "$RELEASE_URL" | grep "browser_download_url.*${OS}_${ARCH}" | cut -d'"' -f4)
 
-# Download and extract
+# Download and extract (archive contains both cc-allow and cc-fmt)
 curl -sL "$DOWNLOAD_URL" | tar -xz -C "$CACHE_DIR"
-chmod +x "$BINARY_PATH"
+chmod +x "$CC_ALLOW_PATH" "$CC_FMT_PATH"
