@@ -132,6 +132,27 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 | `path:` | Path pattern with variable expansion | `path:$PROJECT_ROOT/**` |
 | (none) | Exact match (or glob if contains `*?[`) | `--verbose` |
 
+### Negation
+
+Prepend `!` to patterns with explicit prefixes (`path:`, `re:`, `glob:`) to negate the match:
+
+```toml
+# Allow rm only for paths NOT under /etc
+[[rule]]
+command = "rm"
+action = "allow"
+[rule.args]
+any_match = ["!path:/etc/**"]
+
+# Match files that are NOT .txt
+any_match = ["!glob:*.txt"]
+
+# Match args that do NOT start with "--"
+any_match = ["!re:^--"]
+```
+
+Note: Negation requires an explicit prefix. `!foo` matches the literal string "!foo".
+
 ### Path Patterns
 
 Path patterns resolve arguments to absolute paths and expand variables:

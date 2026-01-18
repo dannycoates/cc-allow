@@ -263,6 +263,23 @@ Patterns support three prefixes:
 
 Without a prefix, the string is matched exactly (or treated as glob if it contains `*`, `?`, or `[`).
 
+### Negation
+
+Prepend `!` to patterns with explicit prefixes (`path:`, `re:`, `glob:`) to negate the match:
+
+```toml
+# Match anything that is NOT a .txt file
+any_match = ["!glob:*.txt"]
+
+# Match paths NOT under /etc
+any_match = ["!path:/etc/**"]
+
+# Match anything that does NOT start with "--"
+any_match = ["!re:^--"]
+```
+
+Note: Negation requires an explicit prefix. `!foo` matches the literal string "!foo".
+
 ### Glob Patterns
 
 Glob patterns support `**` for recursive matching (via the doublestar library):

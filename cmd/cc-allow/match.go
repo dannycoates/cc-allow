@@ -30,6 +30,7 @@ type Pattern struct {
 	Raw         string
 	Regex       *regexp.Regexp // compiled regex (for regex patterns)
 	PathPattern string         // unexpanded path pattern (for path patterns)
+	Negated     bool           // if true, match result is inverted
 }
 
 // ParsePattern parses a pattern string and determines its type.
@@ -38,8 +39,23 @@ type Pattern struct {
 //   - "glob:" for explicit glob patterns
 //   - "path:" for path patterns with variable expansion ($PROJECT_ROOT, $HOME)
 //   - No prefix defaults to glob
+//
+// Patterns with explicit prefixes can be negated by prepending "!"
+// (e.g., "!path:/foo", "!re:test", "!glob:*.txt")
 func ParsePattern(s string) (*Pattern, error) {
 	p := &Pattern{Raw: s}
+
+	// Check for negation prefix (only for explicit pattern types)
+	if strings.HasPrefix(s, "!") {
+		rest := s[1:]
+		if strings.HasPrefix(rest, "re:") ||
+			strings.HasPrefix(rest, "path:") ||
+			strings.HasPrefix(rest, "glob:") {
+			p.Negated = true
+			s = rest
+			p.Raw = s // Update Raw to stripped version for matching
+		}
+	}
 
 	switch {
 	case strings.HasPrefix(s, "re:"):
@@ -80,18 +96,21 @@ func (p *Pattern) Match(s string) bool {
 // MatchWithContext checks if the given string matches the pattern.
 // Context is required for path patterns to expand variables and resolve paths.
 func (p *Pattern) MatchWithContext(s string, ctx *MatchContext) bool {
+	var matched bool
 	switch p.Type {
 	case PatternRegex:
-		return p.Regex.MatchString(s)
+		matched = p.Regex.MatchString(s)
 	case PatternGlob:
-		matched, _ := doublestar.Match(p.Raw, s)
-		return matched
+		matched, _ = doublestar.Match(p.Raw, s)
 	case PatternLiteral:
-		return s == p.Raw
+		matched = s == p.Raw
 	case PatternPath:
-		return p.matchPath(s, ctx)
+		matched = p.matchPath(s, ctx)
 	}
-	return false
+	if p.Negated {
+		return !matched
+	}
+	return matched
 }
 
 // matchPath handles path pattern matching with variable expansion and path resolution.

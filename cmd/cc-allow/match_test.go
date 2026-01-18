@@ -7,16 +7,23 @@ import (
 
 func TestParsePattern(t *testing.T) {
 	tests := []struct {
-		input    string
-		wantType PatternType
+		input       string
+		wantType    PatternType
+		wantNegated bool
 	}{
-		{"hello", PatternLiteral},
-		{"*.txt", PatternGlob},
-		{"glob:*.txt", PatternGlob},
-		{"re:^foo$", PatternRegex},
-		{"file.txt", PatternLiteral},
-		{"dir/file", PatternLiteral},
-		{"dir/*", PatternGlob},
+		{"hello", PatternLiteral, false},
+		{"*.txt", PatternGlob, false},
+		{"glob:*.txt", PatternGlob, false},
+		{"re:^foo$", PatternRegex, false},
+		{"file.txt", PatternLiteral, false},
+		{"dir/file", PatternLiteral, false},
+		{"dir/*", PatternGlob, false},
+		// Negation only works with explicit prefixes
+		{"!hello", PatternLiteral, false},  // literal "!hello", not negated
+		{"!*.txt", PatternGlob, false},     // glob "!*.txt", not negated
+		{"!glob:*.txt", PatternGlob, true}, // negated glob
+		{"!re:^foo$", PatternRegex, true},  // negated regex
+		{"!path:$PROJECT_ROOT/**", PatternPath, true}, // negated path
 	}
 
 	for _, tt := range tests {
@@ -27,6 +34,9 @@ func TestParsePattern(t *testing.T) {
 			}
 			if p.Type != tt.wantType {
 				t.Errorf("expected type %v, got %v", tt.wantType, p.Type)
+			}
+			if p.Negated != tt.wantNegated {
+				t.Errorf("expected negated=%v, got %v", tt.wantNegated, p.Negated)
 			}
 		})
 	}
@@ -54,6 +64,18 @@ func TestPatternMatch(t *testing.T) {
 		{"re:^foo$", "foobar", false},
 		{"re:^[0-7]{3}$", "755", true},
 		{"re:^[0-7]{3}$", "888", false},
+
+		// Negation only with explicit prefixes
+		{"!hello", "!hello", true},   // literal match of "!hello"
+		{"!hello", "hello", false},   // not negated, so doesn't match "hello"
+
+		// Negated glob (explicit prefix)
+		{"!glob:*.txt", "file.txt", false},
+		{"!glob:*.txt", "file.log", true},
+
+		// Negated regex
+		{"!re:^foo$", "foo", false},
+		{"!re:^foo$", "foobar", true},
 	}
 
 	for _, tt := range tests {
@@ -225,6 +247,25 @@ func TestPathPatternWithContext(t *testing.T) {
 			home:        "/home/user",
 			cwd:         "/home/user/project",
 			want:        false,
+		},
+		// Negated path patterns
+		{
+			name:        "negated path does not match under project root",
+			pattern:     "!path:$PROJECT_ROOT/**",
+			input:       "./subdir/file.txt",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/project",
+			want:        false,
+		},
+		{
+			name:        "negated path matches outside project root",
+			pattern:     "!path:$PROJECT_ROOT/**",
+			input:       "/etc/passwd",
+			projectRoot: "/home/user/project",
+			home:        "/home/user",
+			cwd:         "/home/user/project",
+			want:        true,
 		},
 	}
 
