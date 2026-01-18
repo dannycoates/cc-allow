@@ -1,0 +1,409 @@
+# cc-allow Global Configuration Example
+# Place at: ~/.config/cc-allow.toml
+#
+# This provides sensible defaults for common *nix commands and coreutils.
+# Project-level configs can add stricter rules on top of this.
+
+[policy]
+default = "ask"                    # defer unmatched commands to Claude Code
+dynamic_commands = "ask"           # $VAR or $(cmd) as command names
+default_message = "Command not in allow list"
+
+# ============================================================================
+# ALLOWED COMMANDS
+# ============================================================================
+# These are generally safe read-only or low-risk commands.
+# Note: Dangerous variations (like rm -rf) are blocked by specific rules below.
+
+[commands.allow]
+names = [
+    # -------------------------------------------------------------------------
+    # File & Directory Navigation
+    # -------------------------------------------------------------------------
+    "ls", "dir", "vdir",           # list directory contents
+    "pwd",                          # print working directory
+    "tree",                         # directory tree view
+    "file",                         # determine file type
+    "stat",                         # file/filesystem status
+    "basename", "dirname",          # path component extraction
+    "realpath", "readlink",         # resolve paths and symlinks
+
+    # -------------------------------------------------------------------------
+    # File Viewing & Reading
+    # -------------------------------------------------------------------------
+    "cat", "tac",                   # concatenate/reverse files
+    "head", "tail",                 # first/last lines
+    "less", "more",                 # pagers
+    "nl",                           # number lines
+    "od", "hexdump", "xxd",         # binary/hex viewers
+
+    # -------------------------------------------------------------------------
+    # Text Processing & Transformation
+    # -------------------------------------------------------------------------
+    "grep", "egrep", "fgrep",       # pattern matching
+    "sed", "awk", "gawk",           # stream editing (output only, not in-place)
+    "cut", "paste", "join",         # column operations
+    "sort", "uniq", "shuf",         # line ordering/filtering
+    "tr", "rev",                    # character translation
+    "expand", "unexpand",           # tab/space conversion
+    "fold", "fmt",                  # line wrapping
+    "column",                       # columnate output
+    "pr",                           # paginate for printing
+    "wc",                           # word/line/byte count
+    "comm", "diff", "cmp", "colordiff", "delta",  # comparison
+    "iconv",                        # character encoding conversion
+    "strings",                      # extract printable strings
+
+    # -------------------------------------------------------------------------
+    # Searching & Finding
+    # -------------------------------------------------------------------------
+    "find",                         # find files
+    "fd",                           # modern find alternative
+    "locate", "mlocate", "plocate", # locate files in database
+    "which", "whereis", "type",     # locate commands
+    "xargs",                        # build commands from stdin
+    "rg", "ripgrep",                # ripgrep
+    "ag",                           # silver searcher
+    "fzf",                          # fuzzy finder
+
+    # -------------------------------------------------------------------------
+    # File Operations (Non-Destructive)
+    # -------------------------------------------------------------------------
+    "cp",                           # copy files
+    "mv",                           # move/rename files
+    "touch",                        # create/update timestamps
+    "mkdir",                        # create directories
+    "ln",                           # create links
+    "install",                      # copy and set attributes
+
+    # -------------------------------------------------------------------------
+    # Archive & Compression
+    # -------------------------------------------------------------------------
+    "tar",                          # archive files
+    "gzip", "gunzip", "zcat",       # gzip compression
+    "bzip2", "bunzip2", "bzcat",    # bzip2 compression
+    "xz", "unxz", "xzcat",          # xz compression
+    "zstd", "unzstd", "zstdcat",    # zstd compression
+    "zip", "unzip",                 # zip archives
+    "7z", "7za", "7zr",             # 7-zip
+    "rar", "unrar",                 # rar archives
+
+    # -------------------------------------------------------------------------
+    # Printing & Output
+    # -------------------------------------------------------------------------
+    "echo", "printf",               # print text
+    "yes",                          # repeated output
+    "seq",                          # number sequences
+    "tee",                          # pipe to file and stdout
+
+    # -------------------------------------------------------------------------
+    # Date, Time & Calculation
+    # -------------------------------------------------------------------------
+    "date",                         # date/time display
+    "cal", "ncal",                  # calendar
+    "time",                         # time command execution
+    "bc", "dc",                     # calculators
+    "expr",                         # expression evaluation
+    "factor",                       # factorize numbers
+
+    # -------------------------------------------------------------------------
+    # User & System Info (Read-Only)
+    # -------------------------------------------------------------------------
+    "whoami",                       # current user
+    "id",                           # user/group IDs
+    "groups",                       # group memberships
+    "who", "w",                     # logged in users
+    "users",                        # list users
+    "last", "lastlog",              # login history
+    "finger",                       # user info
+    "uname",                        # system info
+    "hostname",                     # system hostname
+    "hostnamectl",                  # hostname info (read-only)
+    "uptime",                       # system uptime
+    "arch",                         # machine architecture
+    "nproc",                        # number of processors
+    "lscpu",                        # CPU info
+    "lsmem",                        # memory info
+    "free",                         # memory usage
+    "df",                           # disk space
+    "du",                           # directory sizes
+    "lsblk",                        # block devices
+    "lsusb",                        # USB devices
+    "lspci",                        # PCI devices
+    "lsof",                         # open files
+    "dmesg",                        # kernel messages
+
+    # -------------------------------------------------------------------------
+    # Process Inspection (Read-Only)
+    # -------------------------------------------------------------------------
+    "ps",                           # process status
+    "top",               ,          # process monitors
+    "pgrep", "pidof",               # find process IDs
+    "pstree",                       # process tree
+    "jobs",                         # job control (built-in)
+    "nice", "renice",               # priority (viewing)
+
+    # -------------------------------------------------------------------------
+    # Network Inspection (Read-Only)
+    # -------------------------------------------------------------------------
+    "ping", "ping6",                # network connectivity
+    "traceroute", "tracepath",      # route tracing
+    "mtr",                          # network diagnostic
+    "dig", "nslookup", "host",      # DNS lookup
+    "whois",                        # domain info
+    "ip",                           # network config (read-only)
+    "ifconfig",                     # legacy network config
+    "ss", "netstat",                # socket/network stats
+    "nc", "netcat",                 # network utility
+    "nmap",                         # network scanner
+    "tcpdump",                      # packet capture
+
+    # -------------------------------------------------------------------------
+    # Shell Builtins & Utilities
+    # -------------------------------------------------------------------------
+    "test", "[", "[[",              # conditionals
+    "true", "false",                # exit status
+    "sleep",                        # delay
+    "env", "printenv",              # environment
+
+    # -------------------------------------------------------------------------
+    # Version Control
+    # -------------------------------------------------------------------------
+    "git",                          # git
+    "gh",                           # GitHub CLI
+    "hg",                           # mercurial
+    "svn",                          # subversion
+    "fossil",                       # fossil
+
+    # -------------------------------------------------------------------------
+    # Misc Utilities
+    # -------------------------------------------------------------------------
+    "man", "info", "help",          # documentation
+    "apropos", "whatis",            # command lookup
+    "tldr",                         # simplified man pages
+    "watch",                        # repeated execution
+    "timeout",                      # run with time limit
+    "strace", "ltrace",             # syscall/library tracing
+    "md5sum", "sha1sum", "sha256sum", "sha512sum",  # checksums
+    "base64",                       # base64 encoding
+    "nix", "nix-env", "nix-shell",  # Nix
+]
+
+# ============================================================================
+# DENIED COMMANDS
+# ============================================================================
+# These commands are categorically dangerous and should never run automatically.
+
+[commands.deny]
+names = [
+    # Privilege escalation
+    "sudo", "su", "doas", "pkexec",
+    # Disk/filesystem operations
+    "dd", "mkfs", "fdisk", "parted", "gdisk", "cfdisk", "sfdisk",
+    "mkswap", "swapon", "swapoff",
+    "mount", "umount",
+    "losetup",
+    "lvm", "pvcreate", "vgcreate", "lvcreate",
+    # System control
+    "shutdown", "reboot", "halt", "poweroff", "init", "telinit",
+    "systemctl",                    # can stop critical services
+    # User/group management
+    "useradd", "userdel", "usermod",
+    "groupadd", "groupdel", "groupmod",
+    "passwd", "chpasswd",
+    "chsh", "chfn",
+    # Mass process control
+    "killall", "pkill",
+    # Dangerous network
+    "iptables", "ip6tables", "nft", "firewall-cmd",
+    "route",                        # modify routing
+    # System modification
+    "sysctl",
+    "modprobe", "insmod", "rmmod",  # kernel modules
+    "update-grub", "grub-install",
+]
+message = "Dangerous system command blocked"
+
+# ============================================================================
+# SHELL CONSTRUCTS
+# ============================================================================
+
+[constructs]
+function_definitions = "deny"      # prevent command shadowing
+background = "ask"                 # background jobs need review
+subshells = "ask"                  # subshells need review
+heredocs = "allow"                 # heredocs are generally safe
+
+# ============================================================================
+# SPECIFIC RULES
+# ============================================================================
+# Fine-grained control for commands that are generally safe but have
+# dangerous modes.
+
+# --- rm: Block recursive deletion ---
+[[rule]]
+command = "rm"
+action = "deny"
+message = "Recursive rm not allowed"
+[rule.args]
+any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
+
+# --- rm: Allow non-recursive rm ---
+[[rule]]
+command = "rm"
+action = "allow"
+
+# --- rmdir: Allow (only removes empty directories) ---
+[[rule]]
+command = "rmdir"
+action = "allow"
+
+# --- chmod: Block making files executable ---
+[[rule]]
+command = "chmod"
+action = "ask"
+message = "Making files executable requires review"
+[rule.args]
+any_match = ["re:\\+x", "re:[0-7][1357][0-7]", "re:[0-7][0-7][1357]"]
+
+# --- chmod: Allow other chmod operations ---
+[[rule]]
+command = "chmod"
+action = "allow"
+
+# --- chown/chgrp: Always ask (ownership changes are sensitive) ---
+[[rule]]
+command = "chown"
+action = "ask"
+
+[[rule]]
+command = "chgrp"
+action = "ask"
+
+# --- git: Block force push ---
+[[rule]]
+command = "git"
+action = "deny"
+message = "Force push not allowed"
+[rule.args]
+any_match = ["--force", "-f", "--force-with-lease"]
+contains = ["push"]
+
+# --- git: Block hard reset ---
+[[rule]]
+command = "git"
+action = "ask"
+message = "Are you sure you want to hard reset? You may lose work"
+[rule.args]
+contains = ["reset", "--hard"]
+
+# --- git: Block clean -f (force delete untracked files) ---
+[[rule]]
+command = "git"
+action = "ask"
+message = "git clean requires review"
+[rule.args]
+contains = ["clean"]
+any_match = ["-f", "--force", "-fd", "-fx", "-fxd"]
+
+# --- sed/awk: Block in-place editing ---
+[[rule]]
+command = "sed"
+action = "deny"
+message = "In-place sed editing not allowed - use Edit tool"
+[rule.args]
+any_match = ["-i", "--in-place"]
+
+[[rule]]
+command = "awk"
+action = "deny"
+message = "In-place awk editing not allowed - use Edit tool"
+[rule.args]
+any_match = ["-i"]
+
+# --- curl/wget: Block piping to shell ---
+[[rule]]
+command = "bash"
+action = "deny"
+message = "Cannot pipe to bash from download commands"
+[rule.pipe]
+from = ["curl", "wget", "http"]
+
+[[rule]]
+command = "sh"
+action = "deny"
+message = "Cannot pipe to sh from download commands"
+[rule.pipe]
+from = ["curl", "wget", "http"]
+
+[[rule]]
+command = "zsh"
+action = "deny"
+message = "Cannot pipe to zsh from download commands"
+[rule.pipe]
+from = ["curl", "wget", "http"]
+
+# --- docker/podman: Block privileged containers ---
+[[rule]]
+command = "docker"
+action = "deny"
+message = "Privileged containers not allowed"
+[rule.args]
+any_match = ["--privileged"]
+
+[[rule]]
+command = "podman"
+action = "deny"
+message = "Privileged containers not allowed"
+[rule.args]
+any_match = ["--privileged"]
+
+# --- ssh: Block with -o options that could be dangerous ---
+[[rule]]
+command = "ssh"
+action = "ask"
+[rule.args]
+any_match = ["-o"]
+
+# ============================================================================
+# REDIRECT RULES
+# ============================================================================
+# Block writes to sensitive locations.
+
+# Allow redirecting to /dev/null
+[[redirect]]
+action = "allow"
+[redirect.to]
+exact = ["/dev/null"]
+
+# Block writes to system directories
+[[redirect]]
+action = "deny"
+message = "Cannot write to system directories"
+[redirect.to]
+pattern = [
+    "re:^/etc/.*",
+    "re:^/usr/.*",
+    "re:^/bin/.*",
+    "re:^/sbin/.*",
+    "re:^/lib/.*",
+    "re:^/lib64/.*",
+    "re:^/var/.*",
+    "re:^/boot/.*",
+    "re:^/root/.*",
+]
+
+# Block writes to shell configs
+[[redirect]]
+action = "deny"
+message = "Cannot modify shell configuration files"
+[redirect.to]
+pattern = ["re:.*rc$", "re:.*profile$", "re:.*_login", "re:.*_logout"]
+
+# Block appending to shell configs
+[[redirect]]
+action = "deny"
+append = true
+message = "Cannot append to shell configuration"
+[redirect.to]
+pattern = ["re:.*rc$", "re:.*profile$", "re:.*_login", "re:.*_logout"]
