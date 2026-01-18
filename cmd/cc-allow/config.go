@@ -161,11 +161,11 @@ func DefaultConfig() *Config {
 // ConfigChain holds multiple configs ordered from highest to lowest priority.
 // Lower configs can only make things stricter, not looser.
 type ConfigChain struct {
-	Configs []*Config // ordered: global (~/), project (.claude/), explicit (--config)
+	Configs []*Config // ordered: global (~/), project (.claude/), project local (.claude/*.local.toml), explicit (--config)
 }
 
 // LoadConfigChain loads configs from standard locations plus an optional explicit path.
-// Order (highest to lowest, stricter overrides): ~/.config/cc-allow.toml, .claude/cc-allow.toml, --config
+// Order (loosest to strictest): ~/.config/cc-allow.toml, .claude/cc-allow.toml, .claude/cc-allow.local.toml, --config
 func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
 	chain := &ConfigChain{}
 
@@ -187,7 +187,16 @@ func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
 		chain.Configs = append(chain.Configs, cfg)
 	}
 
-	// 3. Load explicit config (--config flag)
+	// 3. Load project local config (.claude/cc-allow.local.toml) - not in source control
+	if localPath := findProjectLocalConfig(); localPath != "" {
+		cfg, err := LoadConfig(localPath)
+		if err != nil {
+			return nil, err
+		}
+		chain.Configs = append(chain.Configs, cfg)
+	}
+
+	// 4. Load explicit config (--config flag)
 	if explicitPath != "" {
 		cfg, err := LoadConfig(explicitPath)
 		if err != nil {
@@ -227,6 +236,32 @@ func findProjectConfig() string {
 	dir := cwd
 	for {
 		path := filepath.Join(dir, ".claude", "cc-allow.toml")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root
+			break
+		}
+		dir = parent
+	}
+
+	return ""
+}
+
+// findProjectLocalConfig looks for .claude/cc-allow.local.toml starting from cwd and walking up.
+// This file is meant to be kept out of source control for local overrides.
+func findProjectLocalConfig() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+
+	dir := cwd
+	for {
+		path := filepath.Join(dir, ".claude", "cc-allow.local.toml")
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}

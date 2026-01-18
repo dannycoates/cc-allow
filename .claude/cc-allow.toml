@@ -6,9 +6,6 @@ default = "ask"                    # defer to Claude Code's permission system
 dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
 default_message = "Command not allowed by project policy"
 
-# [debug]
-# log_file = "/home/danny/code/cc-allow/cc-allow.log"
-
 # Common safe commands for development
 [commands.allow]
 names = [

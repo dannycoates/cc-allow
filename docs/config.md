@@ -13,11 +13,12 @@ cc-allow evaluates bash commands against a set of rules and returns an exit code
 
 ## Config File Locations
 
-cc-allow loads configuration from multiple locations, in order:
+cc-allow loads configuration from multiple locations, in order (loosest to strictest):
 
 1. `~/.config/cc-allow.toml` — Global defaults
 2. `<project>/.claude/cc-allow.toml` — Project-specific rules (searches up from cwd)
-3. `--config <path>` — Explicit config file
+3. `<project>/.claude/cc-allow.local.toml` — Local overrides, not in source control
+4. `--config <path>` — Explicit config file
 
 ### Merge Behavior
 

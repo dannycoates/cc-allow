@@ -4,3 +4,4 @@ node_modules
 /print-ast
 dist/
 cc-allow.log
+*.local.*
