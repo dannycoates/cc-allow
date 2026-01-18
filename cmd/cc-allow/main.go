@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -250,17 +251,6 @@ func wordPartsToString(wps []syntax.WordPart) string {
 
 // Debug logging helpers
 
-type multiWriter struct {
-	writers []io.Writer
-}
-
-func (mw *multiWriter) Write(p []byte) (n int, err error) {
-	for _, w := range mw.writers {
-		w.Write(p) // Best-effort write to each
-	}
-	return len(p), nil
-}
-
 func initDebugLog(logPath string) {
 	writers := []io.Writer{os.Stderr}
 
@@ -271,7 +261,7 @@ func initDebugLog(logPath string) {
 		fmt.Fprintf(os.Stderr, "[debug] Log file: %s\n", logPath)
 	}
 
-	debugLog = log.New(&multiWriter{writers}, "[cc-allow] ", log.Ltime)
+	debugLog = log.New(io.MultiWriter(writers...), "[cc-allow] ", log.Ltime)
 }
 
 // getDebugLogPath returns the debug log path from config chain, or default.
@@ -507,33 +497,21 @@ func findFmtConfigFiles(explicitPath string) []string {
 }
 
 func sortRulesBySpecificity(rules []ruleWithScore) {
-	for i := 0; i < len(rules)-1; i++ {
-		for j := i + 1; j < len(rules); j++ {
-			if rules[j].specificity > rules[i].specificity {
-				rules[i], rules[j] = rules[j], rules[i]
-			}
-		}
-	}
+	sort.SliceStable(rules, func(i, j int) bool {
+		return rules[i].specificity > rules[j].specificity
+	})
 }
 
 func sortRedirectsBySpecificity(rules []redirectWithScore) {
-	for i := 0; i < len(rules)-1; i++ {
-		for j := i + 1; j < len(rules); j++ {
-			if rules[j].specificity > rules[i].specificity {
-				rules[i], rules[j] = rules[j], rules[i]
-			}
-		}
-	}
+	sort.SliceStable(rules, func(i, j int) bool {
+		return rules[i].specificity > rules[j].specificity
+	})
 }
 
 func sortHeredocsBySpecificity(rules []heredocWithScore) {
-	for i := 0; i < len(rules)-1; i++ {
-		for j := i + 1; j < len(rules); j++ {
-			if rules[j].specificity > rules[i].specificity {
-				rules[i], rules[j] = rules[j], rules[i]
-			}
-		}
-	}
+	sort.SliceStable(rules, func(i, j int) bool {
+		return rules[i].specificity > rules[j].specificity
+	})
 }
 
 func calculateRedirectSpecificity(rule RedirectRule) int {

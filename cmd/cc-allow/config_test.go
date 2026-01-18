@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -96,5 +97,88 @@ func TestParseConfigDefaults(t *testing.T) {
 	}
 	if cfg.Policy.DefaultMessage != "Command not allowed" {
 		t.Errorf("expected default message, got %s", cfg.Policy.DefaultMessage)
+	}
+}
+
+func TestParseConfigInvalidPatterns(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name: "invalid regex in args.any_match",
+			config: `
+[[rule]]
+command = "test"
+action = "deny"
+[rule.args]
+any_match = ["re:[invalid"]
+`,
+			wantErr: "rule[0] (command=\"test\"): invalid args.any_match pattern",
+		},
+		{
+			name: "invalid regex in args.all_match",
+			config: `
+[[rule]]
+command = "test"
+action = "deny"
+[rule.args]
+all_match = ["re:(unclosed"]
+`,
+			wantErr: "rule[0] (command=\"test\"): invalid args.all_match pattern",
+		},
+		// NOTE: args.position test skipped - TOML library doesn't support integer map keys
+		// This is a known limitation. Position matching works when Rule structs are
+		// constructed programmatically but not from TOML config files.
+		{
+			name: "invalid regex in redirect pattern",
+			config: `
+[[redirect]]
+action = "deny"
+[redirect.to]
+pattern = ["re:[bad"]
+`,
+			wantErr: "redirect[0]: invalid to.pattern",
+		},
+		{
+			name: "invalid regex in heredoc content_match",
+			config: `
+[[heredoc]]
+action = "deny"
+content_match = ["re:+++"]
+`,
+			wantErr: "heredoc[0]: invalid content_match pattern",
+		},
+		{
+			name: "valid patterns should pass",
+			config: `
+[[rule]]
+command = "test"
+action = "deny"
+[rule.args]
+any_match = ["re:^-[a-z]+$", "glob:*.txt"]
+`,
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseConfig(tt.config)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("expected no error, got: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Errorf("expected error containing %q, got nil", tt.wantErr)
+				return
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
+			}
+		})
 	}
 }

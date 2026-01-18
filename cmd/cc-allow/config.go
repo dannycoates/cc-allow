@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -137,7 +138,54 @@ func ParseConfig(data string) (*Config, error) {
 	if cfg.Constructs.Heredocs == "" {
 		cfg.Constructs.Heredocs = "allow"
 	}
+	// Validate all patterns
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// Validate checks that all patterns in the config are valid.
+// This catches invalid regex patterns at load time rather than at evaluation time.
+func (cfg *Config) Validate() error {
+	// Validate command rules
+	for i, rule := range cfg.Rules {
+		if len(rule.Args.AnyMatch) > 0 {
+			if _, err := NewMatcher(rule.Args.AnyMatch); err != nil {
+				return fmt.Errorf("rule[%d] (command=%q): invalid args.any_match pattern: %w", i, rule.Command, err)
+			}
+		}
+		if len(rule.Args.AllMatch) > 0 {
+			if _, err := NewMatcher(rule.Args.AllMatch); err != nil {
+				return fmt.Errorf("rule[%d] (command=%q): invalid args.all_match pattern: %w", i, rule.Command, err)
+			}
+		}
+		for pos, pattern := range rule.Args.Position {
+			if _, err := ParsePattern(pattern); err != nil {
+				return fmt.Errorf("rule[%d] (command=%q): invalid args.position[%d] pattern: %w", i, rule.Command, pos, err)
+			}
+		}
+	}
+
+	// Validate redirect rules
+	for i, rule := range cfg.Redirects {
+		if len(rule.To.Pattern) > 0 {
+			if _, err := NewMatcher(rule.To.Pattern); err != nil {
+				return fmt.Errorf("redirect[%d]: invalid to.pattern: %w", i, err)
+			}
+		}
+	}
+
+	// Validate heredoc rules
+	for i, rule := range cfg.Heredocs {
+		if len(rule.ContentMatch) > 0 {
+			if _, err := NewMatcher(rule.ContentMatch); err != nil {
+				return fmt.Errorf("heredoc[%d]: invalid content_match pattern: %w", i, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // DefaultConfig returns a minimal default configuration.
