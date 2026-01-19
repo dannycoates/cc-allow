@@ -1,0 +1,227 @@
+# Patterns ruleset - tests advanced pattern features
+# Used to verify: negation, path patterns, positional args, specificity, heredocs, pipe wildcards
+
+[policy]
+default = "ask"
+dynamic_commands = "deny"
+
+[commands.allow]
+names = ["echo", "ls", "cat", "head", "tail", "grep", "wc", "pwd", "true", "false"]
+
+[commands.deny]
+names = ["sudo", "su"]
+message = "Privilege escalation denied"
+
+[constructs]
+function_definitions = "ask"
+background = "ask"
+subshells = "allow"
+heredocs = "allow"  # allow heredocs so we can test [[heredoc]] rules
+
+# --- Pattern Negation Tests ---
+
+# Allow cat for any file EXCEPT those in /etc
+[[rule]]
+command = "cat"
+action = "allow"
+[rule.args]
+any_match = ["!path:/etc/**"]
+
+# Deny cat for /etc files (more specific - should win over above)
+[[rule]]
+command = "cat"
+action = "deny"
+message = "Cannot read system config files"
+[rule.args]
+any_match = ["path:/etc/**"]
+
+# Allow grep except when pattern looks like password
+[[rule]]
+command = "grep"
+action = "deny"
+message = "Cannot grep for password patterns"
+[rule.args]
+any_match = ["re:(?i)password|secret|token"]
+
+# --- Path Pattern Tests with $PROJECT_ROOT ---
+
+# Allow rm only within project (safe cleanup)
+[[rule]]
+command = "rm"
+action = "allow"
+message = "Allowed: removing files within project"
+[rule.args]
+all_match = ["path:$PROJECT_ROOT/**"]
+
+# Deny rm outside project
+[[rule]]
+command = "rm"
+action = "deny"
+message = "Cannot remove files outside project"
+
+# Allow touch within project
+[[rule]]
+command = "touch"
+action = "allow"
+[rule.args]
+any_match = ["path:$PROJECT_ROOT/**"]
+
+# Deny touch outside project
+[[rule]]
+command = "touch"
+action = "deny"
+message = "Cannot create files outside project"
+
+# --- Positional Argument Tests ---
+
+# Allow git with specific subcommands at position 0
+[[rule]]
+command = "git"
+action = "allow"
+[rule.args]
+position = { "0" = "status" }
+
+[[rule]]
+command = "git"
+action = "allow"
+[rule.args]
+position = { "0" = "diff" }
+
+[[rule]]
+command = "git"
+action = "allow"
+[rule.args]
+position = { "0" = "log" }
+
+[[rule]]
+command = "git"
+action = "allow"
+[rule.args]
+position = { "0" = "branch" }
+
+# Deny git push/pull (network operations)
+[[rule]]
+command = "git"
+action = "deny"
+message = "Network git operations not allowed"
+[rule.args]
+position = { "0" = "re:^(push|pull|fetch|clone)$" }
+
+# Allow npm with read-only commands
+[[rule]]
+command = "npm"
+action = "allow"
+[rule.args]
+position = { "0" = "re:^(list|ls|view|info|help)$" }
+
+# Deny npm install/publish (modifying operations)
+[[rule]]
+command = "npm"
+action = "deny"
+message = "npm modifying operations not allowed"
+[rule.args]
+position = { "0" = "re:^(install|i|publish|unpublish)$" }
+
+# --- Specificity Tests ---
+# More specific rules should win over less specific
+
+# Generic: any command writing to .env files - ask
+[[rule]]
+command = "*"
+action = "ask"
+message = "Writing to .env requires approval"
+[rule.args]
+any_match = ["glob:*.env", "glob:.env*"]
+
+# Specific: cp to .env - deny (more specific due to named command)
+[[rule]]
+command = "cp"
+action = "deny"
+message = "Cannot copy to .env files"
+[rule.args]
+any_match = ["glob:*.env", "glob:.env*"]
+
+# Very specific: mv with exact positions - allow (most specific)
+[[rule]]
+command = "mv"
+action = "allow"
+message = "Renaming .env.example to .env.local is allowed"
+[rule.args]
+position = { "0" = ".env.example", "1" = ".env.local" }
+
+# Less specific mv to .env - deny
+[[rule]]
+command = "mv"
+action = "deny"
+message = "Cannot move files to .env"
+[rule.args]
+any_match = ["glob:*.env", "glob:.env*"]
+
+# --- Pipe Wildcard Tests ---
+
+# Deny eval receiving ANY piped input
+[[rule]]
+command = "eval"
+action = "deny"
+message = "eval cannot receive piped input"
+[rule.pipe]
+from = ["*"]
+
+# Deny source/. receiving any piped input
+[[rule]]
+command = "source"
+action = "deny"
+message = "source cannot receive piped input"
+[rule.pipe]
+from = ["*"]
+
+# Deny bash from specific dangerous sources
+[[rule]]
+command = "bash"
+action = "deny"
+message = "bash cannot receive input from download commands"
+[rule.pipe]
+from = ["curl", "wget", "nc", "netcat"]
+
+# --- Heredoc Content Rules ---
+
+# Deny heredocs containing sudo/su commands
+[[heredoc]]
+action = "deny"
+message = "Heredoc contains privilege escalation"
+content_match = ["re:(?m)^\\s*(sudo|su)\\s"]
+
+# Deny heredocs that look like they're setting up reverse shells
+[[heredoc]]
+action = "deny"
+message = "Heredoc contains suspicious network code"
+content_match = ["re:/dev/tcp/", "re:nc\\s+-e", "re:bash\\s+-i"]
+
+# Deny heredocs containing rm -rf
+[[heredoc]]
+action = "deny"
+message = "Heredoc contains dangerous rm command"
+content_match = ["re:rm\\s+(-[rf]+\\s+)*(-[rf]+|/)"]
+
+# --- Redirect Rules ---
+
+# Deny redirects to system paths
+[[redirect]]
+action = "deny"
+message = "Cannot write to system paths"
+[redirect.to]
+pattern = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**"]
+
+# Allow redirects within project
+[[redirect]]
+action = "allow"
+[redirect.to]
+pattern = ["path:$PROJECT_ROOT/**"]
+
+# Deny append to shell config files
+[[redirect]]
+action = "deny"
+message = "Cannot modify shell config"
+append = true
+[redirect.to]
+pattern = ["glob:*/.bashrc", "glob:*/.zshrc", "glob:*/.profile"]
