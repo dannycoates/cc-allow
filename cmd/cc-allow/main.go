@@ -65,30 +65,32 @@ func main() {
 	initMode := flag.Bool("init", false, "create project config at .claude/cc-allow.toml")
 	flag.Parse()
 
-	if *showVersion {
+	switch {
+	case *showVersion:
 		fmt.Printf("cc-allow %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
-	}
-
-	if *initMode {
+	case *initMode:
 		runInit()
-		return
-	}
-
-	if *fmtMode {
+	case *fmtMode:
 		runFmt(*configPath)
-		return
+	default:
+		runEval(*configPath, *hookMode, *debugMode)
 	}
+}
 
+// runEval evaluates a bash command against the config chain.
+// In hook mode, it reads JSON from stdin and outputs JSON.
+// In pipe mode, it reads the command directly from stdin.
+func runEval(configPath string, hookMode, debugMode bool) {
 	// Load configuration chain from standard locations + explicit path
-	chain, err := LoadConfigChain(*configPath)
+	chain, err := LoadConfigChain(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 		os.Exit(ExitError)
 	}
 
 	// Initialize debug logging (after config load so we can use configured path)
-	if *debugMode {
+	if debugMode {
 		logPath := getDebugLogPath(chain)
 		initDebugLog(logPath)
 	}
@@ -97,7 +99,7 @@ func main() {
 	// Get the bash command to parse
 	var input io.Reader = os.Stdin
 	var commandStr string
-	if *hookMode {
+	if hookMode {
 		// Parse JSON hook input and extract command
 		var hookInput HookInput
 		if err := json.NewDecoder(os.Stdin).Decode(&hookInput); err != nil {
@@ -139,7 +141,7 @@ func main() {
 	result := eval.Evaluate(info)
 	logDebug("Result: action=%q message=%q command=%q source=%q", result.Action, result.Message, result.Command, result.Source)
 
-	outputResult(result, *hookMode)
+	outputResult(result, hookMode)
 }
 
 func outputResult(result Result, hookMode bool) {
