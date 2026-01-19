@@ -109,7 +109,7 @@ command = "rm"
 action = "deny"
 message = "Recursive rm not allowed"
 [rule.args]
-any_match = ["-rf", "-r", "--recursive"]
+any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
 ```
 
 ### Pipe Security
@@ -135,7 +135,7 @@ Prevent writes to sensitive paths:
 action = "deny"
 message = "Cannot write to system directories"
 [redirect.to]
-pattern = ["re:^/etc/.*", "re:^/usr/.*"]
+pattern = ["path:/etc/**", "path:/usr/**"]
 ```
 
 See [docs/config.md](docs/config.md) for complete configuration reference.
