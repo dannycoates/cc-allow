@@ -11,7 +11,7 @@ default_message = "Command not allowed by project policy"
 names = [
     # File & Directory Navigation
     "ls", "dir", "vdir", "pwd", "tree", "file", "stat",
-    "basename", "dirname", "realpath", "readlink", "cd",
+    "basename", "dirname", "realpath", "readlink",
     # File Viewing & Reading
     "cat", "tac", "head", "tail", "less", "more", "nl",
     "od", "hexdump", "xxd",
@@ -144,3 +144,16 @@ action = "deny"
 message = "Cannot modify shell configuration files"
 [redirect.to]
 exact = [".bashrc", ".zshrc", ".profile", ".bash_profile", ".zprofile"]
+
+# Allow cd only to /tmp and project root
+[[rule]]
+command = "cd"
+action = "allow"
+[rule.args]
+any_match = ["path:/tmp/**", "path:$PROJECT_ROOT/**"]
+
+# Block cd to anywhere else
+[[rule]]
+command = "cd"
+action = "deny"
+message = "cd only allowed to /tmp or project directory"
