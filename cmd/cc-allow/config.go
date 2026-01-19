@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -227,11 +228,14 @@ type MergedConfig struct {
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading config %s: %w", path, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s", ErrConfigNotFound, path)
+		}
+		return nil, fmt.Errorf("%w: %s: %w", ErrConfigRead, path, err)
 	}
 	cfg, err := ParseConfig(string(data))
 	if err != nil {
-		return nil, fmt.Errorf("parsing config %s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.Path = path
 	return cfg, nil
@@ -241,7 +245,7 @@ func LoadConfig(path string) (*Config, error) {
 func ParseConfig(data string) (*Config, error) {
 	var cfg Config
 	if _, err := toml.Decode(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+		return nil, fmt.Errorf("%w: %w", ErrConfigParse, err)
 	}
 	// Set defaults
 	if cfg.Policy.Default == "" {
@@ -281,7 +285,7 @@ func ParseConfig(data string) (*Config, error) {
 func parseConfigRaw(data string) (*Config, error) {
 	var cfg Config
 	if _, err := toml.Decode(data, &cfg); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+		return nil, fmt.Errorf("%w: %w", ErrConfigParse, err)
 	}
 	// NO defaults applied - empty strings mean "unset"
 	// Still validate patterns
@@ -296,11 +300,14 @@ func parseConfigRaw(data string) (*Config, error) {
 func loadConfigRaw(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading config %s: %w", path, err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s", ErrConfigNotFound, path)
+		}
+		return nil, fmt.Errorf("%w: %s: %w", ErrConfigRead, path, err)
 	}
 	cfg, err := parseConfigRaw(string(data))
 	if err != nil {
-		return nil, fmt.Errorf("parsing config %s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.Path = path
 	return cfg, nil
