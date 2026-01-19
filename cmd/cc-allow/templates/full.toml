@@ -8,12 +8,18 @@
 default = "ask"                    # defer unmatched commands to Claude Code
 dynamic_commands = "ask"           # $VAR or $(cmd) as command names
 default_message = "Command not in allow list"
+# allowed_paths = ["/usr/bin", "/bin", "/usr/local/bin"]  # optional: restrict command search paths
+unresolved_commands = "ask"        # "ask" or "deny" for commands not found in PATH
 
 # ============================================================================
 # ALLOWED COMMANDS
 # ============================================================================
 # These are generally safe read-only or low-risk commands.
 # Note: Dangerous variations (like rm -rf) are blocked by specific rules below.
+#
+# Command names can use path: prefix to match by resolved filesystem path:
+#   "path:$PROJECT_ROOT/bin/*"  - allow project-local binaries
+#   "path:/usr/bin/git"         - allow git only from /usr/bin
 
 [commands.allow]
 names = [
@@ -380,6 +386,17 @@ command = "ssh"
 action = "ask"
 [rule.args]
 any_match = ["-o"]
+
+# --- Example: Allow project-local scripts by resolved path ---
+# [[rule]]
+# command = "path:$PROJECT_ROOT/scripts/*"
+# action = "allow"
+
+# --- Example: Deny commands from untrusted directories ---
+# [[rule]]
+# command = "path:/tmp/**"
+# action = "deny"
+# message = "Commands from /tmp not allowed"
 
 # ============================================================================
 # REDIRECT RULES

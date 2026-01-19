@@ -24,13 +24,19 @@ cc-allow evaluates bash commands and returns exit codes: 0=allow, 1=ask (defer),
 default = "ask"               # "allow", "deny", or "ask"
 dynamic_commands = "ask"      # action for $VAR or $(cmd) as command name
 default_message = "Command not allowed"
+# allowed_paths = ["/usr/bin", "/bin"]  # optional: restrict command search paths
+unresolved_commands = "ask"   # "ask" or "deny" for commands not found
 ```
+
+**Command Path Resolution**: Commands are resolved to absolute paths. Shell builtins bypass resolution. Use `allowed_paths` to restrict where commands can be found.
 
 ### Quick Allow/Deny Lists
 
 ```toml
 [commands.allow]
 names = ["ls", "cat", "git", "go"]
+# Can also use path: prefix for path-based matching:
+# names = ["git", "path:$PROJECT_ROOT/bin/*", "path:/usr/bin/ls"]
 
 [commands.deny]
 names = ["sudo", "rm", "dd"]
@@ -53,6 +59,8 @@ When multiple rules match, the **most specific rule wins** based on specificity 
 
 **Specificity points**: Named command (+100), each position arg (+20), each contains (+10), each pattern (+5), each pipe target (+10), pipe from wildcard (+5). Tie-break: deny > ask > allow.
 
+The `command` field can be a name, `"*"` for any, or `"path:..."` for resolved path matching:
+
 ```toml
 [[rule]]
 command = "git"
@@ -68,6 +76,11 @@ action = "deny"
 message = "No piping curl to shell"
 [rule.pipe]
 to = ["bash", "sh"]
+
+# Match by resolved path
+[[rule]]
+command = "path:$PROJECT_ROOT/scripts/*"
+action = "allow"
 ```
 
 #### Argument Matching

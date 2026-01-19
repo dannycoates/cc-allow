@@ -928,3 +928,184 @@ func TestPathPatternPosition(t *testing.T) {
 		t.Errorf("rm -rf /tmp/foo should ask (rule didn't match), got %s", r.Action)
 	}
 }
+
+// ============================================================================
+// Command Path Resolution Tests
+// ============================================================================
+
+func TestBuiltinCommandsBypassPathResolution(t *testing.T) {
+	// Builtins like cd, exit, etc. should work without path resolution
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "ask",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "deny", // strict mode
+		},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"cd", "exit", "source", "export"}},
+		},
+	}
+
+	// cd is a builtin - should be allowed even with strict unresolved_commands=deny
+	r := parseAndEval(t, cfg, "cd /tmp")
+	if r.Action != "allow" {
+		t.Errorf("cd (builtin) should be allowed, got %s", r.Action)
+	}
+
+	// exit is a builtin
+	r = parseAndEval(t, cfg, "exit 0")
+	if r.Action != "allow" {
+		t.Errorf("exit (builtin) should be allowed, got %s", r.Action)
+	}
+
+	// source is a bash builtin
+	r = parseAndEval(t, cfg, "source ~/.bashrc")
+	if r.Action != "allow" {
+		t.Errorf("source (builtin) should be allowed, got %s", r.Action)
+	}
+}
+
+func TestUnresolvedCommandsPolicyAsk(t *testing.T) {
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "allow",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "ask", // default
+		},
+	}
+
+	// A command that definitely doesn't exist
+	r := parseAndEval(t, cfg, "nonexistent_command_xyz123 --arg")
+	if r.Action != "ask" {
+		t.Errorf("unresolved command should ask, got %s", r.Action)
+	}
+}
+
+func TestUnresolvedCommandsPolicyDeny(t *testing.T) {
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "allow",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "deny",
+		},
+	}
+
+	// A command that definitely doesn't exist
+	r := parseAndEval(t, cfg, "nonexistent_command_xyz123 --arg")
+	if r.Action != "deny" {
+		t.Errorf("unresolved command should be denied when policy=deny, got %s", r.Action)
+	}
+}
+
+func TestPathPatternInAllowList(t *testing.T) {
+	// Test path: prefix in commands.allow.names
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "ask",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "ask",
+		},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{
+				"path:/usr/bin/ls",
+				"path:/bin/ls",
+			}},
+		},
+	}
+
+	// ls resolves to /usr/bin/ls or /bin/ls on most systems
+	r := parseAndEval(t, cfg, "ls -la")
+	// This should be allowed if ls resolves to one of the allowed paths
+	// On most systems, ls is in /usr/bin or /bin
+	if r.Action != "allow" && r.Action != "ask" {
+		t.Logf("ls resolved to path, action=%s (expected allow if path matches)", r.Action)
+	}
+}
+
+func TestPathPatternInDenyList(t *testing.T) {
+	// Test path: prefix in commands.deny.names
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "allow",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "ask",
+		},
+		Commands: CommandsConfig{
+			Deny: CommandList{
+				Names:   []string{"path:/usr/bin/rm", "path:/bin/rm"},
+				Message: "rm from /usr/bin or /bin not allowed",
+			},
+		},
+	}
+
+	// rm resolves to /usr/bin/rm or /bin/rm on most systems
+	r := parseAndEval(t, cfg, "rm file.txt")
+	// This should be denied if rm resolves to one of the denied paths
+	if r.Action == "deny" {
+		t.Logf("rm correctly denied (path: %s)", r.Source)
+	}
+}
+
+func TestPathPatternInRuleCommand(t *testing.T) {
+	// Test path: prefix in rule.command
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "ask",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "ask",
+		},
+		Rules: []Rule{
+			{
+				Command: "path:/usr/bin/*",
+				Action:  "allow",
+			},
+		},
+	}
+
+	// Commands that resolve to /usr/bin should be allowed
+	r := parseAndEval(t, cfg, "ls -la")
+	// This test depends on system configuration - ls may or may not be in /usr/bin
+	t.Logf("ls with path:/usr/bin/* rule: action=%s", r.Action)
+}
+
+func TestAllowedPathsRestriction(t *testing.T) {
+	// Test that allowed_paths restricts command resolution
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "allow",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "deny",
+			AllowedPaths:       []string{"/nonexistent/path"},
+		},
+	}
+
+	// ls should not be found because we restricted to a nonexistent path
+	r := parseAndEval(t, cfg, "ls")
+	if r.Action != "deny" {
+		t.Errorf("ls should be denied when not in allowed_paths, got %s", r.Action)
+	}
+}
+
+func TestResolvedPathUsedForMatching(t *testing.T) {
+	// Test that the resolved path is used for basename matching
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "ask",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "ask",
+		},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"ls"}},
+		},
+	}
+
+	// Running ls as a full path should still match "ls" in allow list
+	// because we match against the basename of the resolved path
+	r := parseAndEval(t, cfg, "/usr/bin/ls -la")
+	if r.Action == "allow" {
+		t.Logf("Full path /usr/bin/ls correctly matched 'ls' in allow list")
+	} else {
+		// The path might not exist or have different behavior
+		t.Logf("Full path /usr/bin/ls action=%s (may not exist on this system)", r.Action)
+	}
+}

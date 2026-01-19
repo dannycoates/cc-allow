@@ -28,9 +28,11 @@ type DebugConfig struct {
 
 // PolicyConfig defines the default behavior when no rules match.
 type PolicyConfig struct {
-	Default         string `toml:"default"`          // "allow", "deny", or "ask" (default: "ask")
-	DynamicCommands string `toml:"dynamic_commands"` // how to handle $VAR or $(cmd) as command names
-	DefaultMessage  string `toml:"default_message"`  // fallback message when rule has no message
+	Default            string   `toml:"default"`             // "allow", "deny", or "ask" (default: "ask")
+	DynamicCommands    string   `toml:"dynamic_commands"`    // how to handle $VAR or $(cmd) as command names
+	DefaultMessage     string   `toml:"default_message"`     // fallback message when rule has no message
+	AllowedPaths       []string `toml:"allowed_paths"`       // directories to search for commands (defaults to $PATH)
+	UnresolvedCommands string   `toml:"unresolved_commands"` // "ask" or "deny" for commands not found
 }
 
 // CommandsConfig provides quick lists for common allow/deny patterns.
@@ -179,6 +181,9 @@ func ParseConfig(data string) (*Config, error) {
 	if cfg.Policy.DynamicCommands == "" {
 		cfg.Policy.DynamicCommands = "ask"
 	}
+	if cfg.Policy.UnresolvedCommands == "" {
+		cfg.Policy.UnresolvedCommands = "ask"
+	}
 	if cfg.Policy.DefaultMessage == "" {
 		cfg.Policy.DefaultMessage = "Command not allowed"
 	}
@@ -253,9 +258,10 @@ func DefaultConfig() *Config {
 	return &Config{
 		Path: "(default)",
 		Policy: PolicyConfig{
-			Default:         "ask",
-			DynamicCommands: "ask",
-			DefaultMessage:  "Command not allowed",
+			Default:            "ask",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "ask",
+			DefaultMessage:     "Command not allowed",
 		},
 		Constructs: ConstructsConfig{
 			Subshells:           "ask",

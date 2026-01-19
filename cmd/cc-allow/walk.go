@@ -9,12 +9,14 @@ import (
 
 // Command represents an extracted command with its context.
 type Command struct {
-	Name      string       // command name (may contain $VAR for dynamic)
-	Args      []string     // all arguments including command name
-	IsDynamic bool         // true if command name contains variables/substitutions
-	PipesTo   []string     // commands this pipes to (immediate next in pipeline)
-	PipesFrom []string     // all commands upstream in the pipeline
-	Stmt      *syntax.Stmt // original statement for redirect access
+	Name         string       // command name (may contain $VAR for dynamic)
+	Args         []string     // all arguments including command name
+	IsDynamic    bool         // true if command name contains variables/substitutions
+	PipesTo      []string     // commands this pipes to (immediate next in pipeline)
+	PipesFrom    []string     // all commands upstream in the pipeline
+	Stmt         *syntax.Stmt // original statement for redirect access
+	ResolvedPath string       // absolute path to command (empty for builtins/unresolved)
+	IsBuiltin    bool         // true if shell builtin (bypasses path resolution)
 }
 
 // Redirect represents an extracted redirect operation.

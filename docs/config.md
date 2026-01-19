@@ -39,7 +39,17 @@ Within a single config, when multiple rules match a command, the **most specific
 default = "ask"               # "allow", "deny", or "ask"
 dynamic_commands = "ask"      # action for $VAR or $(cmd) as command name
 default_message = "Command not allowed"
+# allowed_paths = ["/usr/bin", "/bin", "/usr/local/bin"]  # optional: restrict command search
+unresolved_commands = "ask"   # "ask" or "deny" for commands not found in PATH
 ```
+
+#### Command Path Resolution
+
+cc-allow resolves command names to their absolute filesystem paths using `allowed_paths` (or `$PATH` if not specified). This enables security controls based on where commands are located.
+
+- **Shell builtins** (`cd`, `exit`, `source`, etc.) bypass path resolution entirely
+- **Unresolved commands** (not found) are handled according to `unresolved_commands` policy
+- When `allowed_paths` is set across multiple configs, the intersection is used (most restrictive)
 
 ### Quick Allow/Deny Lists
 
@@ -55,6 +65,21 @@ message = "Dangerous command not allowed"
 ```
 
 Commands in the deny list are checked first. Commands in the allow list are allowed unless a more specific rule denies them.
+
+Command names can use the `path:` prefix to match by resolved filesystem path:
+
+```toml
+[commands.allow]
+names = [
+    "git",                           # match by name
+    "path:$PROJECT_ROOT/bin/*",      # allow project-local binaries
+    "path:/usr/bin/ls",              # allow ls only from /usr/bin
+]
+
+[commands.deny]
+names = ["path:/tmp/**"]             # deny any command from /tmp
+message = "Commands from /tmp not allowed"
+```
 
 ### Constructs
 
@@ -142,9 +167,25 @@ When running `rm file.txt`:
 
 | Field | Description |
 |-------|-------------|
-| `command` | Command name to match, or `"*"` for any command |
+| `command` | Command name, `"*"` for any, or `"path:..."` for path matching |
 | `action` | `"allow"`, `"deny"`, or `"ask"` |
 | `message` | Message to display when denied |
+
+The `command` field supports `path:` prefix to match against the resolved filesystem path:
+
+```toml
+# Allow any command from /usr/bin
+[[rule]]
+command = "path:/usr/bin/*"
+action = "allow"
+
+# Deny project-local scripts with specific args
+[[rule]]
+command = "path:$PROJECT_ROOT/scripts/*"
+action = "deny"
+[rule.args]
+any_match = ["--dangerous"]
+```
 
 #### Argument Matching
 

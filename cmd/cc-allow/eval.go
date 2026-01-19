@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"cc-allow/pkg/pathutil"
 )
@@ -113,19 +114,52 @@ func actionPriority(action string) int {
 
 // Evaluator applies configuration rules to extracted commands.
 type Evaluator struct {
-	chain    *ConfigChain
-	matchCtx *MatchContext
+	chain        *ConfigChain
+	matchCtx     *MatchContext
+	pathResolver *pathutil.CommandResolver
 }
 
 // NewEvaluator creates a new evaluator with the given configuration chain.
 func NewEvaluator(chain *ConfigChain) *Evaluator {
 	projectRoot := findProjectRoot()
+
+	// Compute allowed_paths by intersection (most restrictive wins)
+	// If no config specifies allowed_paths, use nil (falls back to $PATH)
+	var allowedPaths []string
+	for _, cfg := range chain.Configs {
+		if len(cfg.Policy.AllowedPaths) > 0 {
+			if allowedPaths == nil {
+				// First config with allowed_paths sets the initial list
+				allowedPaths = append([]string{}, cfg.Policy.AllowedPaths...)
+			} else {
+				// Intersect with subsequent configs
+				allowedPaths = intersectPaths(allowedPaths, cfg.Policy.AllowedPaths)
+			}
+		}
+	}
+
 	return &Evaluator{
 		chain: chain,
 		matchCtx: &MatchContext{
 			PathVars: pathutil.NewPathVars(projectRoot),
 		},
+		pathResolver: pathutil.NewCommandResolver(allowedPaths),
 	}
+}
+
+// intersectPaths returns paths that appear in both slices.
+func intersectPaths(a, b []string) []string {
+	set := make(map[string]bool)
+	for _, p := range a {
+		set[p] = true
+	}
+	var result []string
+	for _, p := range b {
+		if set[p] {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // NewEvaluatorSingle creates an evaluator from a single config (for backwards compatibility).
@@ -136,6 +170,7 @@ func NewEvaluatorSingle(cfg *Config) *Evaluator {
 		matchCtx: &MatchContext{
 			PathVars: pathutil.NewPathVars(projectRoot),
 		},
+		pathResolver: pathutil.NewCommandResolver(cfg.Policy.AllowedPaths),
 	}
 }
 
@@ -311,8 +346,27 @@ func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 		}
 	}
 
-	// Check quick deny list
-	if ContainsExact([]string{cmd.Name}, cfg.Commands.Deny.Names) {
+	// Resolve command path (populates cmd.ResolvedPath and cmd.IsBuiltin)
+	resolveResult := e.pathResolver.Resolve(cmd.Name)
+	cmd.ResolvedPath = resolveResult.Path
+	cmd.IsBuiltin = resolveResult.IsBuiltin
+
+	logDebug("    Resolved: path=%q builtin=%v unresolved=%v", cmd.ResolvedPath, cmd.IsBuiltin, resolveResult.Unresolved)
+
+	// Handle unresolved commands (not found and not builtin)
+	// Only deny early if policy is "deny" - otherwise let rule matching proceed
+	if resolveResult.Unresolved && cfg.Policy.UnresolvedCommands == "deny" {
+		logDebug("    Command not found, policy.unresolved_commands=deny")
+		return Result{
+			Action:  "deny",
+			Message: "Command not found in allowed paths",
+			Command: cmd.Name,
+			Source:  cfg.Path + ": unresolved command",
+		}
+	}
+
+	// Check quick deny list (matches by name or basename of resolved path)
+	if e.matchCommandName(cmd.Name, cmd.ResolvedPath, cfg.Commands.Deny.Names) {
 		logDebug("    Matched commands.deny.names")
 		msg := cfg.Commands.Deny.Message
 		if msg == "" {
@@ -327,7 +381,7 @@ func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 	}
 
 	// Check quick allow list (but still need to check rules for context)
-	inAllowList := ContainsExact([]string{cmd.Name}, cfg.Commands.Allow.Names)
+	inAllowList := e.matchCommandName(cmd.Name, cmd.ResolvedPath, cfg.Commands.Allow.Names)
 	if inAllowList {
 		logDebug("    In commands.allow.names (checking rules for context)")
 	}
@@ -374,6 +428,17 @@ func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 		return Result{Action: "allow"}
 	}
 
+	// For unresolved commands with "ask" policy, ask instead of using default
+	if resolveResult.Unresolved && cfg.Policy.UnresolvedCommands == "ask" {
+		logDebug("    No rules matched, command unresolved, policy.unresolved_commands=ask")
+		return Result{
+			Action:  "ask",
+			Message: "Command not found in allowed paths",
+			Command: cmd.Name,
+			Source:  cfg.Path + ": unresolved command requires approval",
+		}
+	}
+
 	// Use default policy
 	logDebug("    No rules matched, using policy.default=%s", cfg.Policy.Default)
 	return Result{
@@ -387,9 +452,11 @@ func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 // matchRuleWithConfig checks if a rule matches the command and returns the result.
 // Returns (result, matched) where matched indicates if the rule applied.
 func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Result, bool) {
-	// Check command name match
-	if rule.Command != "*" && rule.Command != cmd.Name {
-		return Result{}, false
+	// Check command name match (supports path: prefix for resolved path matching)
+	if rule.Command != "*" {
+		if !e.matchRuleCommand(rule.Command, cmd) {
+			return Result{}, false
+		}
 	}
 
 	// Get arguments (excluding command name)
@@ -509,6 +576,58 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 		Command: cmd.Name,
 		Source:  source,
 	}, true
+}
+
+// matchCommandName checks if a command matches any of the patterns in the list.
+// Patterns can be:
+//   - "path:..." - matches against the resolved path using path pattern matching
+//   - exact string - matches against command name OR basename of resolved path
+func (e *Evaluator) matchCommandName(name, resolvedPath string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if strings.HasPrefix(pattern, "path:") {
+			// Path pattern - match against resolved path
+			if resolvedPath == "" {
+				continue // Can't match path pattern without resolved path
+			}
+			p, err := ParsePattern(pattern)
+			if err != nil {
+				continue
+			}
+			if p.MatchWithContext(resolvedPath, e.matchCtx) {
+				return true
+			}
+		} else {
+			// Exact match against name or basename of resolved path
+			if pattern == name {
+				return true
+			}
+			if resolvedPath != "" && pattern == filepath.Base(resolvedPath) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// matchRuleCommand checks if a rule's command pattern matches the command.
+// Supports:
+//   - "*" - matches any command (handled by caller)
+//   - "path:..." - matches against resolved path using path pattern
+//   - exact string - matches against command name
+func (e *Evaluator) matchRuleCommand(ruleCommand string, cmd Command) bool {
+	if strings.HasPrefix(ruleCommand, "path:") {
+		// Path pattern - match against resolved path
+		if cmd.ResolvedPath == "" {
+			return false // Can't match path pattern without resolved path
+		}
+		p, err := ParsePattern(ruleCommand)
+		if err != nil {
+			return false
+		}
+		return p.MatchWithContext(cmd.ResolvedPath, e.matchCtx)
+	}
+	// Exact match against command name
+	return ruleCommand == cmd.Name
 }
 
 // evaluateRedirectWithConfig checks a redirect against a single config's rules.
