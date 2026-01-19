@@ -1003,6 +1003,97 @@ func TestHeredocNotTreatedAsRedirect(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// Here-String Tests (<<<)
+// ============================================================================
+
+func TestHereStringConstructDeny(t *testing.T) {
+	cfg := &Config{
+		Policy: PolicyConfig{Default: "allow"},
+		Constructs: ConstructsConfig{
+			Heredocs: "deny",
+		},
+	}
+
+	r := parseAndEval(t, cfg, "cat <<<hello")
+	if r.Action != "deny" {
+		t.Errorf("here-string should be denied when constructs.heredocs=deny, got %s", r.Action)
+	}
+}
+
+func TestHereStringConstructAllow(t *testing.T) {
+	cfg := &Config{
+		Policy: PolicyConfig{Default: "ask"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"cat"}},
+		},
+		Constructs: ConstructsConfig{
+			Heredocs: "allow",
+		},
+	}
+
+	r := parseAndEval(t, cfg, "cat <<<'hello world'")
+	if r.Action != "allow" {
+		t.Errorf("here-string should be allowed when constructs.heredocs=allow, got %s", r.Action)
+	}
+}
+
+func TestHereStringContentMatchDeny(t *testing.T) {
+	cfg := &Config{
+		Policy: PolicyConfig{Default: "ask"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"cat", "bash"}},
+		},
+		Constructs: ConstructsConfig{
+			Heredocs: "allow",
+		},
+		Heredocs: []HeredocRule{
+			{
+				Action:       "deny",
+				Message:      "Dangerous command detected",
+				ContentMatch: []string{"re:rm\\s+-rf", "re:sudo"},
+			},
+		},
+	}
+
+	// Safe here-string - no matching content
+	r := parseAndEval(t, cfg, "cat <<<'hello world'")
+	if r.Action != "allow" {
+		t.Errorf("safe here-string should be allowed, got %s", r.Action)
+	}
+
+	// Dangerous here-string - matches content_match
+	r = parseAndEval(t, cfg, "bash <<<'sudo rm -rf /'")
+	if r.Action != "deny" {
+		t.Errorf("dangerous here-string should be denied, got %s (source: %s)", r.Action, r.Source)
+	}
+}
+
+func TestHereStringNotTreatedAsRedirect(t *testing.T) {
+	cfg := &Config{
+		Policy: PolicyConfig{Default: "ask"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"cat"}},
+		},
+		Constructs: ConstructsConfig{
+			Heredocs: "allow",
+		},
+		Redirects: []RedirectRule{
+			{
+				Action:  "deny",
+				Message: "All redirects denied",
+				To:      RedirectTarget{Pattern: []string{"re:.*"}},
+			},
+		},
+	}
+
+	// Here-string should NOT be denied by the redirect rule
+	r := parseAndEval(t, cfg, "cat <<<hello")
+	if r.Action != "allow" {
+		t.Errorf("here-string should not be treated as redirect, got %s (message: %s)", r.Action, r.Message)
+	}
+}
+
 func TestPathPatternInRules(t *testing.T) {
 	// Test path patterns in rule evaluation
 	// Uses $HOME which is always available

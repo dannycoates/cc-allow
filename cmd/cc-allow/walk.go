@@ -30,11 +30,12 @@ type Redirect struct {
 	IsFdRedirect bool   // true if redirecting to a file descriptor (e.g., 2>&1)
 }
 
-// Heredoc represents an extracted heredoc (<<EOF ... EOF).
+// Heredoc represents an extracted heredoc (<<EOF ... EOF) or here-string (<<<).
 type Heredoc struct {
-	Delimiter string // the delimiter word (e.g., "EOF")
-	Body      string // the heredoc content
-	IsDynamic bool   // true if body contains variable expansions (unquoted delimiter)
+	Delimiter    string // the delimiter word (e.g., "EOF"); empty for here-strings
+	Body         string // the heredoc/here-string content
+	IsDynamic    bool   // true if body contains variable expansions (unquoted delimiter)
+	IsHereString bool   // true if this is a here-string (<<<) rather than heredoc (<<)
 }
 
 // FuncDef represents a function definition.
@@ -146,7 +147,7 @@ func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []str
 
 	// Extract redirects and heredocs from the statement
 	for _, redir := range stmt.Redirs {
-		// Check if this is a heredoc (<<, <<-, <<<)
+		// Check if this is a heredoc (<<, <<-)
 		if redir.Hdoc != nil {
 			info.Constructs.HasHeredocs = true
 			delimiter, _ := extractWord(redir.Word)
@@ -155,6 +156,18 @@ func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []str
 				Delimiter: delimiter,
 				Body:      body,
 				IsDynamic: isDynamic,
+			})
+			continue
+		}
+
+		// Check if this is a here-string (<<<)
+		if redir.Op == syntax.WordHdoc {
+			info.Constructs.HasHeredocs = true
+			body, isDynamic := extractWord(redir.Word)
+			info.Heredocs = append(info.Heredocs, Heredoc{
+				Body:         body,
+				IsDynamic:    isDynamic,
+				IsHereString: true,
 			})
 			continue
 		}

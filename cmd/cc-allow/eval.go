@@ -653,9 +653,13 @@ func (e *Evaluator) matchTrackedRedirectRule(tr TrackedRedirectRule, redir Redir
 	}, true
 }
 
-// evaluateHeredocMerged checks a heredoc against the merged config.
+// evaluateHeredocMerged checks a heredoc or here-string against the merged config.
 func (e *Evaluator) evaluateHeredocMerged(hdoc Heredoc) Result {
-	logDebug("  Evaluating heredoc (delimiter=%q, body length=%d)", hdoc.Delimiter, len(hdoc.Body))
+	if hdoc.IsHereString {
+		logDebug("  Evaluating here-string (body length=%d)", len(hdoc.Body))
+	} else {
+		logDebug("  Evaluating heredoc (delimiter=%q, body length=%d)", hdoc.Delimiter, len(hdoc.Body))
+	}
 
 	// Evaluate heredoc rules (skip shadowed)
 	for i, tr := range e.merged.Heredocs {
@@ -692,7 +696,11 @@ func (e *Evaluator) matchTrackedHeredocRule(tr TrackedHeredocRule, hdoc Heredoc)
 		msg = e.merged.Policy.DefaultMessage.Value
 	}
 
-	source := tr.Source + ": heredoc rule matched"
+	ruleType := "heredoc"
+	if hdoc.IsHereString {
+		ruleType = "here-string"
+	}
+	source := tr.Source + ": " + ruleType + " rule matched"
 	if len(rule.ContentMatch) > 0 {
 		source += " (content_match)"
 	}
