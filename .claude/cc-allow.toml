@@ -60,7 +60,7 @@ names = [
     "md5sum", "sha1sum", "sha256sum", "sha512sum", "base64",
     "nix", "nix-env", "nix-shell",
     # Us
-    "path:$PROJECT_ROOT/cc-allow", "cc-query", "path:/tmp/cc-allow-test",
+    "path:$PROJECT_ROOT/cc-allow", "path:$PROJECT_ROOT/print-ast", "cc-query", "path:/tmp/cc-allow-test",
     # Remove commands (handled by rules below)
     "rm", "rmdir", "chmod",
 ]
@@ -136,7 +136,7 @@ pattern = ["path:/tmp/**"]
 action = "deny"
 message = "Cannot write to system directories"
 [redirect.to]
-pattern = ["path:etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**", "path:/var/**"]
+pattern = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**", "path:/var/**"]
 
 # Block writes to home directory dotfiles
 [[redirect]]
@@ -156,4 +156,4 @@ any_match = ["path:/tmp/**", "path:$PROJECT_ROOT/**"]
 [[rule]]
 command = "cd"
 action = "deny"
-message = "cd only allowed to /tmp or project directory"
+message = "cd only allowed to /tmp or project (sub)directories"

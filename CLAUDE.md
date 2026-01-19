@@ -94,8 +94,10 @@ The harness (`harness_test.go`) runs command sets against multiple rulesets defi
 - **Fmt mode**: `cc-allow --fmt` - Validate and display config
 - **Init mode**: `cc-allow --init` - Create project config from template
 
-## Key Dependencies
+## Debugging
 
-- `mvdan.cc/sh/v3` - Bash parser
-- `github.com/BurntSushi/toml` - Config parsing
-- `github.com/bmatcuk/doublestar/v4` - Glob matching
+Use `./print-ast` to see what the AST of a bash string is.
+
+```sh
+echo "./cc-allow --debug <<< 'rm -r folder'" | ./print-ast
+```
