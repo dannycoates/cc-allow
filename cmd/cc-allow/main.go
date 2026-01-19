@@ -287,14 +287,15 @@ func logDebugConfigChain(chain *ConfigChain) {
 	}
 	logDebug("Config chain: %d config(s) loaded", len(chain.Configs))
 	for i, cfg := range chain.Configs {
-		logDebug("  [%d] policy.default=%s, policy.dynamic_commands=%s", i, cfg.Policy.Default, cfg.Policy.DynamicCommands)
+		logDebug("  [%d] %s", i, cfg.Path)
+		logDebug("      policy: default=%s, dynamic_commands=%s", cfg.Policy.Default, cfg.Policy.DynamicCommands)
 		if len(cfg.Commands.Deny.Names) > 0 {
-			logDebug("      commands.deny.names=%v", cfg.Commands.Deny.Names)
+			logDebug("      commands.deny: %s", strings.Join(cfg.Commands.Deny.Names, ", "))
 		}
 		if len(cfg.Commands.Allow.Names) > 0 {
-			logDebug("      commands.allow.names=%v", cfg.Commands.Allow.Names)
+			logDebug("      commands.allow: %s", strings.Join(cfg.Commands.Allow.Names, ", "))
 		}
-		logDebug("      %d rule(s), %d redirect rule(s)", len(cfg.Rules), len(cfg.Redirects))
+		logDebug("      %d rule(s), %d redirect(s), %d heredoc(s)", len(cfg.Rules), len(cfg.Redirects), len(cfg.Heredocs))
 	}
 }
 

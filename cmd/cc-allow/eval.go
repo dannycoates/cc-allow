@@ -154,7 +154,8 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	overallResult := Result{Action: "ask"} // start with no decision, configs provide decisions
 
 	// Evaluate against each config, combining results
-	for _, cfg := range e.chain.Configs {
+	for i, cfg := range e.chain.Configs {
+		logDebug("--- Evaluating config[%d]: %s ---", i, cfg.Path)
 		result := e.evaluateWithConfig(cfg, info)
 		overallResult = combineResultsAcrossConfigs(overallResult, result)
 
