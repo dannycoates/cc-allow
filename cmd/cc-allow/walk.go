@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -17,6 +19,7 @@ type Command struct {
 	Stmt         *syntax.Stmt // original statement for redirect access
 	ResolvedPath string       // absolute path to command (empty for builtins/unresolved)
 	IsBuiltin    bool         // true if shell builtin (bypasses path resolution)
+	EffectiveCwd string       // working directory this command would run in (after cd tracking)
 }
 
 // Redirect represents an extracted redirect operation.
@@ -61,9 +64,54 @@ type ExtractedInfo struct {
 	ParseError error
 }
 
+// walkState tracks state during AST walking, particularly the effective
+// working directory after cd commands.
+type walkState struct {
+	effectiveCwd string
+}
+
+// newWalkState creates a new walkState initialized with the current working directory.
+func newWalkState() *walkState {
+	cwd, _ := os.Getwd()
+	return &walkState{effectiveCwd: cwd}
+}
+
+// resolveCdTarget returns the new working directory after a cd command.
+// Returns empty string if the target cannot be statically determined.
+func resolveCdTarget(args []string, currentCwd string) string {
+	if len(args) <= 1 {
+		// cd with no args goes to home
+		return os.Getenv("HOME")
+	}
+	target := args[1] // args[0] is "cd" itself
+
+	// Can't track dynamic args, -, or OLDPWD
+	if strings.HasPrefix(target, "$") || target == "-" {
+		return ""
+	}
+
+	// Handle ~ expansion
+	if target == "~" || strings.HasPrefix(target, "~/") {
+		home := os.Getenv("HOME")
+		if target == "~" {
+			return home
+		}
+		return filepath.Join(home, target[2:])
+	}
+
+	// Absolute path
+	if filepath.IsAbs(target) {
+		return filepath.Clean(target)
+	}
+
+	// Relative path
+	return filepath.Clean(filepath.Join(currentCwd, target))
+}
+
 // ExtractFromFile extracts all relevant information from a parsed file.
 func ExtractFromFile(f *syntax.File) *ExtractedInfo {
 	info := &ExtractedInfo{}
+	state := newWalkState()
 
 	// First pass: find function definitions
 	syntax.Walk(f, func(node syntax.Node) bool {
@@ -77,8 +125,9 @@ func ExtractFromFile(f *syntax.File) *ExtractedInfo {
 	})
 
 	// Second pass: extract commands and their contexts
+	// Propagate state through sequential statements (;-separated become separate Stmts)
 	for _, stmt := range f.Stmts {
-		extractFromStmt(stmt, info, nil, nil)
+		state = extractFromStmt(stmt, info, nil, nil, state)
 	}
 
 	return info
@@ -87,7 +136,9 @@ func ExtractFromFile(f *syntax.File) *ExtractedInfo {
 // extractFromStmt processes a statement and extracts commands/redirects.
 // pipeToContext: commands this statement pipes TO (downstream)
 // pipeFromContext: commands this statement receives FROM (upstream)
-func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []string, pipeFromContext []string) {
+// state: current walk state including effective working directory
+// Returns the updated walk state after processing this statement.
+func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []string, pipeFromContext []string, state *walkState) *walkState {
 	// Check for background execution
 	if stmt.Background {
 		info.Constructs.HasBackground = true
@@ -123,14 +174,17 @@ func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []str
 
 	// Process the command
 	if stmt.Cmd != nil {
-		extractFromCmd(stmt.Cmd, info, pipeToContext, pipeFromContext, stmt)
+		return extractFromCmd(stmt.Cmd, info, pipeToContext, pipeFromContext, stmt, state)
 	}
+	return state
 }
 
 // extractFromCmd processes different command types.
 // pipeToContext: commands this pipes TO (downstream)
 // pipeFromContext: commands this receives FROM (upstream)
-func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeToContext []string, pipeFromContext []string, stmt *syntax.Stmt) {
+// state: current walk state including effective working directory
+// Returns the updated walk state after processing this command.
+func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeToContext []string, pipeFromContext []string, stmt *syntax.Stmt, state *walkState) *walkState {
 	switch c := cmd.(type) {
 	case *syntax.CallExpr:
 		if len(c.Args) > 0 {
@@ -140,14 +194,25 @@ func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeToContext []str
 				args[i], _ = extractWord(arg)
 			}
 			info.Commands = append(info.Commands, Command{
-				Name:      name,
-				Args:      args,
-				IsDynamic: isDynamic,
-				PipesTo:   pipeToContext,
-				PipesFrom: pipeFromContext,
-				Stmt:      stmt,
+				Name:         name,
+				Args:         args,
+				IsDynamic:    isDynamic,
+				PipesTo:      pipeToContext,
+				PipesFrom:    pipeFromContext,
+				Stmt:         stmt,
+				EffectiveCwd: state.effectiveCwd,
 			})
+
+			// Check if this is cd and update state for subsequent commands
+			if name == "cd" {
+				if newCwd := resolveCdTarget(args, state.effectiveCwd); newCwd != "" {
+					return &walkState{effectiveCwd: newCwd}
+				}
+				// Can't determine new CWD, reset to empty (will use os.Getwd at eval time)
+				return &walkState{effectiveCwd: ""}
+			}
 		}
+		return state
 
 	case *syntax.BinaryCmd:
 		// Handle pipes
@@ -157,72 +222,95 @@ func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeToContext []str
 			leftCmds := extractCommandNames(c.X)
 
 			// Left side: pipes to right side, receives from current upstream
-			extractFromStmt(c.X, info, rightCmds, pipeFromContext)
+			// Pipes don't propagate cd effects (concurrent execution)
+			extractFromStmt(c.X, info, rightCmds, pipeFromContext, state)
 
 			// Right side: pipes to outer context, receives from left + current upstream
 			newFromContext := append([]string{}, pipeFromContext...)
 			newFromContext = append(newFromContext, leftCmds...)
-			extractFromStmt(c.Y, info, pipeToContext, newFromContext)
+			extractFromStmt(c.Y, info, pipeToContext, newFromContext, state)
+			return state
+		} else if c.Op == syntax.AndStmt {
+			// &&: propagate state from left to right (cd succeeded, next command runs)
+			newState := extractFromStmt(c.X, info, pipeToContext, pipeFromContext, state)
+			return extractFromStmt(c.Y, info, pipeToContext, pipeFromContext, newState)
 		} else {
-			// && or || - both sides get same pipe context (no pipe relationship)
-			extractFromStmt(c.X, info, pipeToContext, pipeFromContext)
-			extractFromStmt(c.Y, info, pipeToContext, pipeFromContext)
+			// || (OrStmt): don't propagate state (right runs only if left fails)
+			extractFromStmt(c.X, info, pipeToContext, pipeFromContext, state)
+			extractFromStmt(c.Y, info, pipeToContext, pipeFromContext, state)
+			return state
 		}
 
 	case *syntax.Subshell:
+		// Subshell has isolated environment - cd changes don't propagate out
+		subState := &walkState{effectiveCwd: state.effectiveCwd}
 		for _, s := range c.Stmts {
-			extractFromStmt(s, info, pipeToContext, pipeFromContext)
+			subState = extractFromStmt(s, info, pipeToContext, pipeFromContext, subState)
 		}
+		return state // Return original state, not subshell's modified state
 
 	case *syntax.Block:
+		// Block { ... } shares environment with parent
+		blockState := state
 		for _, s := range c.Stmts {
-			extractFromStmt(s, info, pipeToContext, pipeFromContext)
+			blockState = extractFromStmt(s, info, pipeToContext, pipeFromContext, blockState)
 		}
+		return blockState
 
 	case *syntax.IfClause:
+		// Conditions and branches don't predictably affect CWD
 		for _, s := range c.Cond {
-			extractFromStmt(s, info, pipeToContext, pipeFromContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext, state)
 		}
 		for _, s := range c.Then {
-			extractFromStmt(s, info, pipeToContext, pipeFromContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext, state)
 		}
 		if c.Else != nil {
-			extractFromCmd(c.Else, info, pipeToContext, pipeFromContext, stmt)
+			extractFromCmd(c.Else, info, pipeToContext, pipeFromContext, stmt, state)
 		}
+		return state
 
 	case *syntax.WhileClause:
 		for _, s := range c.Cond {
-			extractFromStmt(s, info, pipeToContext, pipeFromContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext, state)
 		}
 		for _, s := range c.Do {
-			extractFromStmt(s, info, pipeToContext, pipeFromContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext, state)
 		}
+		return state
 
 	case *syntax.ForClause:
 		for _, s := range c.Do {
-			extractFromStmt(s, info, pipeToContext, pipeFromContext)
+			extractFromStmt(s, info, pipeToContext, pipeFromContext, state)
 		}
+		return state
 
 	case *syntax.CaseClause:
 		for _, item := range c.Items {
 			for _, s := range item.Stmts {
-				extractFromStmt(s, info, pipeToContext, pipeFromContext)
+				extractFromStmt(s, info, pipeToContext, pipeFromContext, state)
 			}
 		}
+		return state
 
 	case *syntax.ArithmCmd, *syntax.TestClause, *syntax.DeclClause, *syntax.LetClause:
 		// These don't contain executable commands we need to check
+		return state
 
 	case *syntax.CoprocClause:
 		if c.Stmt != nil {
-			extractFromStmt(c.Stmt, info, pipeToContext, pipeFromContext)
+			// Coprocess runs in background, doesn't affect our CWD
+			extractFromStmt(c.Stmt, info, pipeToContext, pipeFromContext, state)
 		}
+		return state
 
 	case *syntax.TimeClause:
 		if c.Stmt != nil {
-			extractFromStmt(c.Stmt, info, pipeToContext, pipeFromContext)
+			return extractFromStmt(c.Stmt, info, pipeToContext, pipeFromContext, state)
 		}
+		return state
 	}
+	return state
 }
 
 // extractCommandNames gets all command names from a statement (for pipe context).

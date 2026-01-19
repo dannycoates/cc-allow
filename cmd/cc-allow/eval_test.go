@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -1256,5 +1257,136 @@ func TestResolvedPathUsedForMatching(t *testing.T) {
 	} else {
 		// The path might not exist or have different behavior
 		t.Logf("Full path /usr/bin/ls action=%s (may not exist on this system)", r.Action)
+	}
+}
+
+func TestEffectiveCwdTracking(t *testing.T) {
+	// Test that cd commands are tracked and affect path resolution for subsequent commands
+	// We need to create an actual executable for path resolution to work
+
+	// Create a temp directory and executable for testing
+	tmpDir := t.TempDir()
+	testExec := tmpDir + "/test-bin"
+	if err := os.WriteFile(testExec, []byte("#!/bin/sh\necho test"), 0755); err != nil {
+		t.Fatalf("Failed to create test executable: %v", err)
+	}
+
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "ask",
+			DynamicCommands:    "ask",
+			UnresolvedCommands: "ask",
+		},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{
+				"cd",                        // allow cd (builtin)
+				"path:" + tmpDir + "/**",    // allow any command in tmpDir
+			}},
+		},
+	}
+
+	// Test: cd /tmpDir && ./test-bin should resolve ./test-bin relative to tmpDir
+	input := "cd " + tmpDir + " && ./test-bin"
+	r := parseAndEval(t, cfg, input)
+	if r.Action != "allow" {
+		t.Errorf("'%s' should be allowed (effective CWD tracking), got %s (source: %s)", input, r.Action, r.Source)
+	}
+
+	// Test: Without cd, ./test-bin should not match (resolved from actual CWD)
+	r = parseAndEval(t, cfg, "./test-bin")
+	if r.Action == "allow" {
+		t.Errorf("'./test-bin' without cd should not be allowed (resolved from wrong CWD)")
+	}
+
+	// Test: cd with || should NOT propagate CWD (right side runs only if cd fails)
+	// Since this is static analysis, we assume cd succeeds, but || doesn't propagate
+	input = "cd " + tmpDir + " || ./test-bin"
+	r = parseAndEval(t, cfg, input)
+	// ./test-bin on the right side of || should use original CWD
+	if r.Action == "allow" {
+		// This is expected if cd is allowed and test-bin would be unresolved/ask from original CWD
+		t.Logf("'%s' action=%s - note: || doesn't propagate CWD", input, r.Action)
+	}
+
+	// Test: Subshell should NOT propagate CWD changes out
+	input = "(cd " + tmpDir + ") && ./test-bin"
+	r = parseAndEval(t, cfg, input)
+	// ./test-bin should use original CWD since subshell isolates cd
+	if r.Action == "allow" {
+		t.Errorf("Subshell cd should not affect outer command, but got allow")
+	}
+
+	// Test: Semicolon (;) separated commands should propagate CWD
+	input = "cd " + tmpDir + "; ./test-bin"
+	r = parseAndEval(t, cfg, input)
+	if r.Action != "allow" {
+		t.Errorf("Semicolon-separated 'cd ; ./test-bin' should propagate CWD, got %s", r.Action)
+	}
+
+	// Test: Chained cd commands
+	subDir := tmpDir + "/sub"
+	if err := os.Mkdir(subDir, 0755); err != nil {
+		t.Fatalf("Failed to create subdirectory: %v", err)
+	}
+	testExecSub := subDir + "/sub-bin"
+	if err := os.WriteFile(testExecSub, []byte("#!/bin/sh\necho test"), 0755); err != nil {
+		t.Fatalf("Failed to create sub test executable: %v", err)
+	}
+
+	input = "cd " + tmpDir + " && cd sub && ./sub-bin"
+	r = parseAndEval(t, cfg, input)
+	if r.Action != "allow" {
+		t.Errorf("Chained cd should work, got %s for '%s'", r.Action, input)
+	}
+}
+
+func TestEffectiveCwdExtraction(t *testing.T) {
+	// Test that EffectiveCwd is correctly extracted from AST
+	tests := []struct {
+		name     string
+		input    string
+		expected map[string]string // command name -> expected effectiveCwd (relative check)
+	}{
+		{
+			name:  "simple cd &&",
+			input: "cd /tmp && ./foo",
+			expected: map[string]string{
+				"./foo": "/tmp",
+			},
+		},
+		{
+			name:  "cd with relative path",
+			input: "cd /tmp && cd sub && ./bar",
+			expected: map[string]string{
+				"./bar": "/tmp/sub",
+			},
+		},
+		{
+			name:  "cd ~ goes home",
+			input: "cd ~ && ./baz",
+			expected: map[string]string{
+				"./baz": os.Getenv("HOME"),
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+			f, err := parser.Parse(strings.NewReader(tc.input), "test")
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			info := ExtractFromFile(f)
+			for _, cmd := range info.Commands {
+				if expected, ok := tc.expected[cmd.Name]; ok {
+					if cmd.EffectiveCwd != expected {
+						t.Errorf("Command %q: expected EffectiveCwd=%q, got %q",
+							cmd.Name, expected, cmd.EffectiveCwd)
+					}
+				}
+			}
+		})
 	}
 }

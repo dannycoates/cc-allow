@@ -282,8 +282,8 @@ func (e *Evaluator) evaluateCommandMerged(cmd Command) Result {
 		}
 	}
 
-	// Resolve command path
-	resolveResult := e.pathResolver.Resolve(cmd.Name)
+	// Resolve command path using effective CWD (which tracks cd commands in the script)
+	resolveResult := e.pathResolver.ResolveWithCwd(cmd.Name, cmd.EffectiveCwd)
 	cmd.ResolvedPath = resolveResult.Path
 	cmd.IsBuiltin = resolveResult.IsBuiltin
 

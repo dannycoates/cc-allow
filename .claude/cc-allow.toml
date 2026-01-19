@@ -60,7 +60,7 @@ names = [
     "md5sum", "sha1sum", "sha256sum", "sha512sum", "base64",
     "nix", "nix-env", "nix-shell",
     # Us
-    "path:$PROJECT_DIR/cc-allow", "cc-query", "path:/tmp/cc-allow-test",
+    "path:$PROJECT_ROOT/cc-allow", "cc-query", "path:/tmp/cc-allow-test",
     # Remove commands (handled by rules below)
     "rm", "rmdir", "chmod",
 ]

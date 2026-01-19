@@ -32,7 +32,16 @@ func NewCommandResolver(allowedPaths []string) *CommandResolver {
 
 // Resolve looks up a command name and returns its resolved information.
 // The result is cached for the lifetime of this resolver.
+// Uses the actual current working directory for resolving relative paths.
 func (r *CommandResolver) Resolve(name string) ResolveResult {
+	cwd, _ := os.Getwd()
+	return r.ResolveWithCwd(name, cwd)
+}
+
+// ResolveWithCwd looks up a command name using the specified working directory
+// for resolving relative paths. If effectiveCwd is empty, falls back to os.Getwd().
+// The result is cached for the lifetime of this resolver.
+func (r *CommandResolver) ResolveWithCwd(name string, effectiveCwd string) ResolveResult {
 	// Check if it's a builtin first
 	if IsBuiltin(name) {
 		return ResolveResult{IsBuiltin: true}
@@ -48,7 +57,10 @@ func (r *CommandResolver) Resolve(name string) ResolveResult {
 
 	// If it's a relative path (contains / but not absolute), resolve it
 	if strings.Contains(name, "/") {
-		cwd, _ := os.Getwd()
+		cwd := effectiveCwd
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
 		absPath := filepath.Join(cwd, name)
 		absPath = filepath.Clean(absPath)
 		if resolved, err := filepath.EvalSymlinks(absPath); err == nil {
