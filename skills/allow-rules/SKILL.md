@@ -147,7 +147,7 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 
 ### Negation
 
-Prepend `!` to patterns with explicit prefixes (`path:`, `re:`, `glob:`) to negate the match:
+Prepend "!" to patterns with explicit prefixes (`path:`, `re:`, `glob:`) to negate the match:
 
 ```toml
 # Allow rm only for paths NOT under /etc

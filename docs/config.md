@@ -306,7 +306,7 @@ Without a prefix, the string is matched exactly (or treated as glob if it contai
 
 ### Negation
 
-Prepend `!` to patterns with explicit prefixes (`path:`, `re:`, `glob:`) to negate the match:
+Prepend "!" to patterns with explicit prefixes (`path:`, `re:`, `glob:`) to negate the match:
 
 ```toml
 # Match anything that is NOT a .txt file

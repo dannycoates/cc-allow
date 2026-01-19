@@ -103,7 +103,7 @@ More specific rules win regardless of order:
 command = "rm"
 action = "allow"
 
-# But deny rm -rf (specificity: 110)
+# But deny rm -r (specificity: 110)
 [[rule]]
 command = "rm"
 action = "deny"
