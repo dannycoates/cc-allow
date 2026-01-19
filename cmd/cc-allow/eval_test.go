@@ -449,9 +449,9 @@ func TestConfigChainDenyFromLowerConfig(t *testing.T) {
 		Policy: PolicyConfig{Default: "allow"},
 	}
 
-	// Project config denies rm
+	// Project config denies rm but inherits default from global (empty string = inherit)
 	projectCfg := &Config{
-		Policy: PolicyConfig{Default: "ask"},
+		// Policy.Default left empty to inherit global's "allow"
 		Commands: CommandsConfig{
 			Deny: CommandList{Names: []string{"rm"}, Message: "rm denied"},
 		},
@@ -463,7 +463,7 @@ func TestConfigChainDenyFromLowerConfig(t *testing.T) {
 		t.Errorf("project deny should override global default allow, got %s", r.Action)
 	}
 
-	// Test: other commands get global's allow
+	// Test: other commands get global's allow (project inherits default from global)
 	r = parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "ls -la")
 	if r.Action != "allow" {
 		t.Errorf("ls should be allowed by global config, got %s", r.Action)
@@ -526,6 +526,155 @@ func TestConfigChainConstructs(t *testing.T) {
 	r := parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "foo() { echo bar; }")
 	if r.Action != "deny" {
 		t.Errorf("function definition should be denied by project, got %s", r.Action)
+	}
+}
+
+func TestConfigChainRedirectRulesInheritance(t *testing.T) {
+	// This tests the bug where cc-allow.local.toml with no redirect rules
+	// was overriding explicit allow from cc-allow.toml
+
+	// Project config explicitly allows redirects to /dev/null
+	projectCfg := &Config{
+		Policy: PolicyConfig{Default: "ask"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"echo"}},
+		},
+		Redirects: []RedirectRule{
+			{Action: "allow", To: RedirectTarget{Exact: []string{"/dev/null"}}},
+		},
+	}
+
+	// Local config has no redirect rules (just debug settings in real world)
+	// This should NOT override the project's explicit allow
+	localCfg := &Config{
+		// No Policy set (inherits from project)
+		// No Redirects set
+	}
+
+	// Test: redirect to /dev/null should be allowed by project config
+	r := parseAndEvalChain(t, []*Config{projectCfg, localCfg}, "echo test 2>/dev/null")
+	if r.Action != "allow" {
+		t.Errorf("redirect to /dev/null should be allowed by project config, got %s (source: %s)", r.Action, r.Source)
+	}
+}
+
+func TestConfigChainEmptyLocalDoesNotWeakenPolicy(t *testing.T) {
+	// Project config has explicit allow for ls
+	projectCfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "deny", // strict default
+			UnresolvedCommands: "deny", // also deny unresolved
+		},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"ls", "echo"}},
+		},
+	}
+
+	// Local config is essentially empty (no policy, no commands)
+	localCfg := &Config{
+		// Everything empty - should inherit from project
+	}
+
+	// Test: ls should still be allowed (project's allow list applies)
+	r := parseAndEvalChain(t, []*Config{projectCfg, localCfg}, "ls -la")
+	if r.Action != "allow" {
+		t.Errorf("ls should be allowed by project's allow list, got %s", r.Action)
+	}
+
+	// Test: unknown command should be denied (project's unresolved_commands=deny applies)
+	r = parseAndEvalChain(t, []*Config{projectCfg, localCfg}, "unknown_command")
+	if r.Action != "deny" {
+		t.Errorf("unknown command should be denied by project's policy, got %s", r.Action)
+	}
+}
+
+func TestConfigChainPolicyDefaultInheritance(t *testing.T) {
+	// Global config sets default to allow (and unresolved to allow for testing)
+	globalCfg := &Config{
+		Policy: PolicyConfig{
+			Default:            "allow",
+			UnresolvedCommands: "allow", // allow unresolved so we can test default
+		},
+	}
+
+	// Project config doesn't set default (should inherit "allow")
+	projectCfg := &Config{
+		// Policy.Default is empty - should inherit from global
+		Commands: CommandsConfig{
+			Deny: CommandList{Names: []string{"rm"}},
+		},
+	}
+
+	// Local config also doesn't set default
+	localCfg := &Config{
+		// Everything empty
+	}
+
+	// Test: unresolved command uses inherited "allow" from global
+	r := parseAndEvalChain(t, []*Config{globalCfg, projectCfg, localCfg}, "some_command")
+	if r.Action != "allow" {
+		t.Errorf("should inherit allow from global, got %s (source: %s)", r.Action, r.Source)
+	}
+
+	// Test: rm should be denied by project's deny list
+	r = parseAndEvalChain(t, []*Config{globalCfg, projectCfg, localCfg}, "rm file")
+	if r.Action != "deny" {
+		t.Errorf("rm should be denied by project, got %s", r.Action)
+	}
+}
+
+func TestConfigChainStricterPolicyWins(t *testing.T) {
+	// Global config sets default to allow
+	globalCfg := &Config{
+		Policy: PolicyConfig{Default: "allow"},
+	}
+
+	// Project config sets stricter default (ask)
+	projectCfg := &Config{
+		Policy: PolicyConfig{Default: "ask"},
+	}
+
+	// Local config tries to set looser default (allow) - should be ignored
+	localCfg := &Config{
+		Policy: PolicyConfig{Default: "allow"}, // can't weaken!
+	}
+
+	// Test: should use "ask" from project (stricter than local's "allow")
+	r := parseAndEvalChain(t, []*Config{globalCfg, projectCfg, localCfg}, "unknown_cmd")
+	if r.Action != "ask" {
+		t.Errorf("should use stricter 'ask' from project, got %s", r.Action)
+	}
+}
+
+func TestConfigChainRedirectRulesAccumulate(t *testing.T) {
+	// Global config allows /dev/null
+	globalCfg := &Config{
+		Policy: PolicyConfig{Default: "ask"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"echo"}},
+		},
+		Redirects: []RedirectRule{
+			{Action: "allow", To: RedirectTarget{Exact: []string{"/dev/null"}}},
+		},
+	}
+
+	// Project config adds /tmp/** allow
+	projectCfg := &Config{
+		Redirects: []RedirectRule{
+			{Action: "allow", To: RedirectTarget{Pattern: []string{"path:/tmp/**"}}},
+		},
+	}
+
+	// Test: /dev/null allowed by global
+	r := parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "echo test >/dev/null")
+	if r.Action != "allow" {
+		t.Errorf("/dev/null should be allowed by global, got %s", r.Action)
+	}
+
+	// Test: /tmp/file allowed by project
+	r = parseAndEvalChain(t, []*Config{globalCfg, projectCfg}, "echo test >/tmp/output.txt")
+	if r.Action != "allow" {
+		t.Errorf("/tmp/output.txt should be allowed by project, got %s", r.Action)
 	}
 }
 

@@ -28,7 +28,7 @@ names = [
     # Network inspection (read-only)
     "ping", "dig", "nslookup", "host",
     # Us
-    "path:$PROJECT_DIR/cc-allow", "cc-query"
+    "path:$PROJECT_DIR/cc-allow", "cc-query", "path:/tmp/cc-allow-test"
 ]
 
 # Dangerous commands - always block

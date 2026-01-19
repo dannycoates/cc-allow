@@ -33,22 +33,6 @@ func combineActionsStrict(current, new string) string {
 	return "allow"
 }
 
-// combineActionsAcrossConfigs merges actions from different configs.
-// "ask" means "no opinion" and defers to explicit decisions from other configs.
-// deny > allow > ask
-func combineActionsAcrossConfigs(current, new string) string {
-	// deny always wins
-	if current == "deny" || new == "deny" {
-		return "deny"
-	}
-	// allow wins over ask (ask means "no opinion")
-	if current == "allow" || new == "allow" {
-		return "allow"
-	}
-	// both ask
-	return "ask"
-}
-
 // combineResults merges two results using strict ordering (for within-config use).
 // Keeps all fields from whichever result determined the action.
 func combineResults(current, new Result) Result {
@@ -74,31 +58,6 @@ func combineResults(current, new Result) Result {
 	return current
 }
 
-// combineResultsAcrossConfigs merges results from different configs.
-// "ask" is treated as "no opinion" and defers to explicit allow.
-func combineResultsAcrossConfigs(current, new Result) Result {
-	combined := combineActionsAcrossConfigs(current.Action, new.Action)
-
-	// Return the result that determined the combined action (preserves all fields)
-	if combined == "deny" {
-		if new.Action == "deny" {
-			return new
-		}
-		return current
-	}
-	if combined == "allow" {
-		if new.Action == "allow" {
-			return new
-		}
-		return current
-	}
-	// Both ask - prefer the one with more info (Source set)
-	if new.Source != "" {
-		return new
-	}
-	return current
-}
-
 // actionPriority returns a priority value for tie-breaking when rules have equal specificity.
 // Higher values win. Order: deny (2) > ask (1) > allow (0)
 func actionPriority(action string) int {
@@ -115,6 +74,7 @@ func actionPriority(action string) int {
 // Evaluator applies configuration rules to extracted commands.
 type Evaluator struct {
 	chain        *ConfigChain
+	merged       *MergedConfig
 	matchCtx     *MatchContext
 	pathResolver *pathutil.CommandResolver
 }
@@ -123,23 +83,22 @@ type Evaluator struct {
 func NewEvaluator(chain *ConfigChain) *Evaluator {
 	projectRoot := findProjectRoot()
 
-	// Compute allowed_paths by intersection (most restrictive wins)
-	// If no config specifies allowed_paths, use nil (falls back to $PATH)
+	// Compute merged config if not already set
+	merged := chain.Merged
+	if merged == nil && len(chain.Configs) > 0 {
+		merged = MergeConfigs(chain.Configs)
+		chain.Merged = merged
+	}
+
+	// Use the merged config's allowed paths (already unioned)
 	var allowedPaths []string
-	for _, cfg := range chain.Configs {
-		if len(cfg.Policy.AllowedPaths) > 0 {
-			if allowedPaths == nil {
-				// First config with allowed_paths sets the initial list
-				allowedPaths = append([]string{}, cfg.Policy.AllowedPaths...)
-			} else {
-				// Intersect with subsequent configs
-				allowedPaths = intersectPaths(allowedPaths, cfg.Policy.AllowedPaths)
-			}
-		}
+	if merged != nil {
+		allowedPaths = merged.Policy.AllowedPaths
 	}
 
 	return &Evaluator{
-		chain: chain,
+		chain:  chain,
+		merged: merged,
 		matchCtx: &MatchContext{
 			PathVars: pathutil.NewPathVars(projectRoot),
 		},
@@ -147,35 +106,27 @@ func NewEvaluator(chain *ConfigChain) *Evaluator {
 	}
 }
 
-// intersectPaths returns paths that appear in both slices.
-func intersectPaths(a, b []string) []string {
-	set := make(map[string]bool)
-	for _, p := range a {
-		set[p] = true
-	}
-	var result []string
-	for _, p := range b {
-		if set[p] {
-			result = append(result, p)
-		}
-	}
-	return result
-}
-
 // NewEvaluatorSingle creates an evaluator from a single config (for backwards compatibility).
 func NewEvaluatorSingle(cfg *Config) *Evaluator {
 	projectRoot := findProjectRoot()
+	// Create a merged config from the single config
+	merged := MergeConfigs([]*Config{cfg})
+	chain := &ConfigChain{
+		Configs: []*Config{cfg},
+		Merged:  merged,
+	}
 	return &Evaluator{
-		chain: &ConfigChain{Configs: []*Config{cfg}},
+		chain:  chain,
+		merged: merged,
 		matchCtx: &MatchContext{
 			PathVars: pathutil.NewPathVars(projectRoot),
 		},
-		pathResolver: pathutil.NewCommandResolver(cfg.Policy.AllowedPaths),
+		pathResolver: pathutil.NewCommandResolver(merged.Policy.AllowedPaths),
 	}
 }
 
-// Evaluate checks all extracted info against all configurations.
-// Combines results: deny wins over all, allow preserved unless denied, ask is neutral.
+// Evaluate checks all extracted info against the merged configuration.
+// Uses the single merged config with proper inheritance and strictness semantics.
 func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	// Check parse error
 	if info.ParseError != nil {
@@ -185,29 +136,15 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 		}
 	}
 
-	// Track overall result across all configs
-	overallResult := Result{Action: "ask"} // start with no decision, configs provide decisions
-
-	// Evaluate against each config, combining results
-	for i, cfg := range e.chain.Configs {
-		logDebug("--- Evaluating config[%d]: %s ---", i, cfg.Path)
-		result := e.evaluateWithConfig(cfg, info)
-		overallResult = combineResultsAcrossConfigs(overallResult, result)
-
-		// Early exit: if already denied, no point checking more configs
-		if overallResult.Action == "deny" {
-			return overallResult
-		}
+	// Use merged config for evaluation
+	if e.merged == nil {
+		return Result{Action: "ask", Source: "no configuration loaded"}
 	}
 
-	return overallResult
-}
+	logDebug("--- Evaluating against merged config (from %d source(s)) ---", len(e.merged.Sources))
 
-// evaluateWithConfig evaluates info against a single config.
-// Strictness order: deny > ask > allow. All commands must be allowed for allow result.
-func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result {
 	// Check constructs first (can deny or ask)
-	constructResult := e.checkConstructsWithConfig(cfg, info)
+	constructResult := e.checkConstructsMerged(info)
 	if constructResult.Action == "deny" {
 		return constructResult
 	}
@@ -222,7 +159,7 @@ func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result 
 
 	// Check each command
 	for _, cmd := range info.Commands {
-		cmdResult := e.evaluateCommandWithConfig(cfg, cmd)
+		cmdResult := e.evaluateCommandMerged(cmd)
 		result = combineResults(result, cmdResult)
 		if result.Action == "deny" {
 			return result // early exit on deny
@@ -231,7 +168,7 @@ func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result 
 
 	// Check redirects
 	for _, redir := range info.Redirects {
-		redirResult := e.evaluateRedirectWithConfig(cfg, redir)
+		redirResult := e.evaluateRedirectMerged(redir)
 		result = combineResults(result, redirResult)
 		if result.Action == "deny" {
 			return result // early exit on deny
@@ -239,10 +176,9 @@ func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result 
 	}
 
 	// Check heredocs (only if constructs.heredocs != "deny", which already returned above)
-	// If constructs.heredocs = "allow", check [[heredoc]] rules for fine-grained control
-	if cfg.Constructs.Heredocs == "allow" {
+	if e.merged.Constructs.Heredocs.Value == "allow" {
 		for _, hdoc := range info.Heredocs {
-			hdocResult := e.evaluateHeredocWithConfig(cfg, hdoc)
+			hdocResult := e.evaluateHeredocMerged(hdoc)
 			result = combineResults(result, hdocResult)
 			if result.Action == "deny" {
 				return result // early exit on deny
@@ -251,7 +187,6 @@ func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result 
 	}
 
 	// If no actual runnable commands, ask - don't auto-allow
-	// (Function definitions define but don't execute; background is just a modifier)
 	if len(info.Commands) == 0 && len(info.Redirects) == 0 && len(info.Heredocs) == 0 {
 		return Result{Action: "ask", Source: "no executable commands in input"}
 	}
@@ -259,81 +194,82 @@ func (e *Evaluator) evaluateWithConfig(cfg *Config, info *ExtractedInfo) Result 
 	return result
 }
 
-// checkConstructsWithConfig verifies shell constructs against a single config's policy.
-func (e *Evaluator) checkConstructsWithConfig(cfg *Config, info *ExtractedInfo) Result {
-	// Start with allow - only change if there's an issue
+// checkConstructsMerged verifies shell constructs against the merged config's policy.
+func (e *Evaluator) checkConstructsMerged(info *ExtractedInfo) Result {
 	result := Result{Action: "allow"}
 
 	if info.Constructs.HasFunctionDefs {
-		switch cfg.Constructs.FunctionDefinitions {
+		tv := e.merged.Constructs.FunctionDefinitions
+		switch tv.Value {
 		case "deny":
 			return Result{
 				Action:  "deny",
 				Message: "Function definitions are not allowed",
-				Source:  cfg.Path + ": constructs.function_definitions=deny",
+				Source:  tv.Source + ": constructs.function_definitions=deny",
 			}
 		case "ask":
 			result = Result{
 				Action:  "ask",
 				Message: "Function definitions need approval",
-				Source:  cfg.Path + ": constructs.function_definitions=ask",
+				Source:  tv.Source + ": constructs.function_definitions=ask",
 			}
 		}
-		// "allow" continues checking
 	}
 
 	if info.Constructs.HasBackground {
-		switch cfg.Constructs.Background {
+		tv := e.merged.Constructs.Background
+		switch tv.Value {
 		case "deny":
 			return Result{
 				Action:  "deny",
 				Message: "Background execution (&) is not allowed",
-				Source:  cfg.Path + ": constructs.background=deny",
+				Source:  tv.Source + ": constructs.background=deny",
 			}
 		case "ask":
 			result = combineResults(result, Result{
 				Action:  "ask",
 				Message: "Background execution needs approval",
-				Source:  cfg.Path + ": constructs.background=ask",
+				Source:  tv.Source + ": constructs.background=ask",
 			})
 		}
 	}
 
 	if info.Constructs.HasHeredocs {
-		switch cfg.Constructs.Heredocs {
+		tv := e.merged.Constructs.Heredocs
+		switch tv.Value {
 		case "deny":
 			return Result{
 				Action:  "deny",
 				Message: "Heredocs are not allowed",
-				Source:  cfg.Path + ": constructs.heredocs=deny",
+				Source:  tv.Source + ": constructs.heredocs=deny",
 			}
 		case "ask":
 			result = combineResults(result, Result{
 				Action:  "ask",
 				Message: "Heredocs need approval",
-				Source:  cfg.Path + ": constructs.heredocs=ask",
+				Source:  tv.Source + ": constructs.heredocs=ask",
 			})
 		}
-		// "allow" continues to check [[heredoc]] rules
 	}
 
 	return result
 }
 
-// evaluateCommandWithConfig checks a single command against a single config's rules.
-func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
+// evaluateCommandMerged checks a single command against the merged config.
+func (e *Evaluator) evaluateCommandMerged(cmd Command) Result {
 	logDebug("  Evaluating command %q", cmd.Name)
 
 	// Handle dynamic commands
 	if cmd.IsDynamic {
-		logDebug("    Command is dynamic, policy.dynamic_commands=%s", cfg.Policy.DynamicCommands)
-		switch cfg.Policy.DynamicCommands {
+		tv := e.merged.Policy.DynamicCommands
+		logDebug("    Command is dynamic, policy.dynamic_commands=%s (from %s)", tv.Value, tv.Source)
+		switch tv.Value {
 		case "deny":
 			return Result{
 				Action:  "deny",
 				Message: "Dynamic command names are not allowed",
 				Command: cmd.Name,
-				Source:  cfg.Path + ": dynamic command",
+				Source:  tv.Source + ": dynamic command",
 			}
 		case "allow":
 			return Result{Action: "allow"}
@@ -341,118 +277,157 @@ func (e *Evaluator) evaluateCommandWithConfig(cfg *Config, cmd Command) Result {
 			return Result{
 				Action:  "ask",
 				Command: cmd.Name,
-				Source:  cfg.Path + ": dynamic command requires approval",
+				Source:  tv.Source + ": dynamic command requires approval",
 			}
 		}
 	}
 
-	// Resolve command path (populates cmd.ResolvedPath and cmd.IsBuiltin)
+	// Resolve command path
 	resolveResult := e.pathResolver.Resolve(cmd.Name)
 	cmd.ResolvedPath = resolveResult.Path
 	cmd.IsBuiltin = resolveResult.IsBuiltin
 
 	logDebug("    Resolved: path=%q builtin=%v unresolved=%v", cmd.ResolvedPath, cmd.IsBuiltin, resolveResult.Unresolved)
 
-	// Handle unresolved commands (not found and not builtin)
-	// Only deny early if policy is "deny" - otherwise let rule matching proceed
-	if resolveResult.Unresolved && cfg.Policy.UnresolvedCommands == "deny" {
-		logDebug("    Command not found, policy.unresolved_commands=deny")
-		return Result{
-			Action:  "deny",
-			Message: "Command not found in allowed paths",
-			Command: cmd.Name,
-			Source:  cfg.Path + ": unresolved command",
+	// Handle unresolved commands
+	if resolveResult.Unresolved {
+		tv := e.merged.Policy.UnresolvedCommands
+		if tv.Value == "deny" {
+			logDebug("    Command not found, policy.unresolved_commands=deny")
+			return Result{
+				Action:  "deny",
+				Message: "Command not found in allowed paths",
+				Command: cmd.Name,
+				Source:  tv.Source + ": unresolved command",
+			}
 		}
 	}
 
-	// Check quick deny list (matches by name or basename of resolved path)
-	if e.matchCommandName(cmd.Name, cmd.ResolvedPath, cfg.Commands.Deny.Names) {
-		logDebug("    Matched commands.deny.names")
-		msg := cfg.Commands.Deny.Message
-		if msg == "" {
-			msg = cfg.Policy.DefaultMessage
-		}
-		return Result{
-			Action:  "deny",
-			Message: msg,
-			Command: cmd.Name,
-			Source:  cfg.Path + ": commands.deny.names",
+	// Check merged deny list
+	for _, entry := range e.merged.CommandsDeny {
+		if e.matchCommandNameSingle(cmd.Name, cmd.ResolvedPath, entry.Name) {
+			logDebug("    Matched commands.deny (from %s)", entry.Source)
+			msg := entry.Message
+			if msg == "" {
+				msg = e.merged.Policy.DefaultMessage.Value
+			}
+			return Result{
+				Action:  "deny",
+				Message: msg,
+				Command: cmd.Name,
+				Source:  entry.Source + ": commands.deny.names",
+			}
 		}
 	}
 
-	// Check quick allow list (but still need to check rules for context)
-	inAllowList := e.matchCommandName(cmd.Name, cmd.ResolvedPath, cfg.Commands.Allow.Names)
-	if inAllowList {
-		logDebug("    In commands.allow.names (checking rules for context)")
+	// Check merged allow list
+	var inAllowList bool
+	var allowSource string
+	for _, entry := range e.merged.CommandsAllow {
+		if e.matchCommandNameSingle(cmd.Name, cmd.ResolvedPath, entry.Name) {
+			inAllowList = true
+			allowSource = entry.Source
+			logDebug("    In commands.allow (from %s, checking rules for context)", entry.Source)
+			break
+		}
 	}
 
-	// Collect all matching rules with their specificity scores
+	// Collect all matching rules (skip shadowed rules)
 	type ruleMatch struct {
 		index       int
-		rule        Rule
+		rule        TrackedRule
 		specificity int
 		result      Result
 	}
 	var matches []ruleMatch
 
-	for i, rule := range cfg.Rules {
-		if result, matched := e.matchRuleWithConfig(cfg, rule, cmd); matched {
-			spec := rule.Specificity()
-			logDebug("    Rule[%d] matched: command=%q action=%s specificity=%d", i, rule.Command, rule.Action, spec)
+	for i, tr := range e.merged.Rules {
+		if tr.Shadowed {
+			continue // skip shadowed rules
+		}
+		if result, matched := e.matchTrackedRule(tr, cmd); matched {
+			spec := tr.Rule.Specificity()
+			logDebug("    Rule[%d] matched: command=%q action=%s specificity=%d (from %s)", i, tr.Rule.Command, tr.Rule.Action, spec, tr.Source)
 			matches = append(matches, ruleMatch{
 				index:       i,
-				rule:        rule,
+				rule:        tr,
 				specificity: spec,
 				result:      result,
 			})
 		}
 	}
 
-	// If we have matches, pick the most specific one
-	// Tie-break: deny > ask > allow (most restrictive wins)
+	// Pick the most specific rule
 	if len(matches) > 0 {
 		sort.SliceStable(matches, func(i, j int) bool {
 			if matches[i].specificity != matches[j].specificity {
 				return matches[i].specificity > matches[j].specificity
 			}
-			return actionPriority(matches[i].rule.Action) > actionPriority(matches[j].rule.Action)
+			return actionPriority(matches[i].rule.Rule.Action) > actionPriority(matches[j].rule.Rule.Action)
 		})
 		winner := matches[0]
-		logDebug("    Selected rule[%d] with specificity=%d action=%s", winner.index, winner.specificity, winner.rule.Action)
+		logDebug("    Selected rule[%d] with specificity=%d action=%s", winner.index, winner.specificity, winner.rule.Rule.Action)
 		return winner.result
 	}
 
 	// If in allow list and no rule matched, allow
 	if inAllowList {
 		logDebug("    No rules matched, using allow list")
-		return Result{Action: "allow"}
+		return Result{Action: "allow", Source: allowSource + ": commands.allow.names"}
 	}
 
-	// For unresolved commands with "ask" policy, ask instead of using default
-	if resolveResult.Unresolved && cfg.Policy.UnresolvedCommands == "ask" {
-		logDebug("    No rules matched, command unresolved, policy.unresolved_commands=ask")
-		return Result{
-			Action:  "ask",
-			Message: "Command not found in allowed paths",
-			Command: cmd.Name,
-			Source:  cfg.Path + ": unresolved command requires approval",
+	// For unresolved commands with "ask" policy
+	if resolveResult.Unresolved {
+		tv := e.merged.Policy.UnresolvedCommands
+		if tv.Value == "ask" {
+			logDebug("    No rules matched, command unresolved, policy.unresolved_commands=ask")
+			return Result{
+				Action:  "ask",
+				Message: "Command not found in allowed paths",
+				Command: cmd.Name,
+				Source:  tv.Source + ": unresolved command requires approval",
+			}
 		}
 	}
 
 	// Use default policy
-	logDebug("    No rules matched, using policy.default=%s", cfg.Policy.Default)
+	tv := e.merged.Policy.Default
+	logDebug("    No rules matched, using policy.default=%s (from %s)", tv.Value, tv.Source)
 	return Result{
-		Action:  cfg.Policy.Default,
-		Message: cfg.Policy.DefaultMessage,
+		Action:  tv.Value,
+		Message: e.merged.Policy.DefaultMessage.Value,
 		Command: cmd.Name,
-		Source:  cfg.Path + ": policy.default (command not in allow/deny lists)",
+		Source:  tv.Source + ": policy.default (command not in allow/deny lists)",
 	}
 }
 
-// matchRuleWithConfig checks if a rule matches the command and returns the result.
-// Returns (result, matched) where matched indicates if the rule applied.
-func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Result, bool) {
-	// Check command name match (supports path: prefix for resolved path matching)
+// matchCommandNameSingle checks if a command matches a single pattern.
+func (e *Evaluator) matchCommandNameSingle(name, resolvedPath, pattern string) bool {
+	if strings.HasPrefix(pattern, "path:") {
+		if resolvedPath == "" {
+			return false
+		}
+		p, err := ParsePattern(pattern)
+		if err != nil {
+			return false
+		}
+		return p.MatchWithContext(resolvedPath, e.matchCtx)
+	}
+	// Exact match against name or basename of resolved path
+	if pattern == name {
+		return true
+	}
+	if resolvedPath != "" && pattern == filepath.Base(resolvedPath) {
+		return true
+	}
+	return false
+}
+
+// matchTrackedRule checks if a tracked rule matches the command.
+func (e *Evaluator) matchTrackedRule(tr TrackedRule, cmd Command) (Result, bool) {
+	rule := tr.Rule
+
+	// Check command name match
 	if rule.Command != "*" {
 		if !e.matchRuleCommand(rule.Command, cmd) {
 			return Result{}, false
@@ -496,7 +471,7 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 
 	// Check args.position
 	for posStr, pattern := range rule.Args.Position {
-		pos, _ := strconv.Atoi(posStr) // Already validated in Config.Validate()
+		pos, _ := strconv.Atoi(posStr)
 		if !MatchPositionWithContext(args, pos, pattern, e.matchCtx) {
 			return Result{}, false
 		}
@@ -504,7 +479,6 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 
 	// Check pipe.to context
 	if len(rule.Pipe.To) > 0 {
-		// This rule only matches if the command pipes to a restricted target
 		pipesToRestricted := false
 		for _, pipeDest := range cmd.PipesTo {
 			if ContainsExact([]string{pipeDest}, rule.Pipe.To) {
@@ -519,17 +493,12 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 
 	// Check pipe.from context
 	if len(rule.Pipe.From) > 0 {
-		// This rule only matches if the command receives from a restricted source
 		receivesFromRestricted := false
-
-		// Check for wildcard "*" - matches any piped input
 		if ContainsExact([]string{"*"}, rule.Pipe.From) {
-			// If command has ANY upstream commands, it matches
 			if len(cmd.PipesFrom) > 0 {
 				receivesFromRestricted = true
 			}
 		} else {
-			// Check if any upstream command is in the restricted list
 			for _, pipeSource := range cmd.PipesFrom {
 				if ContainsExact([]string{pipeSource}, rule.Pipe.From) {
 					receivesFromRestricted = true
@@ -542,14 +511,14 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 		}
 	}
 
-	// Rule matched - return the action
+	// Rule matched
 	msg := rule.Message
 	if msg == "" && rule.Action == "deny" {
-		msg = cfg.Policy.DefaultMessage
+		msg = e.merged.Policy.DefaultMessage.Value
 	}
 
 	// Build source description
-	source := cfg.Path + ": rule matched (command=" + rule.Command
+	source := tr.Source + ": rule matched (command=" + rule.Command
 	if len(rule.Args.Contains) > 0 {
 		source += ", args.contains"
 	}
@@ -578,35 +547,161 @@ func (e *Evaluator) matchRuleWithConfig(cfg *Config, rule Rule, cmd Command) (Re
 	}, true
 }
 
-// matchCommandName checks if a command matches any of the patterns in the list.
-// Patterns can be:
-//   - "path:..." - matches against the resolved path using path pattern matching
-//   - exact string - matches against command name OR basename of resolved path
-func (e *Evaluator) matchCommandName(name, resolvedPath string, patterns []string) bool {
-	for _, pattern := range patterns {
-		if strings.HasPrefix(pattern, "path:") {
-			// Path pattern - match against resolved path
-			if resolvedPath == "" {
-				continue // Can't match path pattern without resolved path
+// evaluateRedirectMerged checks a redirect against the merged config.
+func (e *Evaluator) evaluateRedirectMerged(redir Redirect) Result {
+	logDebug("  Evaluating redirect to %q (append=%v, fd=%v)", redir.Target, redir.Append, redir.IsFdRedirect)
+
+	// File descriptor redirects are always safe
+	if redir.IsFdRedirect {
+		logDebug("    File descriptor redirect, auto-allowing")
+		return Result{Action: "allow"}
+	}
+
+	// Dynamic redirects
+	if redir.IsDynamic {
+		tv := e.merged.Policy.DynamicCommands
+		logDebug("    Redirect is dynamic, policy.dynamic_commands=%s", tv.Value)
+		switch tv.Value {
+		case "deny":
+			return Result{
+				Action:  "deny",
+				Message: "Dynamic redirect targets are not allowed",
+				Source:  tv.Source + ": dynamic redirect to " + redir.Target,
 			}
-			p, err := ParsePattern(pattern)
-			if err != nil {
-				continue
-			}
-			if p.MatchWithContext(resolvedPath, e.matchCtx) {
-				return true
-			}
-		} else {
-			// Exact match against name or basename of resolved path
-			if pattern == name {
-				return true
-			}
-			if resolvedPath != "" && pattern == filepath.Base(resolvedPath) {
-				return true
+		case "allow":
+			return Result{Action: "allow"}
+		default:
+			return Result{
+				Action:  "ask",
+				Source:  tv.Source + ": dynamic redirect requires approval",
 			}
 		}
 	}
-	return false
+
+	// Evaluate redirect rules (skip shadowed)
+	for i, tr := range e.merged.Redirects {
+		if tr.Shadowed {
+			continue
+		}
+		if result, matched := e.matchTrackedRedirectRule(tr, redir); matched {
+			logDebug("    Matched redirect rule[%d]: action=%s (from %s)", i, tr.RedirectRule.Action, tr.Source)
+			return result
+		}
+	}
+
+	// No rule matched - use policy default
+	tv := e.merged.Policy.Default
+	logDebug("    No redirect rules matched, using policy.default=%s (from %s)", tv.Value, tv.Source)
+	return Result{
+		Action: tv.Value,
+		Source: tv.Source + ": policy.default (redirect to " + redir.Target + " not in rules)",
+	}
+}
+
+// matchTrackedRedirectRule checks if a redirect rule matches.
+func (e *Evaluator) matchTrackedRedirectRule(tr TrackedRedirectRule, redir Redirect) (Result, bool) {
+	rule := tr.RedirectRule
+
+	// Check append mode filter
+	if rule.Append != nil {
+		if *rule.Append != redir.Append {
+			return Result{}, false
+		}
+	}
+
+	// Check exact matches
+	if len(rule.To.Exact) > 0 {
+		basename := filepath.Base(redir.Target)
+		if !ContainsExact([]string{redir.Target, basename}, rule.To.Exact) {
+			return Result{}, false
+		}
+	}
+
+	// Check pattern matches
+	if len(rule.To.Pattern) > 0 {
+		matcher, err := NewMatcher(rule.To.Pattern)
+		if err != nil {
+			return Result{}, false
+		}
+		if !matcher.AnyMatchWithContext([]string{redir.Target}, e.matchCtx) {
+			return Result{}, false
+		}
+	}
+
+	// Rule matched
+	msg := rule.Message
+	if msg == "" && rule.Action == "deny" {
+		msg = e.merged.Policy.DefaultMessage.Value
+	}
+
+	source := tr.Source + ": redirect rule matched (to=" + redir.Target
+	if rule.Append != nil {
+		source += ", append"
+	}
+	if len(rule.To.Exact) > 0 {
+		source += ", to.exact"
+	}
+	if len(rule.To.Pattern) > 0 {
+		source += ", to.pattern"
+	}
+	source += ")"
+
+	return Result{
+		Action:  rule.Action,
+		Message: msg,
+		Source:  source,
+	}, true
+}
+
+// evaluateHeredocMerged checks a heredoc against the merged config.
+func (e *Evaluator) evaluateHeredocMerged(hdoc Heredoc) Result {
+	logDebug("  Evaluating heredoc (delimiter=%q, body length=%d)", hdoc.Delimiter, len(hdoc.Body))
+
+	// Evaluate heredoc rules (skip shadowed)
+	for i, tr := range e.merged.Heredocs {
+		if tr.Shadowed {
+			continue
+		}
+		if result, matched := e.matchTrackedHeredocRule(tr, hdoc); matched {
+			logDebug("    Matched heredoc rule[%d]: action=%s (from %s)", i, tr.HeredocRule.Action, tr.Source)
+			return result
+		}
+	}
+
+	// No rule matched - heredocs are allowed by default when constructs.heredocs = "allow"
+	logDebug("    No heredoc rules matched, allowing")
+	return Result{Action: "allow"}
+}
+
+// matchTrackedHeredocRule checks if a heredoc rule matches.
+func (e *Evaluator) matchTrackedHeredocRule(tr TrackedHeredocRule, hdoc Heredoc) (Result, bool) {
+	rule := tr.HeredocRule
+
+	if len(rule.ContentMatch) > 0 {
+		matcher, err := NewMatcher(rule.ContentMatch)
+		if err != nil {
+			return Result{}, false
+		}
+		if !matcher.AnyMatch([]string{hdoc.Body}) {
+			return Result{}, false
+		}
+	}
+
+	msg := rule.Message
+	if msg == "" && rule.Action == "deny" {
+		msg = e.merged.Policy.DefaultMessage.Value
+	}
+
+	source := tr.Source + ": heredoc rule matched"
+	if len(rule.ContentMatch) > 0 {
+		source += " (content_match)"
+	}
+
+	return Result{
+		Action:  rule.Action,
+		Message: msg,
+		Source:  source,
+	}, true
 }
 
 // matchRuleCommand checks if a rule's command pattern matches the command.
@@ -628,156 +723,4 @@ func (e *Evaluator) matchRuleCommand(ruleCommand string, cmd Command) bool {
 	}
 	// Exact match against command name
 	return ruleCommand == cmd.Name
-}
-
-// evaluateRedirectWithConfig checks a redirect against a single config's rules.
-func (e *Evaluator) evaluateRedirectWithConfig(cfg *Config, redir Redirect) Result {
-	logDebug("  Evaluating redirect to %q (append=%v, fd=%v)", redir.Target, redir.Append, redir.IsFdRedirect)
-
-	// File descriptor redirects (like 2>&1) are always safe - just combining streams
-	if redir.IsFdRedirect {
-		logDebug("    File descriptor redirect, auto-allowing")
-		return Result{Action: "allow"}
-	}
-
-	// Dynamic redirects
-	if redir.IsDynamic {
-		logDebug("    Redirect is dynamic, policy.dynamic_commands=%s", cfg.Policy.DynamicCommands)
-		switch cfg.Policy.DynamicCommands {
-		case "deny":
-			return Result{
-				Action:  "deny",
-				Message: "Dynamic redirect targets are not allowed",
-				Source:  cfg.Path + ": dynamic redirect to " + redir.Target,
-			}
-		case "allow":
-			return Result{Action: "allow"}
-		default:
-			return Result{
-				Action:  "ask",
-				Source:  cfg.Path + ": dynamic redirect requires approval",
-			}
-		}
-	}
-
-	// Evaluate redirect rules in order
-	for i, rule := range cfg.Redirects {
-		if result, matched := e.matchRedirectRuleWithConfig(cfg, rule, redir); matched {
-			logDebug("    Matched redirect rule[%d]: action=%s", i, rule.Action)
-			return result
-		}
-	}
-
-	// No rule matched - use policy default
-	logDebug("    No redirect rules matched, using policy.default=%s", cfg.Policy.Default)
-	return Result{
-		Action: cfg.Policy.Default,
-		Source: cfg.Path + ": policy.default (redirect to " + redir.Target + " not in rules)",
-	}
-}
-
-// matchRedirectRuleWithConfig checks if a redirect rule matches.
-func (e *Evaluator) matchRedirectRuleWithConfig(cfg *Config, rule RedirectRule, redir Redirect) (Result, bool) {
-	// Check append mode filter
-	if rule.Append != nil {
-		if *rule.Append != redir.Append {
-			return Result{}, false
-		}
-	}
-
-	// Check exact matches
-	if len(rule.To.Exact) > 0 {
-		// Match against basename for convenience
-		basename := filepath.Base(redir.Target)
-		if !ContainsExact([]string{redir.Target, basename}, rule.To.Exact) {
-			return Result{}, false
-		}
-	}
-
-	// Check pattern matches
-	if len(rule.To.Pattern) > 0 {
-		matcher, err := NewMatcher(rule.To.Pattern)
-		if err != nil {
-			return Result{}, false
-		}
-		if !matcher.AnyMatchWithContext([]string{redir.Target}, e.matchCtx) {
-			return Result{}, false
-		}
-	}
-
-	// Rule matched
-	msg := rule.Message
-	if msg == "" && rule.Action == "deny" {
-		msg = cfg.Policy.DefaultMessage
-	}
-
-	// Build source description
-	source := cfg.Path + ": redirect rule matched (to=" + redir.Target
-	if rule.Append != nil {
-		source += ", append"
-	}
-	if len(rule.To.Exact) > 0 {
-		source += ", to.exact"
-	}
-	if len(rule.To.Pattern) > 0 {
-		source += ", to.pattern"
-	}
-	source += ")"
-
-	return Result{
-		Action:  rule.Action,
-		Message: msg,
-		Source:  source,
-	}, true
-}
-
-// evaluateHeredocWithConfig checks a heredoc against a single config's [[heredoc]] rules.
-// This is only called when constructs.heredocs = "allow" (deny already returned above).
-func (e *Evaluator) evaluateHeredocWithConfig(cfg *Config, hdoc Heredoc) Result {
-	logDebug("  Evaluating heredoc (delimiter=%q, body length=%d)", hdoc.Delimiter, len(hdoc.Body))
-
-	// Evaluate heredoc rules in order (first match wins, like redirects)
-	for i, rule := range cfg.Heredocs {
-		if result, matched := e.matchHeredocRuleWithConfig(cfg, rule, hdoc); matched {
-			logDebug("    Matched heredoc rule[%d]: action=%s", i, rule.Action)
-			return result
-		}
-	}
-
-	// No rule matched - heredocs are allowed by default when constructs.heredocs = "allow"
-	logDebug("    No heredoc rules matched, allowing")
-	return Result{Action: "allow"}
-}
-
-// matchHeredocRuleWithConfig checks if a heredoc rule matches.
-func (e *Evaluator) matchHeredocRuleWithConfig(cfg *Config, rule HeredocRule, hdoc Heredoc) (Result, bool) {
-	// Check content_match patterns against the heredoc body
-	if len(rule.ContentMatch) > 0 {
-		matcher, err := NewMatcher(rule.ContentMatch)
-		if err != nil {
-			return Result{}, false
-		}
-		// Match against the heredoc body content
-		if !matcher.AnyMatch([]string{hdoc.Body}) {
-			return Result{}, false
-		}
-	}
-
-	// Rule matched (or had no conditions, which matches all heredocs)
-	msg := rule.Message
-	if msg == "" && rule.Action == "deny" {
-		msg = cfg.Policy.DefaultMessage
-	}
-
-	// Build source description
-	source := cfg.Path + ": heredoc rule matched"
-	if len(rule.ContentMatch) > 0 {
-		source += " (content_match)"
-	}
-
-	return Result{
-		Action:  rule.Action,
-		Message: msg,
-		Source:  source,
-	}, true
 }

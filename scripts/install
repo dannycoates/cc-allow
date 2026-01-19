@@ -14,8 +14,11 @@ esac
 
 CC_ALLOW_PATH="${BIN_DIR}/cc-allow"
 
-# Already installed - fast exit
+# Already installed - just init if .claude dir exists
 if [ -x "$CC_ALLOW_PATH" ]; then
+  if [ -d ".claude" ]; then
+    "$CC_ALLOW_PATH" --init
+  fi
   exit 0
 fi
 
@@ -30,4 +33,6 @@ curl -sL "$DOWNLOAD_URL" | tar -xz -C "$BIN_DIR"
 chmod +x "$CC_ALLOW_PATH"
 
 # Initialize project config if it doesn't exist
-"$CC_ALLOW_PATH" --init
+if [ -d ".claude" ]; then
+  "$CC_ALLOW_PATH" --init
+fi
