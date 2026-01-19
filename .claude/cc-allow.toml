@@ -9,26 +9,60 @@ default_message = "Command not allowed by project policy"
 # Common safe commands for development
 [commands.allow]
 names = [
-    # Navigation & inspection
-    "ls", "cat", "head", "tail", "less", "more", "pwd", "cd", "tree",
-    "find", "grep", "rg", "ag", "wc", "sort", "uniq", "diff",
+    # File & Directory Navigation
+    "ls", "dir", "vdir", "pwd", "tree", "file", "stat",
+    "basename", "dirname", "realpath", "readlink", "cd",
+    # File Viewing & Reading
+    "cat", "tac", "head", "tail", "less", "more", "nl",
+    "od", "hexdump", "xxd",
+    # Text Processing & Transformation
+    "grep", "egrep", "fgrep", "sed", "awk", "gawk",
+    "cut", "paste", "join", "sort", "uniq", "shuf",
+    "tr", "rev", "expand", "unexpand", "fold", "fmt", "column", "pr",
+    "wc", "comm", "diff", "cmp", "colordiff", "delta", "iconv", "strings",
+    # Searching & Finding
+    "find", "fd", "locate", "mlocate", "plocate",
+    "which", "whereis", "type", "xargs",
+    "rg", "ripgrep", "ag", "fzf",
+    # File Operations (Non-Destructive)
+    "cp", "mv", "touch", "mkdir", "ln", "install",
+    # Archive & Compression
+    "tar", "gzip", "gunzip", "zcat", "bzip2", "bunzip2", "bzcat",
+    "xz", "unxz", "xzcat", "zstd", "unzstd", "zstdcat",
+    "zip", "unzip", "7z", "7za", "7zr", "rar", "unrar",
+    # Printing & Output
+    "echo", "printf", "yes", "seq", "tee",
+    # Date, Time & Calculation
+    "date", "cal", "ncal", "time", "bc", "dc", "expr", "factor",
+    # User & System Info (Read-Only)
+    "whoami", "id", "groups", "who", "w", "users", "last", "lastlog", "finger",
+    "uname", "hostname", "hostnamectl", "uptime", "arch", "nproc",
+    "lscpu", "lsmem", "free", "df", "du", "lsblk", "lsusb", "lspci", "lsof", "dmesg",
+    # Process inspection (read-only)
+    "ps", "top", "htop", "pgrep", "pidof", "pstree", "jobs", "nice", "renice",
+    # Network inspection (read-only)
+    "ping", "ping6", "traceroute", "tracepath", "mtr",
+    "dig", "nslookup", "host", "whois",
+    "ip", "ifconfig", "ss", "netstat", "nc", "netcat", "nmap", "tcpdump",
+    # Shell Builtins & Utilities
+    "test", "[", "[[", "true", "false", "sleep", "env", "printenv",
+    # Version Control
+    "git", "gh", "hg", "svn", "fossil",
     # Go development
     "go", "gofmt", "golint", "gopls",
-    # Git
-    "git", "gh",
     # Build tools
     "make", "just", "cargo", "npm", "yarn", "pnpm", "bun",
-    # Common utilities
-    "echo", "printf", "date", "which", "whereis", "file", "stat",
-    "mkdir", "cp", "mv", "touch", "chmod", "ln", "rm", "rmdir",
     # Editors & viewers
     "vim", "nvim", "nano", "code",
-    # Process inspection (read-only)
-    "ps", "top", "htop", "pgrep", "rg",
-    # Network inspection (read-only)
-    "ping", "dig", "nslookup", "host",
+    # Misc Utilities
+    "man", "info", "help", "apropos", "whatis", "tldr",
+    "watch", "timeout", "strace", "ltrace",
+    "md5sum", "sha1sum", "sha256sum", "sha512sum", "base64",
+    "nix", "nix-env", "nix-shell",
     # Us
-    "path:$PROJECT_DIR/cc-allow", "cc-query", "path:/tmp/cc-allow-test"
+    "path:$PROJECT_DIR/cc-allow", "cc-query", "path:/tmp/cc-allow-test",
+    # Remove commands (handled by rules below)
+    "rm", "rmdir", "chmod",
 ]
 
 # Dangerous commands - always block
