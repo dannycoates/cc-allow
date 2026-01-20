@@ -875,3 +875,60 @@ specificity = "allow"  # localhost pattern (105) beats generic (100)
 name = "spec: curl -s localhost most specific"
 bash = "curl -s http://localhost:8080/health"
 specificity = "allow"  # -s + localhost (115) beats localhost (105)
+
+# =============================================================================
+# FLAG PATTERN TESTS
+# =============================================================================
+# Tests for the flags: pattern type that matches command-line flags
+# flags: matches flags starting with "-" (single dash), flags[--]: matches "--" flags
+# flags[+]: matches "+" prefix (useful for chmod +x)
+
+[[command]]
+name = "flags: chmod +x (flags[+]:x matches)"
+bash = "chmod +x script.sh"
+patterns = "deny"    # flags[+]:x matches +x
+
+[[command]]
+name = "flags: chmod -x (allowed, removing exec)"
+bash = "chmod -x script.sh"
+patterns = "allow"   # -x doesn't match flags[+]:x
+
+[[command]]
+name = "flags: chmod 644 (no x flag, allowed)"
+bash = "chmod 644 file.txt"
+patterns = "allow"   # no +x flag present
+
+[[command]]
+name = "flags: chmod +rx (flags[+]:x matches)"
+bash = "chmod +rx script.sh"
+patterns = "deny"    # flags[+]:x matches +rx (x is present)
+
+[[command]]
+name = "flags: tar -xf (extract denied)"
+bash = "tar -xf archive.tar"
+patterns = "deny"    # flags:xf matches -xf
+
+[[command]]
+name = "flags: tar -fx (extract, reordered)"
+bash = "tar -fx archive.tar"
+patterns = "deny"    # flags:xf matches -fx (order doesn't matter)
+
+[[command]]
+name = "flags: tar -tf (list contents allowed)"
+bash = "tar -tf archive.tar"
+patterns = "allow"   # flags:t matches -tf
+
+[[command]]
+name = "flags: tar -cf (create archive allowed)"
+bash = "tar -cf archive.tar files/"
+patterns = "allow"   # flags:c matches -cf
+
+[[command]]
+name = "flags: tar -cvf (create verbose allowed)"
+bash = "tar -cvf archive.tar files/"
+patterns = "allow"   # flags:c matches -cvf
+
+[[command]]
+name = "flags: tar --extract (long flag, no match for flags:xf)"
+bash = "tar --extract -f archive.tar"
+patterns = "ask"     # --extract doesn't match flags:xf (different delimiter)

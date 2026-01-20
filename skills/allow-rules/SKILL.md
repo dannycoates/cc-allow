@@ -143,11 +143,12 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 | `glob:` | Shell glob (supports `**`) | `glob:*.txt`, `src/**/*.go` |
 | `re:` | Regular expression | `re:^/etc/.*` |
 | `path:` | Path pattern with variable expansion | `path:$PROJECT_ROOT/**` |
+| `flags:` | Flag pattern (chars must appear) | `flags:rf`, `flags[--]:rec` |
 | (none) | Exact match (or glob if contains `*?[`) | `--verbose` |
 
 ### Negation
 
-Prepend "!" to patterns with explicit prefixes (`path:`, `re:`, `glob:`) to negate the match:
+Prepend "!" to patterns with explicit prefixes (`path:`, `re:`, `glob:`, `flags:`) to negate the match:
 
 ```toml
 # Allow rm only for paths NOT under /etc

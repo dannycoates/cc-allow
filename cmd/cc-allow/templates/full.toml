@@ -251,7 +251,7 @@ heredocs = "allow"                 # heredocs are generally safe
 command = "rm"
 action = "allow"
 [rule.args]
-any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
+any_match = ["flags:r", "--recursive"]
 all_match = ["path:$PROJECT_ROOT/**"]
 
 # --- rm: Block recursive deletion outside project ---
@@ -260,7 +260,7 @@ command = "rm"
 action = "deny"
 message = "Recursive rm only allowed within project directory"
 [rule.args]
-any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
+any_match = ["flags:r", "--recursive"]
 
 # --- rm: Allow non-recursive rm within project ---
 [[rule]]
@@ -308,7 +308,7 @@ command = "git"
 action = "deny"
 message = "Force push not allowed"
 [rule.args]
-any_match = ["--force", "-f", "--force-with-lease"]
+any_match = ["--force", "flags:f", "--force-with-lease"]
 contains = ["push"]
 
 # --- git: Block hard reset ---
@@ -326,7 +326,7 @@ action = "ask"
 message = "git clean requires review"
 [rule.args]
 contains = ["clean"]
-any_match = ["-f", "--force", "-fd", "-fx", "-fxd"]
+any_match = ["flags:f", "--force"]
 
 # --- sed/awk: Block in-place editing ---
 [[rule]]
@@ -334,14 +334,14 @@ command = "sed"
 action = "deny"
 message = "In-place sed editing not allowed - use Edit tool"
 [rule.args]
-any_match = ["-i", "--in-place"]
+any_match = ["flags:i", "--in-place"]
 
 [[rule]]
 command = "awk"
 action = "deny"
 message = "In-place awk editing not allowed - use Edit tool"
 [rule.args]
-any_match = ["-i"]
+any_match = ["flags:i"]
 
 # --- curl/wget: Block piping to shell ---
 [[rule]]
@@ -385,7 +385,7 @@ any_match = ["--privileged"]
 command = "ssh"
 action = "ask"
 [rule.args]
-any_match = ["-o"]
+any_match = ["flags:o"]
 
 # --- Example: Allow project-local scripts by resolved path ---
 # [[rule]]

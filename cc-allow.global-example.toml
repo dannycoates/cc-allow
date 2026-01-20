@@ -137,7 +137,7 @@ names = [
     # Process Inspection (Read-Only)
     # -------------------------------------------------------------------------
     "ps",                           # process status
-    "top",               ,          # process monitors
+    "top",                          # process monitors
     "pgrep", "pidof",               # find process IDs
     "pstree",                       # process tree
     "jobs",                         # job control (built-in)
@@ -246,7 +246,7 @@ command = "rm"
 action = "deny"
 message = "Recursive rm not allowed"
 [rule.args]
-any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
+any_match = ["flags:r", "--recursive"]
 
 # --- rm: Allow non-recursive rm ---
 [[rule]]
@@ -286,7 +286,7 @@ command = "git"
 action = "deny"
 message = "Force push not allowed"
 [rule.args]
-any_match = ["--force", "-f", "--force-with-lease"]
+any_match = ["--force", "flags:f", "--force-with-lease"]
 contains = ["push"]
 
 # --- git: Block hard reset ---
@@ -304,7 +304,7 @@ action = "ask"
 message = "git clean requires review"
 [rule.args]
 contains = ["clean"]
-any_match = ["-f", "--force", "-fd", "-fx", "-fxd"]
+any_match = ["flags:f", "--force"]
 
 # --- sed/awk: Block in-place editing ---
 [[rule]]
@@ -312,14 +312,14 @@ command = "sed"
 action = "deny"
 message = "In-place sed editing not allowed - use Edit tool"
 [rule.args]
-any_match = ["-i", "--in-place"]
+any_match = ["flags:i", "--in-place"]
 
 [[rule]]
 command = "awk"
 action = "deny"
 message = "In-place awk editing not allowed - use Edit tool"
 [rule.args]
-any_match = ["-i"]
+any_match = ["flags:i"]
 
 # --- curl/wget: Block piping to shell ---
 [[rule]]
@@ -363,7 +363,7 @@ any_match = ["--privileged"]
 command = "ssh"
 action = "ask"
 [rule.args]
-any_match = ["-o"]
+any_match = ["flags:o"]
 
 # ============================================================================
 # REDIRECT RULES

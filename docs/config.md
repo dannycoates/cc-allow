@@ -294,19 +294,20 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 
 ## Pattern Matching
 
-Patterns support three prefixes:
+Patterns support these prefixes:
 
 | Prefix | Description | Example |
 |--------|-------------|---------|
 | `glob:` | Shell-style glob (supports `**`) | `glob:*.txt` |
 | `re:` | Regular expression | `re:^/etc/.*` |
 | `path:` | Path pattern with variable expansion | `path:$PROJECT_ROOT/**` |
+| `flags:` | Flag pattern (chars must appear) | `flags:rf`, `flags[--]:rec` |
 
 Without a prefix, the string is matched exactly (or treated as glob if it contains `*`, `?`, or `[`).
 
 ### Negation
 
-Prepend "!" to patterns with explicit prefixes (`path:`, `re:`, `glob:`) to negate the match:
+Prepend "!" to patterns with explicit prefixes (`path:`, `re:`, `glob:`, `flags:`) to negate the match:
 
 ```toml
 # Match anything that is NOT a .txt file
@@ -399,6 +400,31 @@ any_match = ["re:^--(?:verbose|debug)$"]
 # Use regex for paths (alternative to path: when you don't need resolution):
 pattern = ["re:^/etc/.*"]           # matches /etc/passwd, /etc/hosts, etc.
 ```
+
+### Flag Patterns
+
+Flag patterns match command-line flags containing specific characters:
+
+```toml
+# Match short flags containing 'r' (e.g., -r, -rf, -vrf)
+any_match = ["flags:r"]
+
+# Match short flags containing both 'r' and 'f' (e.g., -rf, -fr)
+any_match = ["flags:rf"]
+
+# Match long flags containing 'f' (e.g., --force, --file)
+any_match = ["flags[--]:f"]
+
+# Match chmod +x style arguments
+any_match = ["flags[+]:x"]
+
+# Negated: match flags NOT containing 'r'
+any_match = ["!flags:r"]
+```
+
+The delimiter defaults to `-` if not specified. Use `flags[delim]:` with any delimiter string (e.g., `flags[--]:` for long flags, `flags[+]:` for chmod). All specified characters must appear somewhere after the delimiter (in any order).
+
+Note: When using `-` as delimiter, `--` prefixed arguments are excluded to avoid matching long flags.
 
 ## Complete Example
 

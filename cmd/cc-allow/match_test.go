@@ -24,6 +24,14 @@ func TestParsePattern(t *testing.T) {
 		{"!glob:*.txt", PatternGlob, true}, // negated glob
 		{"!re:^foo$", PatternRegex, true},  // negated regex
 		{"!path:$PROJECT_ROOT/**", PatternPath, true}, // negated path
+		// Flag patterns
+		{"flags:rf", PatternFlag, false},
+		{"flags:r", PatternFlag, false},
+		{"flags[-]:rf", PatternFlag, false},
+		{"flags[--]:rec", PatternFlag, false},
+		{"!flags:rf", PatternFlag, true},  // negated flag
+		{"!flags[-]:r", PatternFlag, true},
+		{"!flags[--]:f", PatternFlag, true},
 	}
 
 	for _, tt := range tests {
@@ -76,6 +84,43 @@ func TestPatternMatch(t *testing.T) {
 		// Negated regex
 		{"!re:^foo$", "foo", false},
 		{"!re:^foo$", "foobar", true},
+
+		// Flag patterns - short flags (default delimiter -)
+		{"flags:rf", "-rf", true},
+		{"flags:rf", "-fr", true},
+		{"flags:rf", "-vrf", true},
+		{"flags:rf", "-rvf", true},
+		{"flags:rf", "-r", false},      // missing f
+		{"flags:rf", "-f", false},      // missing r
+		{"flags:rf", "--rf", false},    // wrong delimiter
+		{"flags:rf", "rf", false},      // no delimiter
+		{"flags:r", "-r", true},
+		{"flags:r", "-rv", true},
+		{"flags:r", "-vr", true},
+		{"flags:r", "-v", false},
+		{"flags:r", "-", false},        // delimiter only, no chars
+
+		// Flag patterns - explicit short delimiter
+		{"flags[-]:rf", "-rf", true},
+		{"flags[-]:rf", "-fr", true},
+		{"flags[-]:rf", "--rf", false},
+
+		// Flag patterns - long flags
+		{"flags[--]:rec", "--recursive", true},
+		{"flags[--]:rec", "--rec", true},
+		{"flags[--]:rec", "-rec", false},  // wrong delimiter
+		{"flags[--]:f", "--force", true},
+		{"flags[--]:f", "--file", true},
+		{"flags[--]:abc", "--cab", true},  // order doesn't matter
+		{"flags[--]:abc", "--ab", false},  // missing c
+		{"flags[--]:a", "--", false},      // delimiter only
+
+		// Negated flag patterns
+		{"!flags:rf", "-rf", false},
+		{"!flags:rf", "-r", true},
+		{"!flags:rf", "-v", true},
+		{"!flags[--]:rec", "--recursive", false},
+		{"!flags[--]:rec", "--verbose", true},
 	}
 
 	for _, tt := range tests {
@@ -321,5 +366,131 @@ func TestDoublestarGlobbing(t *testing.T) {
 
 	if p.Match("test/main.go") {
 		t.Error("expected test/main.go not to match")
+	}
+}
+
+func TestParseFlagPattern(t *testing.T) {
+	tests := []struct {
+		input         string
+		wantDelimiter string
+		wantChars     string
+		wantNegated   bool
+		wantErr       bool
+	}{
+		// Valid patterns
+		{"flags:rf", "-", "rf", false, false},
+		{"flags:r", "-", "r", false, false},
+		{"flags:abc123", "-", "abc123", false, false},
+		{"flags[-]:rf", "-", "rf", false, false},
+		{"flags[--]:recursive", "--", "recursive", false, false},
+		{"flags[--]:rec", "--", "rec", false, false},
+		// Negated
+		{"!flags:rf", "-", "rf", true, false},
+		{"!flags[-]:rf", "-", "rf", true, false},
+		{"!flags[--]:rec", "--", "rec", true, false},
+		// Custom delimiters
+		{"flags[+]:x", "+", "x", false, false},     // + delimiter for chmod
+		{"flags[---]:rf", "---", "rf", false, false}, // any delimiter allowed
+		// Invalid patterns
+		{"flags:", "", "", false, true},            // empty chars
+		{"flags[-]:", "", "", false, true},         // empty chars
+		{"flags[]:rf", "", "", false, true},        // empty delimiter
+		{"flags:rf!", "", "", false, true},         // invalid char !
+		{"flags:r-f", "", "", false, true},         // invalid char -
+		{"flags:r f", "", "", false, true},         // invalid char space
+		{"flags[--", "", "", false, true},          // missing ]:
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			p, err := ParsePattern(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %q, got nil", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParsePattern error: %v", err)
+			}
+			if p.Type != PatternFlag {
+				t.Errorf("type = %v, want PatternFlag", p.Type)
+			}
+			if p.FlagDelimiter != tt.wantDelimiter {
+				t.Errorf("delimiter = %q, want %q", p.FlagDelimiter, tt.wantDelimiter)
+			}
+			if p.FlagChars != tt.wantChars {
+				t.Errorf("chars = %q, want %q", p.FlagChars, tt.wantChars)
+			}
+			if p.Negated != tt.wantNegated {
+				t.Errorf("negated = %v, want %v", p.Negated, tt.wantNegated)
+			}
+		})
+	}
+}
+
+func TestFlagPatternMatch(t *testing.T) {
+	tests := []struct {
+		pattern string
+		input   string
+		want    bool
+	}{
+		// Short flag matching with default delimiter
+		{"flags:rf", "-rf", true},
+		{"flags:rf", "-fr", true},
+		{"flags:rf", "-vrf", true},
+		{"flags:rf", "-rvf", true},
+		{"flags:rf", "-r", false},      // missing f
+		{"flags:rf", "-f", false},      // missing r
+		{"flags:rf", "--rf", false},    // wrong delimiter
+		{"flags:rf", "rf", false},      // no delimiter
+		{"flags:r", "-r", true},
+		{"flags:r", "-rv", true},
+		{"flags:r", "-vr", true},
+		{"flags:r", "-v", false},
+
+		// Explicit short delimiter
+		{"flags[-]:rf", "-rf", true},
+		{"flags[-]:rf", "-fr", true},
+		{"flags[-]:rf", "--rf", false},
+
+		// Long flag matching
+		{"flags[--]:rec", "--recursive", true},
+		{"flags[--]:rec", "--rec", true},
+		{"flags[--]:rec", "-rec", false},  // wrong delimiter
+		{"flags[--]:f", "--force", true},
+		{"flags[--]:abc", "--cab", true},  // order doesn't matter
+		{"flags[--]:abc", "--ab", false},  // missing c
+
+		// Edge cases
+		{"flags:a", "-", false},           // delimiter only
+		{"flags[--]:a", "--", false},      // delimiter only
+
+		// Custom delimiters
+		{"flags[+]:x", "+x", true},        // chmod +x
+		{"flags[+]:x", "+rx", true},       // chmod +rx
+		{"flags[+]:x", "-x", false},       // wrong delimiter
+		{"flags[+]:rwx", "+rwx", true},    // all chars present
+		{"flags[+]:rwx", "+rw", false},    // missing x
+
+		// Negated patterns
+		{"!flags:rf", "-rf", false},
+		{"!flags:rf", "-r", true},
+		{"!flags:rf", "-v", true},
+		{"!flags[--]:rec", "--recursive", false},
+		{"!flags[--]:rec", "--verbose", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.pattern+"/"+tt.input, func(t *testing.T) {
+			p, err := ParsePattern(tt.pattern)
+			if err != nil {
+				t.Fatalf("ParsePattern error: %v", err)
+			}
+			got := p.Match(tt.input)
+			if got != tt.want {
+				t.Errorf("Match(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
 	}
 }

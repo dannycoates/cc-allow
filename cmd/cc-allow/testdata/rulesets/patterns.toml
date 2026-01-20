@@ -225,3 +225,35 @@ message = "Cannot modify shell config"
 append = true
 [redirect.to]
 pattern = ["glob:*/.bashrc", "glob:*/.zshrc", "glob:*/.profile"]
+
+# --- Flag Pattern Tests ---
+
+# Deny chmod with executable bits using flag pattern
+# flags[+]:x matches +x, +rx, +rwx etc.
+# flags[-]:x matches -x (removing executable)
+[[rule]]
+command = "chmod"
+action = "deny"
+message = "Cannot make files executable"
+[rule.args]
+any_match = ["flags[+]:x"]
+
+# Allow chmod without executable bits (including -x to remove)
+[[rule]]
+command = "chmod"
+action = "allow"
+
+# Deny tar with extract and overwrite using flag pattern
+[[rule]]
+command = "tar"
+action = "deny"
+message = "Cannot extract with overwrite"
+[rule.args]
+any_match = ["flags:xf"]
+
+# Allow tar for listing and creation
+[[rule]]
+command = "tar"
+action = "allow"
+[rule.args]
+any_match = ["flags:t", "flags:c"]

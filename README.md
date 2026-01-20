@@ -109,7 +109,7 @@ command = "rm"
 action = "deny"
 message = "Recursive rm not allowed"
 [rule.args]
-any_match = ["re:^-[a-zA-Z]*r[a-zA-Z]*$", "--recursive"]
+any_match = ["flags:r", "--recursive"]
 ```
 
 ### Pipe Security

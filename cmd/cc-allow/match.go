@@ -17,6 +17,7 @@ const (
 	PatternRegex
 	PatternLiteral
 	PatternPath // path pattern with variable expansion and symlink resolution
+	PatternFlag // flag pattern matching characters in flags (e.g., flags:rf matches -rf, -fr)
 )
 
 // MatchContext provides context needed for path pattern matching.
@@ -26,11 +27,13 @@ type MatchContext struct {
 
 // Pattern represents a parsed pattern with its type.
 type Pattern struct {
-	Type        PatternType
-	Raw         string
-	Regex       *regexp.Regexp // compiled regex (for regex patterns)
-	PathPattern string         // unexpanded path pattern (for path patterns)
-	Negated     bool           // if true, match result is inverted
+	Type          PatternType
+	Raw           string
+	Regex         *regexp.Regexp // compiled regex (for regex patterns)
+	PathPattern   string         // unexpanded path pattern (for path patterns)
+	Negated       bool           // if true, match result is inverted
+	FlagDelimiter string         // flag delimiter ("-" or "--") for flag patterns
+	FlagChars     string         // characters that must all be present (for flag patterns)
 }
 
 // ParsePattern parses a pattern string and determines its type.
@@ -38,10 +41,12 @@ type Pattern struct {
 //   - "re:" for regex patterns
 //   - "glob:" for explicit glob patterns
 //   - "path:" for path patterns with variable expansion ($PROJECT_ROOT, $HOME)
+//   - "flags:" for flag patterns (e.g., "flags:rf" matches -rf, -fr, -vrf)
+//   - "flags[delim]:" for flag patterns with explicit delimiter (e.g., "flags[--]:rec")
 //   - No prefix defaults to glob
 //
 // Patterns with explicit prefixes can be negated by prepending "!"
-// (e.g., "!path:/foo", "!re:test", "!glob:*.txt")
+// (e.g., "!path:/foo", "!re:test", "!glob:*.txt", "!flags:r")
 func ParsePattern(s string) (*Pattern, error) {
 	p := &Pattern{Raw: s}
 
@@ -50,7 +55,9 @@ func ParsePattern(s string) (*Pattern, error) {
 		rest := s[1:]
 		if strings.HasPrefix(rest, "re:") ||
 			strings.HasPrefix(rest, "path:") ||
-			strings.HasPrefix(rest, "glob:") {
+			strings.HasPrefix(rest, "glob:") ||
+			strings.HasPrefix(rest, "flags:") ||
+			strings.HasPrefix(rest, "flags[") {
 			p.Negated = true
 			s = rest
 			p.Raw = s // Update Raw to stripped version for matching
@@ -71,6 +78,14 @@ func ParsePattern(s string) (*Pattern, error) {
 	case strings.HasPrefix(s, "glob:"):
 		p.Type = PatternGlob
 		p.Raw = strings.TrimPrefix(s, "glob:")
+	case strings.HasPrefix(s, "flags:"), strings.HasPrefix(s, "flags["):
+		p.Type = PatternFlag
+		delimiter, chars, err := parseFlagPattern(s)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s: %w", ErrInvalidPattern, s, err)
+		}
+		p.FlagDelimiter = delimiter
+		p.FlagChars = chars
 	default:
 		// Default to glob if the pattern contains glob metacharacters
 		if containsGlobMeta(s) {
@@ -85,6 +100,54 @@ func ParsePattern(s string) (*Pattern, error) {
 // containsGlobMeta checks if a string contains glob metacharacters.
 func containsGlobMeta(s string) bool {
 	return strings.ContainsAny(s, "*?[")
+}
+
+// parseFlagPattern parses "flags:chars" or "flags[delim]:chars" and returns
+// (delimiter, chars, error). Default delimiter is "-".
+func parseFlagPattern(s string) (string, string, error) {
+	// Handle "flags[delim]:chars" format
+	if strings.HasPrefix(s, "flags[") {
+		closeBracket := strings.Index(s, "]:")
+		if closeBracket == -1 {
+			return "", "", fmt.Errorf("invalid flag pattern: missing ']:'")
+		}
+		delimiter := s[6:closeBracket] // extract content between [ and ]
+		if delimiter == "" {
+			return "", "", fmt.Errorf("flag delimiter cannot be empty")
+		}
+		chars := s[closeBracket+2:]
+		if chars == "" {
+			return "", "", fmt.Errorf("flag pattern requires at least one character")
+		}
+		if !isValidFlagChars(chars) {
+			return "", "", fmt.Errorf("flag chars must be alphanumeric, got %q", chars)
+		}
+		return delimiter, chars, nil
+	}
+
+	// Handle "flags:chars" format (default delimiter is "-")
+	if strings.HasPrefix(s, "flags:") {
+		chars := strings.TrimPrefix(s, "flags:")
+		if chars == "" {
+			return "", "", fmt.Errorf("flag pattern requires at least one character")
+		}
+		if !isValidFlagChars(chars) {
+			return "", "", fmt.Errorf("flag chars must be alphanumeric, got %q", chars)
+		}
+		return "-", chars, nil
+	}
+
+	return "", "", fmt.Errorf("invalid flag pattern syntax")
+}
+
+// isValidFlagChars checks that all characters are alphanumeric.
+func isValidFlagChars(s string) bool {
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
+			return false
+		}
+	}
+	return true
 }
 
 // Match checks if the given string matches the pattern.
@@ -106,6 +169,8 @@ func (p *Pattern) MatchWithContext(s string, ctx *MatchContext) bool {
 		matched = s == p.Raw
 	case PatternPath:
 		matched = p.matchPath(s, ctx)
+	case PatternFlag:
+		matched = p.matchFlag(s)
 	}
 	if p.Negated {
 		return !matched
@@ -133,6 +198,36 @@ func (p *Pattern) matchPath(s string, ctx *MatchContext) bool {
 	// Use doublestar for gitignore-style matching
 	matched, _ := doublestar.Match(expandedPattern, resolved)
 	return matched
+}
+
+// matchFlag checks if the string matches the flag pattern.
+// For delimiter "-": matches strings like "-rf", "-fr", "-vrf" if chars="rf"
+// For delimiter "--": matches strings like "--recursive" if chars="rec"
+func (p *Pattern) matchFlag(s string) bool {
+	// Must start with the delimiter
+	if !strings.HasPrefix(s, p.FlagDelimiter) {
+		return false
+	}
+
+	// For single-dash delimiter, make sure it's not a double-dash flag
+	if p.FlagDelimiter == "-" && strings.HasPrefix(s, "--") {
+		return false
+	}
+
+	// Get the part after the delimiter
+	rest := s[len(p.FlagDelimiter):]
+	if rest == "" {
+		return false
+	}
+
+	// All required characters must be present in the rest
+	for _, c := range p.FlagChars {
+		if !strings.ContainsRune(rest, c) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // MatchAny checks if any of the given strings match the pattern.
