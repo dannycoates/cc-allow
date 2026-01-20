@@ -316,8 +316,28 @@ func loadConfigRaw(path string) (*Config, error) {
 // Validate checks that all patterns in the config are valid.
 // This catches invalid regex patterns at load time rather than at evaluation time.
 func (cfg *Config) Validate() error {
+	// Validate commands.allow.names patterns
+	for i, name := range cfg.Commands.Allow.Names {
+		if _, err := ParsePattern(name); err != nil {
+			return fmt.Errorf("%w: commands.allow.names[%d]: %w", ErrInvalidConfig, i, err)
+		}
+	}
+
+	// Validate commands.deny.names patterns
+	for i, name := range cfg.Commands.Deny.Names {
+		if _, err := ParsePattern(name); err != nil {
+			return fmt.Errorf("%w: commands.deny.names[%d]: %w", ErrInvalidConfig, i, err)
+		}
+	}
+
 	// Validate command rules
 	for i, rule := range cfg.Rules {
+		// Validate rule.command pattern (if it has a pattern prefix)
+		if rule.Command != "*" && rule.Command != "" {
+			if _, err := ParsePattern(rule.Command); err != nil {
+				return fmt.Errorf("%w: rule[%d]: command: %w", ErrInvalidConfig, i, err)
+			}
+		}
 		if len(rule.Args.AnyMatch) > 0 {
 			if _, err := NewMatcher(rule.Args.AnyMatch); err != nil {
 				return fmt.Errorf("%w: rule[%d] (command=%q): args.any_match: %w", ErrInvalidConfig, i, rule.Command, err)

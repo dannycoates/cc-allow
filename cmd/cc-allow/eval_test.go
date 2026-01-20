@@ -17,7 +17,8 @@ func parseAndEval(t *testing.T, cfg *Config, input string) Result {
 	}
 
 	info := ExtractFromFile(f)
-	eval := NewEvaluatorSingle(cfg)
+	chain := &ConfigChain{Configs: []*Config{cfg}}
+	eval := NewEvaluator(chain)
 	return eval.Evaluate(info)
 }
 

@@ -144,7 +144,8 @@ func evalBash(t *testing.T, cfg *Config, bash string) Result {
 	}
 
 	info := ExtractFromFile(f)
-	eval := NewEvaluatorSingle(cfg)
+	chain := &ConfigChain{Configs: []*Config{cfg}}
+	eval := NewEvaluator(chain)
 	return eval.Evaluate(info)
 }
 

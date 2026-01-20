@@ -77,11 +77,21 @@ type Evaluator struct {
 	merged       *MergedConfig
 	matchCtx     *MatchContext
 	pathResolver *pathutil.CommandResolver
+	configError  error // non-nil if config validation failed
 }
 
 // NewEvaluator creates a new evaluator with the given configuration chain.
 func NewEvaluator(chain *ConfigChain) *Evaluator {
 	projectRoot := findProjectRoot()
+
+	// Validate all configs in the chain
+	var configError error
+	for _, cfg := range chain.Configs {
+		if err := cfg.Validate(); err != nil {
+			configError = err
+			break
+		}
+	}
 
 	// Compute merged config if not already set
 	merged := chain.Merged
@@ -103,31 +113,23 @@ func NewEvaluator(chain *ConfigChain) *Evaluator {
 			PathVars: pathutil.NewPathVars(projectRoot),
 		},
 		pathResolver: pathutil.NewCommandResolver(allowedPaths),
-	}
-}
-
-// NewEvaluatorSingle creates an evaluator from a single config (for backwards compatibility).
-func NewEvaluatorSingle(cfg *Config) *Evaluator {
-	projectRoot := findProjectRoot()
-	// Create a merged config from the single config
-	merged := MergeConfigs([]*Config{cfg})
-	chain := &ConfigChain{
-		Configs: []*Config{cfg},
-		Merged:  merged,
-	}
-	return &Evaluator{
-		chain:  chain,
-		merged: merged,
-		matchCtx: &MatchContext{
-			PathVars: pathutil.NewPathVars(projectRoot),
-		},
-		pathResolver: pathutil.NewCommandResolver(merged.Policy.AllowedPaths),
+		configError:  configError,
 	}
 }
 
 // Evaluate checks all extracted info against the merged configuration.
 // Uses the single merged config with proper inheritance and strictness semantics.
 func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
+	// Check config validation error (fail safe - ask if config is invalid)
+	// We use "ask" rather than "deny" so Claude Code's permission system handles it
+	if e.configError != nil {
+		return Result{
+			Action:  "ask",
+			Message: "Config validation error: " + e.configError.Error(),
+			Source:  "config validation failed",
+		}
+	}
+
 	// Check parse error
 	if info.ParseError != nil {
 		return Result{
