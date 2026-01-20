@@ -109,6 +109,7 @@ func runEval(configPath string, hookMode, debugMode bool) {
 		if hookInput.ToolInput.Command == "" {
 			// No command to evaluate, defer to Claude Code
 			outputHookResult(Result{Action: "ask"})
+			return
 		}
 		commandStr = hookInput.ToolInput.Command
 		input = strings.NewReader(commandStr)
