@@ -421,17 +421,16 @@ func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
 		chain.Configs = append(chain.Configs, cfg)
 	}
 
-	// 2. Load project config (.claude/cc-allow.toml)
-	if projectPath := findProjectConfig(); projectPath != "" {
+	// 2. Load project configs (.claude/cc-allow.toml and .claude/cc-allow.local.toml)
+	projectPath, localPath := findProjectConfigs()
+	if projectPath != "" {
 		cfg, err := loadConfigRaw(projectPath)
 		if err != nil {
 			return nil, err
 		}
 		chain.Configs = append(chain.Configs, cfg)
 	}
-
-	// 3. Load project local config (.claude/cc-allow.local.toml) - not in source control
-	if localPath := findProjectLocalConfig(); localPath != "" {
+	if localPath != "" {
 		cfg, err := loadConfigRaw(localPath)
 		if err != nil {
 			return nil, err

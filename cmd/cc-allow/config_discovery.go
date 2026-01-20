@@ -21,18 +21,32 @@ func findGlobalConfig() string {
 	return ""
 }
 
-// findProjectConfig looks for .claude/cc-allow.toml starting from cwd and walking up.
-func findProjectConfig() string {
+// findProjectConfigs looks for .claude/cc-allow.toml and .claude/cc-allow.local.toml
+// starting from cwd and walking up. Returns both paths in a single traversal.
+func findProjectConfigs() (projectConfig, localConfig string) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return ""
+		return "", ""
 	}
 
 	dir := cwd
 	for {
-		path := filepath.Join(dir, ".claude", "cc-allow.toml")
-		if _, err := os.Stat(path); err == nil {
-			return path
+		if projectConfig == "" {
+			path := filepath.Join(dir, ".claude", "cc-allow.toml")
+			if _, err := os.Stat(path); err == nil {
+				projectConfig = path
+			}
+		}
+		if localConfig == "" {
+			path := filepath.Join(dir, ".claude", "cc-allow.local.toml")
+			if _, err := os.Stat(path); err == nil {
+				localConfig = path
+			}
+		}
+
+		// Found both, done
+		if projectConfig != "" && localConfig != "" {
+			break
 		}
 
 		parent := filepath.Dir(dir)
@@ -43,33 +57,7 @@ func findProjectConfig() string {
 		dir = parent
 	}
 
-	return ""
-}
-
-// findProjectLocalConfig looks for .claude/cc-allow.local.toml starting from cwd and walking up.
-// This file is meant to be kept out of source control for local overrides.
-func findProjectLocalConfig() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-
-	dir := cwd
-	for {
-		path := filepath.Join(dir, ".claude", "cc-allow.local.toml")
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			// Reached root
-			break
-		}
-		dir = parent
-	}
-
-	return ""
+	return projectConfig, localConfig
 }
 
 // findProjectRoot looks for the project root directory.

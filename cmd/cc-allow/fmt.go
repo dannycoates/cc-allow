@@ -167,11 +167,11 @@ func findFmtConfigFiles(explicitPath string) []string {
 		paths = append(paths, globalPath)
 	}
 
-	if projectPath := findProjectConfig(); projectPath != "" {
+	projectPath, localPath := findProjectConfigs()
+	if projectPath != "" {
 		paths = append(paths, projectPath)
 	}
-
-	if localPath := findProjectLocalConfig(); localPath != "" {
+	if localPath != "" {
 		paths = append(paths, localPath)
 	}
 
