@@ -328,22 +328,66 @@ func extractFromCmd(cmd syntax.Command, info *ExtractedInfo, pipeToContext []str
 
 // extractCommandNames gets all command names from a statement (for pipe context).
 func extractCommandNames(stmt *syntax.Stmt) []string {
-	var names []string
 	if stmt.Cmd != nil {
-		switch c := stmt.Cmd.(type) {
-		case *syntax.CallExpr:
-			if len(c.Args) > 0 {
-				name, _ := extractWord(c.Args[0])
-				names = append(names, name)
+		return extractCommandNamesFromCmd(stmt.Cmd)
+	}
+	return nil
+}
+
+// extractCommandNamesFromCmd extracts command names from any command type.
+// This is needed for proper pipe context tracking across compound commands
+// like subshells, blocks, if/while/for/case clauses, etc.
+func extractCommandNamesFromCmd(cmd syntax.Command) []string {
+	var names []string
+	switch c := cmd.(type) {
+	case *syntax.CallExpr:
+		if len(c.Args) > 0 {
+			name, _ := extractWord(c.Args[0])
+			names = append(names, name)
+		}
+	case *syntax.BinaryCmd:
+		names = append(names, extractCommandNames(c.X)...)
+		names = append(names, extractCommandNames(c.Y)...)
+	case *syntax.Subshell:
+		for _, s := range c.Stmts {
+			names = append(names, extractCommandNames(s)...)
+		}
+	case *syntax.Block:
+		for _, s := range c.Stmts {
+			names = append(names, extractCommandNames(s)...)
+		}
+	case *syntax.IfClause:
+		// Only extract from then/else blocks, not conditions.
+		// Condition commands don't produce output to the pipe.
+		for _, s := range c.Then {
+			names = append(names, extractCommandNames(s)...)
+		}
+		if c.Else != nil {
+			names = append(names, extractCommandNamesFromCmd(c.Else)...)
+		}
+	case *syntax.WhileClause:
+		// Only extract from do block, not condition.
+		// Condition commands don't produce output to the pipe.
+		for _, s := range c.Do {
+			names = append(names, extractCommandNames(s)...)
+		}
+	case *syntax.ForClause:
+		for _, s := range c.Do {
+			names = append(names, extractCommandNames(s)...)
+		}
+	case *syntax.CaseClause:
+		for _, item := range c.Items {
+			for _, s := range item.Stmts {
+				names = append(names, extractCommandNames(s)...)
 			}
-		case *syntax.BinaryCmd:
-			if c.Op == syntax.Pipe || c.Op == syntax.PipeAll {
-				names = append(names, extractCommandNames(c.X)...)
-				names = append(names, extractCommandNames(c.Y)...)
-			} else {
-				names = append(names, extractCommandNames(c.X)...)
-				names = append(names, extractCommandNames(c.Y)...)
-			}
+		}
+	case *syntax.TimeClause:
+		if c.Stmt != nil {
+			names = append(names, extractCommandNames(c.Stmt)...)
+		}
+	case *syntax.CoprocClause:
+		if c.Stmt != nil {
+			names = append(names, extractCommandNames(c.Stmt)...)
 		}
 	}
 	return names
