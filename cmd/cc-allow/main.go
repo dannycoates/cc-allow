@@ -180,7 +180,9 @@ func outputHookResult(result Result) {
 		output.HookSpecificOutput.PermissionDecisionReason = reason
 	}
 
-	json.NewEncoder(os.Stdout).Encode(output)
+	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
+		os.Exit(ExitError)
+	}
 	os.Exit(0)
 }
 
