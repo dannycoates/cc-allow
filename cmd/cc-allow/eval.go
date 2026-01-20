@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -106,11 +107,18 @@ func NewEvaluator(chain *ConfigChain) *Evaluator {
 		allowedPaths = merged.Policy.AllowedPaths
 	}
 
+	pathVars := pathutil.NewPathVars(projectRoot)
+
+	// Check if config uses $HOME but HOME is not available
+	if configError == nil && !pathVars.HomeSet && merged != nil && mergedConfigUsesHome(merged) {
+		configError = fmt.Errorf("config uses $HOME but HOME environment variable is not set")
+	}
+
 	return &Evaluator{
 		chain:  chain,
 		merged: merged,
 		matchCtx: &MatchContext{
-			PathVars: pathutil.NewPathVars(projectRoot),
+			PathVars: pathVars,
 		},
 		pathResolver: pathutil.NewCommandResolver(allowedPaths),
 		configError:  configError,
@@ -733,4 +741,71 @@ func (e *Evaluator) matchRuleCommand(ruleCommand string, cmd Command) bool {
 	}
 	// Exact match against command name
 	return ruleCommand == cmd.Name
+}
+
+// mergedConfigUsesHome checks if any pattern in the merged config uses $HOME.
+func mergedConfigUsesHome(m *MergedConfig) bool {
+	// Check commands.allow.names
+	for _, entry := range m.CommandsAllow {
+		if strings.Contains(entry.Name, "$HOME") {
+			return true
+		}
+	}
+
+	// Check commands.deny.names
+	for _, entry := range m.CommandsDeny {
+		if strings.Contains(entry.Name, "$HOME") {
+			return true
+		}
+	}
+
+	// Check rules
+	for _, tr := range m.Rules {
+		if ruleUsesHome(tr.Rule) {
+			return true
+		}
+	}
+
+	// Check redirect rules
+	for _, rr := range m.Redirects {
+		for _, p := range rr.To.Pattern {
+			if strings.Contains(p, "$HOME") {
+				return true
+			}
+		}
+	}
+
+	// Check heredoc rules
+	for _, hr := range m.Heredocs {
+		for _, p := range hr.ContentMatch {
+			if strings.Contains(p, "$HOME") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// ruleUsesHome checks if a rule uses $HOME in any of its patterns.
+func ruleUsesHome(rule Rule) bool {
+	if strings.Contains(rule.Command, "$HOME") {
+		return true
+	}
+	for _, p := range rule.Args.AnyMatch {
+		if strings.Contains(p, "$HOME") {
+			return true
+		}
+	}
+	for _, p := range rule.Args.AllMatch {
+		if strings.Contains(p, "$HOME") {
+			return true
+		}
+	}
+	for _, p := range rule.Args.Position {
+		if strings.Contains(p, "$HOME") {
+			return true
+		}
+	}
+	return false
 }

@@ -10,16 +10,19 @@ type PathVars struct {
 	ProjectRoot string // detected project root
 	Home        string // user's home directory
 	Cwd         string // current working directory
+	HomeSet     bool   // true if HOME was available
 }
 
 // NewPathVars creates PathVars with the current environment.
 func NewPathVars(projectRoot string) *PathVars {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	homeSet := err == nil && home != ""
 	cwd, _ := os.Getwd()
 	return &PathVars{
 		ProjectRoot: projectRoot,
 		Home:        home,
 		Cwd:         cwd,
+		HomeSet:     homeSet,
 	}
 }
 
