@@ -30,15 +30,6 @@ var (
 // Debug logger (nil when debug mode is off)
 var debugLog *log.Logger
 
-// HookInput represents the JSON input from Claude Code hooks
-type HookInput struct {
-	ToolName  string `json:"tool_name"`
-	ToolInput struct {
-		Command  string `json:"command"`   // Bash tool
-		FilePath string `json:"file_path"` // Read, Edit, Write tools
-	} `json:"tool_input"`
-}
-
 // HookOutput represents the JSON output for Claude Code hooks
 type HookOutput struct {
 	HookSpecificOutput HookSpecificOutput `json:"hookSpecificOutput"`
@@ -80,9 +71,9 @@ func main() {
 	}
 }
 
-// runEval evaluates a bash command against the config chain.
+// runEval evaluates a tool request against the config chain.
 // In hook mode, it reads JSON from stdin and outputs JSON.
-// In pipe mode, it reads the command directly from stdin.
+// In pipe mode, it reads the bash command directly from stdin.
 func runEval(configPath string, hookMode, debugMode bool) {
 	// Load configuration chain from standard locations + explicit path
 	chain, err := LoadConfigChain(configPath)
@@ -98,82 +89,28 @@ func runEval(configPath string, hookMode, debugMode bool) {
 	}
 	logDebugConfigChain(chain)
 
-	// Get the bash command to parse
-	var input io.Reader = os.Stdin
-	var commandStr string
+	dispatcher := NewToolDispatcher(chain)
+
 	if hookMode {
-		// Parse JSON hook input and extract command
+		// Parse JSON hook input
 		var hookInput HookInput
 		if err := json.NewDecoder(os.Stdin).Decode(&hookInput); err != nil {
 			fmt.Fprintf(os.Stderr, "Error parsing hook JSON: %v\n", err)
 			os.Exit(ExitError)
 		}
-
-		// Dispatch based on tool_name
-		switch hookInput.ToolName {
-		case "Read", "Edit", "Write":
-			// File tool evaluation
-			if hookInput.ToolInput.FilePath == "" {
-				outputHookResult(Result{Action: "ask", Source: "no file path"})
-				return
-			}
-			logDebug("File tool: %s path=%q", hookInput.ToolName, hookInput.ToolInput.FilePath)
-			result := evaluateFileTool(chain, hookInput.ToolName, hookInput.ToolInput.FilePath)
-			logDebug("File result: action=%q message=%q source=%q", result.Action, result.Message, result.Source)
-			outputHookResult(result)
-			return
-		case "Bash", "":
-			// Bash tool - fall through to existing logic
-			// Empty tool_name for backward compatibility
-		default:
-			// Unknown tool - defer to Claude Code
-			outputHookResult(Result{Action: "ask", Source: "unknown tool: " + hookInput.ToolName})
-			return
-		}
-
-		if hookInput.ToolInput.Command == "" {
-			// No command to evaluate, defer to Claude Code
-			outputHookResult(Result{Action: "ask"})
-			return
-		}
-		commandStr = hookInput.ToolInput.Command
-		input = strings.NewReader(commandStr)
+		result := dispatcher.Dispatch(hookInput)
+		outputHookResult(result)
 	} else {
-		// Read stdin for plain mode to capture for debug logging
+		// Pipe mode: read bash command from stdin
 		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
 			os.Exit(ExitError)
 		}
-		commandStr = string(data)
-		input = strings.NewReader(commandStr)
-	}
-	logDebug("Input command: %q", commandStr)
-
-	// Parse bash input
-	parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
-	f, err := parser.Parse(input, "")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Parse error: %v\n", err)
-		os.Exit(ExitError)
-	}
-
-	// Extract commands and context from AST
-	info := ExtractFromFile(f)
-	logDebugExtractedInfo(info)
-
-	// Evaluate against all configs (strictest wins)
-	eval := NewEvaluator(chain)
-	result := eval.Evaluate(info)
-	logDebug("Result: action=%q message=%q command=%q source=%q", result.Action, result.Message, result.Command, result.Source)
-
-	outputResult(result, hookMode)
-}
-
-func outputResult(result Result, hookMode bool) {
-	if hookMode {
-		outputHookResult(result)
-	} else {
+		var hookInput HookInput
+		hookInput.ToolName = "Bash"
+		hookInput.ToolInput.Command = string(data)
+		result := dispatcher.Dispatch(hookInput)
 		outputPlainResult(result)
 	}
 }
