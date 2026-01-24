@@ -32,8 +32,10 @@ var debugLog *log.Logger
 
 // HookInput represents the JSON input from Claude Code hooks
 type HookInput struct {
+	ToolName  string `json:"tool_name"`
 	ToolInput struct {
-		Command string `json:"command"`
+		Command  string `json:"command"`   // Bash tool
+		FilePath string `json:"file_path"` // Read, Edit, Write tools
 	} `json:"tool_input"`
 }
 
@@ -106,6 +108,29 @@ func runEval(configPath string, hookMode, debugMode bool) {
 			fmt.Fprintf(os.Stderr, "Error parsing hook JSON: %v\n", err)
 			os.Exit(ExitError)
 		}
+
+		// Dispatch based on tool_name
+		switch hookInput.ToolName {
+		case "Read", "Edit", "Write":
+			// File tool evaluation
+			if hookInput.ToolInput.FilePath == "" {
+				outputHookResult(Result{Action: "ask", Source: "no file path"})
+				return
+			}
+			logDebug("File tool: %s path=%q", hookInput.ToolName, hookInput.ToolInput.FilePath)
+			result := evaluateFileTool(chain, hookInput.ToolName, hookInput.ToolInput.FilePath)
+			logDebug("File result: action=%q message=%q source=%q", result.Action, result.Message, result.Source)
+			outputHookResult(result)
+			return
+		case "Bash", "":
+			// Bash tool - fall through to existing logic
+			// Empty tool_name for backward compatibility
+		default:
+			// Unknown tool - defer to Claude Code
+			outputHookResult(Result{Action: "ask", Source: "unknown tool: " + hookInput.ToolName})
+			return
+		}
+
 		if hookInput.ToolInput.Command == "" {
 			// No command to evaluate, defer to Claude Code
 			outputHookResult(Result{Action: "ask"})

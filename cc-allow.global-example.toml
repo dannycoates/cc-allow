@@ -217,7 +217,6 @@ names = [
     "lvm", "pvcreate", "vgcreate", "lvcreate",
     # System control
     "shutdown", "reboot", "halt", "poweroff", "init", "telinit",
-    "systemctl",                    # can stop critical services
     # User/group management
     "useradd", "userdel", "usermod",
     "groupadd", "groupdel", "groupmod",
@@ -250,6 +249,13 @@ heredocs = "allow"                 # heredocs are generally safe
 # ============================================================================
 # Fine-grained control for commands that are generally safe but have
 # dangerous modes.
+
+# --- systemctl: Allow status checks ---
+[[rule]]
+command = "systemctl"
+action = "allow"
+[rule.args]
+position = { "0" = "status" }
 
 # --- rm: Block recursive deletion ---
 [[rule]]
@@ -418,3 +424,47 @@ append = true
 message = "Cannot append to shell configuration"
 [redirect.to]
 pattern = ["re:.*rc$", "re:.*profile$", "re:.*_login", "re:.*_logout"]
+
+# ============================================================================
+# FILE TOOL PERMISSIONS (Read, Edit, Write)
+# ============================================================================
+# Control Claude Code's Read, Edit, and Write file tools.
+# Evaluation order: deny -> allow -> default (deny always wins)
+
+[files]
+default = "ask"  # defer to Claude Code when no rules match
+
+# --- Read tool: control file reading ---
+[files.read]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow reading project files
+    "path:$CLAUDE_PLUGIN_ROOT/**",   # allow reading plugin files
+]
+deny = [
+    "path:$HOME/.ssh/**",            # never read SSH keys
+    "glob:**/*.key",                 # never read key files
+    "glob:**/*.pem",                 # never read PEM files
+]
+deny_message = "Cannot read sensitive files"
+
+# --- Edit tool: control file editing ---
+[files.edit]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow editing project files
+]
+deny = [
+    "path:$HOME/.*",                 # never edit dotfiles in home
+]
+deny_message = "Cannot edit sensitive files"
+
+# --- Write tool: control file creation/overwriting ---
+[files.write]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow writing to project
+]
+deny = [
+    "path:$HOME/.*",                 # never write to dotfiles
+    "path:/etc/**",                  # never write to system config
+    "path:/usr/**",                  # never write to system directories
+]
+deny_message = "Cannot write outside project directory"

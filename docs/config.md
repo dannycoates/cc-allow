@@ -481,6 +481,70 @@ message = "Cannot write to system directories"
 pattern = ["re:^/etc/.*", "re:^/usr/.*", "re:^/bin/.*"]
 ```
 
+## File Tool Permissions
+
+Control Claude Code's Read, Edit, and Write file tools. These are simpler than bash rules — just pattern arrays for allow/deny lists.
+
+### Config Format
+
+```toml
+[files]
+default = "ask"  # "allow", "deny", or "ask" when no rules match
+
+[files.read]
+allow = ["path:$PROJECT_ROOT/**", "path:$CLAUDE_PLUGIN_ROOT/**"]
+deny = ["path:$HOME/.ssh/**", "glob:**/*.key", "glob:**/*.pem"]
+deny_message = "Cannot read sensitive files"
+
+[files.edit]
+allow = ["path:$PROJECT_ROOT/**"]
+deny = ["path:$HOME/.*"]
+deny_message = "Cannot edit sensitive files"
+
+[files.write]
+allow = ["path:$PROJECT_ROOT/**"]
+deny = ["path:$HOME/.*", "path:/etc/**", "path:/usr/**"]
+deny_message = "Cannot write outside project directory"
+```
+
+### Evaluation Order
+
+1. **Deny lists** are checked first — deny always wins
+2. **Allow lists** are checked next
+3. **Default policy** applies if no patterns match
+
+### Pattern Types
+
+File patterns support the same prefixes as command rules:
+
+| Prefix | Example | Use case |
+|--------|---------|----------|
+| `path:` | `path:$PROJECT_ROOT/**` | Project-scoped access |
+| `glob:` | `glob:**/.env*` | Sensitive file patterns |
+| `re:` | `re:.*\.(key\|pem)$` | Complex extension matching |
+
+### Hook Configuration
+
+To use file permissions with Claude Code, configure the PreToolUse hook:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Read|Edit|Write|Bash",
+      "hooks": [{"type": "command", "command": "cc-allow --hook"}]
+    }]
+  }
+}
+```
+
+### Config Merging
+
+File rules merge the same way as command rules:
+- Deny lists union across configs (anything denied anywhere stays denied)
+- Allow lists union across configs
+- Stricter default wins
+
 ## Testing Your Config
 
 Use the test harness to verify your rules:

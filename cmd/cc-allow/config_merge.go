@@ -60,9 +60,13 @@ func newEmptyMergedConfig() *MergedConfig {
 		Sources:       []string{},
 		CommandsDeny:  []TrackedCommandEntry{},
 		CommandsAllow: []TrackedCommandEntry{},
-		Rules:         []TrackedRule{},
-		Redirects:     []TrackedRedirectRule{},
-		Heredocs:      []TrackedHeredocRule{},
+		Files: MergedFilesConfig{
+			Allow: make(map[string][]TrackedFilePatternEntry),
+			Deny:  make(map[string][]TrackedFilePatternEntry),
+		},
+		Rules:     []TrackedRule{},
+		Redirects: []TrackedRedirectRule{},
+		Heredocs:  []TrackedHeredocRule{},
 	}
 }
 
@@ -117,9 +121,48 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	// Merge heredocs with shadowing detection
 	merged.Heredocs = mergeHeredocRules(merged.Heredocs, cfg.Heredocs, source)
 
+	// Merge file tool config
+	mergeFilesConfig(&merged.Files, &cfg.Files, source)
+
 	// Debug config - take non-empty values
 	if cfg.Debug.LogFile != "" {
 		merged.Debug.LogFile = cfg.Debug.LogFile
+	}
+}
+
+// mergeFilesConfig merges file tool configuration.
+// Deny lists union across configs, allow lists union, stricter default wins.
+func mergeFilesConfig(merged *MergedFilesConfig, cfg *FilesConfig, source string) {
+	// Merge default policy (stricter wins)
+	merged.Default = mergeTrackedValue(merged.Default, cfg.Default, source)
+
+	// Merge per-tool allow/deny lists
+	tools := []struct {
+		name   string
+		config FileToolConfig
+	}{
+		{"Read", cfg.Read},
+		{"Edit", cfg.Edit},
+		{"Write", cfg.Write},
+	}
+
+	for _, tool := range tools {
+		// Merge deny patterns (union)
+		for _, pattern := range tool.config.Deny {
+			merged.Deny[tool.name] = append(merged.Deny[tool.name], TrackedFilePatternEntry{
+				Pattern: pattern,
+				Source:  source,
+				Message: tool.config.DenyMessage,
+			})
+		}
+
+		// Merge allow patterns (union)
+		for _, pattern := range tool.config.Allow {
+			merged.Allow[tool.name] = append(merged.Allow[tool.name], TrackedFilePatternEntry{
+				Pattern: pattern,
+				Source:  source,
+			})
+		}
 	}
 }
 
@@ -148,6 +191,10 @@ func applyMergedDefaults(merged *MergedConfig) {
 	}
 	if merged.Constructs.Heredocs.Value == "" {
 		merged.Constructs.Heredocs = TrackedValue{Value: "allow", Source: "(default)"}
+	}
+	// Files default
+	if merged.Files.Default.Value == "" {
+		merged.Files.Default = TrackedValue{Value: "ask", Source: "(default)"}
 	}
 }
 

@@ -14,6 +14,7 @@ type Config struct {
 	Path       string           `toml:"-"` // path this config was loaded from (not in TOML)
 	Policy     PolicyConfig     `toml:"policy"`
 	Commands   CommandsConfig   `toml:"commands"`
+	Files      FilesConfig      `toml:"files"` // file tool permissions (Read, Edit, Write)
 	Rules      []Rule           `toml:"rule"`
 	Redirects  []RedirectRule   `toml:"redirect"`
 	Heredocs   []HeredocRule    `toml:"heredoc"`
@@ -45,6 +46,21 @@ type CommandsConfig struct {
 type CommandList struct {
 	Names   []string `toml:"names"`
 	Message string   `toml:"message"`
+}
+
+// FilesConfig holds file tool permission settings for Read, Edit, and Write tools.
+type FilesConfig struct {
+	Default string         `toml:"default"` // "allow", "deny", or "ask" (default: "ask")
+	Read    FileToolConfig `toml:"read"`
+	Edit    FileToolConfig `toml:"edit"`
+	Write   FileToolConfig `toml:"write"`
+}
+
+// FileToolConfig provides allow/deny lists for a specific file tool.
+type FileToolConfig struct {
+	Allow       []string `toml:"allow"`        // patterns to allow
+	Deny        []string `toml:"deny"`         // patterns to deny
+	DenyMessage string   `toml:"deny_message"` // custom message for denials
 }
 
 // Rule represents a detailed command rule with argument matching.
@@ -192,6 +208,21 @@ type TrackedCommandEntry struct {
 	Message string // associated message (if any)
 }
 
+// TrackedFilePatternEntry tracks a single file pattern in allow/deny lists.
+type TrackedFilePatternEntry struct {
+	Pattern string // the file path pattern
+	Source  string // config file path
+	Message string // associated message (if any)
+}
+
+// MergedFilesConfig holds merged file tool settings with source tracking.
+type MergedFilesConfig struct {
+	Default TrackedValue // "allow", "deny", or "ask"
+	// Per-tool allow/deny lists - keys are "Read", "Edit", "Write"
+	Allow map[string][]TrackedFilePatternEntry
+	Deny  map[string][]TrackedFilePatternEntry
+}
+
 // MergedPolicy holds policy settings with source tracking.
 type MergedPolicy struct {
 	Default             TrackedValue
@@ -216,6 +247,7 @@ type MergedConfig struct {
 	Sources       []string // all config file paths that contributed, in order
 	Policy        MergedPolicy
 	Constructs    MergedConstructs
+	Files         MergedFilesConfig     // file tool permissions
 	CommandsDeny  []TrackedCommandEntry // union of all deny lists
 	CommandsAllow []TrackedCommandEntry // union of all allow lists
 	Rules         []TrackedRule
@@ -373,6 +405,28 @@ func (cfg *Config) Validate() error {
 		if len(rule.ContentMatch) > 0 {
 			if _, err := NewMatcher(rule.ContentMatch); err != nil {
 				return fmt.Errorf("%w: heredoc[%d]: content_match: %w", ErrInvalidConfig, i, err)
+			}
+		}
+	}
+
+	// Validate file tool patterns
+	fileTools := []struct {
+		name   string
+		config FileToolConfig
+	}{
+		{"read", cfg.Files.Read},
+		{"edit", cfg.Files.Edit},
+		{"write", cfg.Files.Write},
+	}
+	for _, tool := range fileTools {
+		for i, pattern := range tool.config.Allow {
+			if _, err := ParsePattern(pattern); err != nil {
+				return fmt.Errorf("%w: files.%s.allow[%d]: %w", ErrInvalidConfig, tool.name, i, err)
+			}
+		}
+		for i, pattern := range tool.config.Deny {
+			if _, err := ParsePattern(pattern); err != nil {
+				return fmt.Errorf("%w: files.%s.deny[%d]: %w", ErrInvalidConfig, tool.name, i, err)
 			}
 		}
 	}

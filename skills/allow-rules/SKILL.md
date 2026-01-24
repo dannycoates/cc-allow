@@ -6,7 +6,7 @@ context: fork
 
 # Managing cc-allow Rules
 
-cc-allow evaluates bash commands and returns exit codes: 0=allow, 1=ask (defer), 2=deny, 3=error.
+cc-allow evaluates bash commands and file tool requests (Read, Edit, Write) and returns exit codes: 0=allow, 1=ask (defer), 2=deny, 3=error.
 
 ## Config Locations
 
@@ -90,7 +90,7 @@ action = "allow"
 contains = ["--force"]           # must contain all (exact match)
 any_match = ["-r", "-rf"]        # must match at least one
 all_match = ["glob:*.txt"]       # all args must match
-position = { 0 = "/etc/*" }      # arg at position must match
+position = { "0" = "/etc/*" }      # arg at position must match (indices are strings)
 ```
 
 #### Pipe Context
@@ -198,6 +198,34 @@ Path matching:
 - Uses gitignore-style `**` for recursive matching
 - Only matches path-like arguments (starts with `/`, `./`, `../`, `~`, or contains `/`)
 
+## File Tool Permissions
+
+Control Read, Edit, and Write file tools with pattern arrays:
+
+```toml
+[files]
+default = "ask"  # when no rules match
+
+[files.read]
+allow = ["path:$PROJECT_ROOT/**", "path:$CLAUDE_PLUGIN_ROOT/**"]
+deny = ["path:$HOME/.ssh/**", "glob:**/*.key", "glob:**/*.pem"]
+deny_message = "Cannot read sensitive files"
+
+[files.edit]
+allow = ["path:$PROJECT_ROOT/**"]
+deny = ["path:$HOME/.*"]
+deny_message = "Cannot edit sensitive files"
+
+[files.write]
+allow = ["path:$PROJECT_ROOT/**"]
+deny = ["path:$HOME/.*", "path:/etc/**", "path:/usr/**"]
+deny_message = "Cannot write outside project directory"
+```
+
+**Evaluation order**: deny → allow → default (deny always wins)
+
+**Pattern types**: Same as command rules — `path:`, `glob:`, `re:`
+
 ## Common Tasks
 
 **Allow a command**: Add to `[commands.allow].names`
@@ -211,6 +239,10 @@ Path matching:
 **Allow redirect target**: Add `[[redirect]]` with `action = "allow"` (redirect rules still use first-match)
 
 **Block piping to shell**: Add rule on the sink command with `[rule.pipe].from`
+
+**Allow file reading**: Add pattern to `[files.read].allow`
+
+**Block file writing**: Add pattern to `[files.write].deny`
 
 ## Workflow
 
@@ -228,8 +260,13 @@ Path matching:
    ```
 6. Test the new rule with a matching command:
    ```bash
+   # Test bash command
    echo 'git push --force' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow
    echo $?  # 0=allow, 1=ask, 2=deny
+
+   # Test file tool (use --hook mode with JSON input)
+   echo '{"tool_name":"Read","tool_input":{"file_path":"/etc/passwd"}}' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --hook
+   echo '{"tool_name":"Write","tool_input":{"file_path":"$HOME/.bashrc"}}' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --hook
    ```
 7. Use `--debug` for detailed evaluation trace:
    ```bash
