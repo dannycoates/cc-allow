@@ -42,6 +42,7 @@ deny_message = "Cannot edit {{.FileName}} - sensitive file"
 allow = [
     "path:$PROJECT_ROOT/**",         # allow writing to project
     "path:/tmp/**",                  # allow writing to /tmp
+    "path:/dev/null"
 ]
 deny = [
     "path:$HOME/.*",                 # never write to dotfiles
@@ -59,11 +60,6 @@ deny_message = "Cannot write to {{.FilePath}} - system directory"
 
 [redirects]
 respect_file_rules = true
-
-[[redirect]]
-action = "allow"
-[redirect.to]
-exact = ["/dev/null"]
 
 # ============================================================================
 # ALLOWED COMMANDS

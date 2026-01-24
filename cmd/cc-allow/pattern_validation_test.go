@@ -24,7 +24,7 @@ func TestInvalidRegexInAnyMatchCausesAsk(t *testing.T) {
 				Command: "rm",
 				Action:  "deny",
 				Message: "Should deny rm with recursive flag",
-				Args:    ArgsMatch{AnyMatch: []string{"re:[invalid"}}, // Invalid regex!
+				Args:    ArgsMatch{AnyMatch: []MatchElement{{Pattern: "re:[invalid"}}}, // Invalid regex!
 			},
 		},
 	}
@@ -50,7 +50,7 @@ func TestInvalidRegexInAllMatchCausesAsk(t *testing.T) {
 				Command: "rm",
 				Action:  "deny",
 				Message: "Should deny rm with both -r and -f",
-				Args:    ArgsMatch{AllMatch: []string{"-r", "re:(unclosed"}}, // Second pattern invalid
+				Args:    ArgsMatch{AllMatch: []MatchElement{{Pattern: "-r"}, {Pattern: "re:(unclosed"}}}, // Second pattern invalid
 			},
 		},
 	}
@@ -72,7 +72,7 @@ func TestInvalidRegexInPositionCausesAsk(t *testing.T) {
 				Command: "chmod",
 				Action:  "deny",
 				Message: "Should deny chmod 777",
-				Args:    ArgsMatch{Position: map[string]string{"0": "re:777["}}, // Invalid regex
+				Args:    ArgsMatch{Position: map[string]FlexiblePattern{"0": {Patterns: []string{"re:777["}}}}, // Invalid regex
 			},
 		},
 	}
@@ -202,7 +202,7 @@ func TestValidateCatchesInvalidArgsAnyMatch(t *testing.T) {
 			{
 				Command: "test",
 				Action:  "deny",
-				Args:    ArgsMatch{AnyMatch: []string{"re:[invalid"}},
+				Args:    ArgsMatch{AnyMatch: []MatchElement{{Pattern: "re:[invalid"}}},
 			},
 		},
 	}
@@ -222,7 +222,7 @@ func TestValidateCatchesInvalidArgsAllMatch(t *testing.T) {
 			{
 				Command: "test",
 				Action:  "deny",
-				Args:    ArgsMatch{AllMatch: []string{"re:(unclosed"}},
+				Args:    ArgsMatch{AllMatch: []MatchElement{{Pattern: "re:(unclosed"}}},
 			},
 		},
 	}
@@ -239,7 +239,7 @@ func TestValidateCatchesInvalidArgsPosition(t *testing.T) {
 			{
 				Command: "test",
 				Action:  "deny",
-				Args:    ArgsMatch{Position: map[string]string{"0": "re:[bad"}},
+				Args:    ArgsMatch{Position: map[string]FlexiblePattern{"0": {Patterns: []string{"re:[bad"}}}},
 			},
 		},
 	}

@@ -197,6 +197,60 @@ all_match = ["glob:*.txt"]       # all args must match pattern
 position = { "0" = "/etc/*" }    # arg at position must match pattern (keys are string indices)
 ```
 
+#### Extended Argument Matching
+
+Position values can be arrays for enum matching (OR semantics):
+
+```toml
+[[rule]]
+command = "git"
+action = "allow"
+[rule.args]
+# Allow any of these subcommands
+position = { "0" = ["status", "diff", "log", "branch"] }
+
+[[rule]]
+command = "git"
+action = "deny"
+message = "Network operations need approval"
+[rule.args]
+# Deny any of these subcommands
+position = { "0" = ["push", "pull", "fetch", "clone"] }
+```
+
+`any_match` and `all_match` can include sequence objects for adjacent argument matching:
+
+```toml
+[[rule]]
+command = "ffmpeg"
+action = "allow"
+message = "ffmpeg with safe input"
+[rule.args]
+# Match "-i" followed by a path under $HOME (sliding window)
+any_match = [
+    { "0" = "-i", "1" = "path:$HOME/**" },
+    { "0" = "-i", "1" = "path:$PROJECT_ROOT/**" },
+    "re:^--help$"  # can mix strings and objects
+]
+
+[[rule]]
+command = "openssl"
+action = "allow"
+[rule.args]
+# Require BOTH -in and -out pairs to be present
+all_match = [
+    { "0" = "-in", "1" = ["glob:*.pem", "glob:*.crt"] },
+    { "0" = "-out", "1" = ["glob:*.pem", "glob:*.der"] }
+]
+```
+
+**Sequence matching behavior:**
+- Keys in sequence objects are relative positions ("0", "1", "2", ...)
+- Values can be strings or arrays (enum, OR semantics)
+- Sequences use sliding window matching — they match anywhere in the args
+- In `any_match`: any sequence or string matching succeeds (OR)
+- In `all_match`: all sequences and strings must match (AND)
+
 #### Pipe Context
 
 Control rules based on pipeline relationships:
@@ -882,6 +936,10 @@ If a template has syntax errors or references missing fields:
 - Use `{{index .PipesFrom 0}}` to access the first element of an array
 - Empty fields render as empty strings (no error)
 - Templates only work in `message` and `deny_message` fields
+
+## Kitchen Sink Example
+
+See [`docs/examples/kitchen-sink.toml`](examples/kitchen-sink.toml) for a comprehensive example demonstrating all configuration features.
 
 ## Testing Your Config
 

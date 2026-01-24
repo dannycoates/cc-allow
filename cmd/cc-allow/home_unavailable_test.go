@@ -22,17 +22,17 @@ func TestRuleUsesHome(t *testing.T) {
 		},
 		{
 			name:     "rule with $HOME in any_match",
-			rule:     Rule{Command: "cat", Args: ArgsMatch{AnyMatch: []string{"path:$HOME/**"}}},
+			rule:     Rule{Command: "cat", Args: ArgsMatch{AnyMatch: []MatchElement{{Pattern: "path:$HOME/**"}}}},
 			wantHome: true,
 		},
 		{
 			name:     "rule with $HOME in all_match",
-			rule:     Rule{Command: "cat", Args: ArgsMatch{AllMatch: []string{"path:$HOME/**"}}},
+			rule:     Rule{Command: "cat", Args: ArgsMatch{AllMatch: []MatchElement{{Pattern: "path:$HOME/**"}}}},
 			wantHome: true,
 		},
 		{
 			name:     "rule with $HOME in position",
-			rule:     Rule{Command: "cat", Args: ArgsMatch{Position: map[string]string{"0": "path:$HOME/**"}}},
+			rule:     Rule{Command: "cat", Args: ArgsMatch{Position: map[string]FlexiblePattern{"0": {Patterns: []string{"path:$HOME/**"}}}}},
 			wantHome: true,
 		},
 		{

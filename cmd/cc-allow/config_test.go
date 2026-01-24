@@ -227,3 +227,138 @@ position = { "0" = "re:^[0-7]{3,4}$", "1" = "glob:*.txt" }
 		})
 	}
 }
+
+func TestParseExtendedArgumentMatching(t *testing.T) {
+	// Test TOML parsing of extended argument matching features
+	tests := []struct {
+		name    string
+		config  string
+		verify  func(t *testing.T, cfg *Config)
+		wantErr string
+	}{
+		{
+			name: "position with array values (enum)",
+			config: `
+[[rule]]
+command = "git"
+action = "allow"
+[rule.args]
+position = { "0" = ["status", "diff", "log"] }
+`,
+			verify: func(t *testing.T, cfg *Config) {
+				if len(cfg.Rules) != 1 {
+					t.Fatal("expected 1 rule")
+				}
+				fp, ok := cfg.Rules[0].Args.Position["0"]
+				if !ok {
+					t.Fatal("expected position 0")
+				}
+				if len(fp.Patterns) != 3 {
+					t.Errorf("expected 3 patterns in position 0, got %d", len(fp.Patterns))
+				}
+			},
+		},
+		{
+			name: "any_match with sequence objects",
+			config: `
+[[rule]]
+command = "ffmpeg"
+action = "allow"
+[rule.args]
+any_match = [
+    { "0" = "-i", "1" = "path:$HOME/**" },
+    "re:^--help$"
+]
+`,
+			verify: func(t *testing.T, cfg *Config) {
+				if len(cfg.Rules) != 1 {
+					t.Fatal("expected 1 rule")
+				}
+				elems := cfg.Rules[0].Args.AnyMatch
+				if len(elems) != 2 {
+					t.Fatalf("expected 2 any_match elements, got %d", len(elems))
+				}
+				// First should be sequence
+				if !elems[0].IsSequence {
+					t.Error("first element should be sequence")
+				}
+				if len(elems[0].Sequence) != 2 {
+					t.Errorf("sequence should have 2 positions, got %d", len(elems[0].Sequence))
+				}
+				// Second should be string
+				if elems[1].IsSequence {
+					t.Error("second element should be string, not sequence")
+				}
+				if elems[1].Pattern != "re:^--help$" {
+					t.Errorf("expected pattern 're:^--help$', got %q", elems[1].Pattern)
+				}
+			},
+		},
+		{
+			name: "sequence with enum values",
+			config: `
+[[rule]]
+command = "openssl"
+action = "allow"
+[rule.args]
+all_match = [
+    { "0" = "-in", "1" = ["glob:*.pem", "glob:*.crt"] }
+]
+`,
+			verify: func(t *testing.T, cfg *Config) {
+				if len(cfg.Rules) != 1 {
+					t.Fatal("expected 1 rule")
+				}
+				elems := cfg.Rules[0].Args.AllMatch
+				if len(elems) != 1 {
+					t.Fatalf("expected 1 all_match element, got %d", len(elems))
+				}
+				if !elems[0].IsSequence {
+					t.Fatal("element should be sequence")
+				}
+				fp, ok := elems[0].Sequence["1"]
+				if !ok {
+					t.Fatal("expected position 1 in sequence")
+				}
+				if len(fp.Patterns) != 2 {
+					t.Errorf("expected 2 patterns, got %d", len(fp.Patterns))
+				}
+			},
+		},
+		{
+			name: "invalid sequence position key",
+			config: `
+[[rule]]
+command = "test"
+action = "deny"
+[rule.args]
+any_match = [
+    { "abc" = "-i" }
+]
+`,
+			wantErr: "is not a valid integer",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseConfig(tt.config)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.wantErr)
+					return
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.verify != nil {
+				tt.verify(t, cfg)
+			}
+		})
+	}
+}

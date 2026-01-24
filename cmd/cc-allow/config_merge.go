@@ -269,11 +269,49 @@ func mapsEqual(a, b map[string]string) bool {
 func rulesExactMatch(a, b Rule) bool {
 	return a.Command == b.Command &&
 		slicesEqual(a.Args.Contains, b.Args.Contains) &&
-		slicesEqual(a.Args.AnyMatch, b.Args.AnyMatch) &&
-		slicesEqual(a.Args.AllMatch, b.Args.AllMatch) &&
-		mapsEqual(a.Args.Position, b.Args.Position) &&
+		matchElementsEqual(a.Args.AnyMatch, b.Args.AnyMatch) &&
+		matchElementsEqual(a.Args.AllMatch, b.Args.AllMatch) &&
+		flexiblePatternMapsEqual(a.Args.Position, b.Args.Position) &&
 		slicesEqual(a.Pipe.To, b.Pipe.To) &&
 		slicesEqual(a.Pipe.From, b.Pipe.From)
+}
+
+// matchElementsEqual compares two slices of MatchElement for equality.
+func matchElementsEqual(a, b []MatchElement) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !matchElementEqual(a[i], b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// matchElementEqual compares two MatchElement for equality.
+func matchElementEqual(a, b MatchElement) bool {
+	if a.IsSequence != b.IsSequence {
+		return false
+	}
+	if a.IsSequence {
+		return flexiblePatternMapsEqual(a.Sequence, b.Sequence)
+	}
+	return a.Pattern == b.Pattern
+}
+
+// flexiblePatternMapsEqual compares two maps of FlexiblePattern for equality.
+func flexiblePatternMapsEqual(a, b map[string]FlexiblePattern) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		bv, ok := b[k]
+		if !ok || !slicesEqual(av.Patterns, bv.Patterns) {
+			return false
+		}
+	}
+	return true
 }
 
 // mergeRules merges new rules into existing rules with shadowing detection.

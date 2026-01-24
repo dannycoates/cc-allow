@@ -76,12 +76,67 @@ type Rule struct {
 	FileAccessType   string      `toml:"file_access_type"`   // override inferred file access type ("Read", "Write", "Edit")
 }
 
+// FlexiblePattern can be a string or []string (for enum matching).
+// When used in position matching, any pattern matching succeeds (OR semantics).
+type FlexiblePattern struct {
+	Patterns []string
+}
+
+// UnmarshalTOML implements custom TOML unmarshaling for FlexiblePattern.
+func (fp *FlexiblePattern) UnmarshalTOML(data interface{}) error {
+	switch v := data.(type) {
+	case string:
+		fp.Patterns = []string{v}
+	case []interface{}:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				fp.Patterns = append(fp.Patterns, s)
+			} else {
+				return fmt.Errorf("array elements must be strings")
+			}
+		}
+	default:
+		return fmt.Errorf("expected string or array, got %T", data)
+	}
+	return nil
+}
+
+// MatchElement can be a string pattern or an adjacent sequence object.
+// When IsSequence is true, it matches consecutive args at relative positions.
+type MatchElement struct {
+	IsSequence bool
+	Pattern    string                     // if !IsSequence: pattern to match any arg
+	Sequence   map[string]FlexiblePattern // if IsSequence: "0" -> patterns, "1" -> patterns, etc.
+}
+
+// UnmarshalTOML implements custom TOML unmarshaling for MatchElement.
+func (me *MatchElement) UnmarshalTOML(data interface{}) error {
+	switch v := data.(type) {
+	case string:
+		me.IsSequence = false
+		me.Pattern = v
+	case map[string]interface{}:
+		me.IsSequence = true
+		me.Sequence = make(map[string]FlexiblePattern)
+		for k, val := range v {
+			var fp FlexiblePattern
+			if err := fp.UnmarshalTOML(val); err != nil {
+				return fmt.Errorf("position %q: %w", k, err)
+			}
+			me.Sequence[k] = fp
+		}
+	default:
+		return fmt.Errorf("expected string or object, got %T", data)
+	}
+	return nil
+}
+
 // ArgsMatch provides different ways to match command arguments.
 type ArgsMatch struct {
-	Contains []string          `toml:"contains"`   // literal substring matches
-	AnyMatch []string          `toml:"any_match"`  // any arg matches pattern (glob/regex)
-	AllMatch []string          `toml:"all_match"`  // all patterns must match some arg
-	Position map[string]string `toml:"position"`   // specific positional arg matching (keys are string indices: "0", "1", etc.)
+	Contains []string                   `toml:"contains"`  // literal substring matches
+	AnyMatch []MatchElement             `toml:"any_match"` // any element matches (strings or sequence objects)
+	AllMatch []MatchElement             `toml:"all_match"` // all elements must match
+	Position map[string]FlexiblePattern `toml:"position"`  // specific positional arg matching with enum support
 }
 
 // PipeContext specifies rules about pipe relationships.
@@ -388,23 +443,28 @@ func (cfg *Config) Validate() error {
 				return fmt.Errorf("%w: rule[%d]: command: %w", ErrInvalidConfig, i, err)
 			}
 		}
-		if len(rule.Args.AnyMatch) > 0 {
-			if _, err := NewMatcher(rule.Args.AnyMatch); err != nil {
-				return fmt.Errorf("%w: rule[%d] (command=%q): args.any_match: %w", ErrInvalidConfig, i, rule.Command, err)
+		// Validate args.any_match (can be strings or sequence objects)
+		for j, elem := range rule.Args.AnyMatch {
+			if err := validateMatchElement(elem, fmt.Sprintf("rule[%d] (command=%q): args.any_match[%d]", i, rule.Command, j)); err != nil {
+				return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 			}
 		}
-		if len(rule.Args.AllMatch) > 0 {
-			if _, err := NewMatcher(rule.Args.AllMatch); err != nil {
-				return fmt.Errorf("%w: rule[%d] (command=%q): args.all_match: %w", ErrInvalidConfig, i, rule.Command, err)
+		// Validate args.all_match (can be strings or sequence objects)
+		for j, elem := range rule.Args.AllMatch {
+			if err := validateMatchElement(elem, fmt.Sprintf("rule[%d] (command=%q): args.all_match[%d]", i, rule.Command, j)); err != nil {
+				return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
 			}
 		}
-		for posStr, pattern := range rule.Args.Position {
+		// Validate args.position (values can be strings or arrays of strings)
+		for posStr, fp := range rule.Args.Position {
 			pos, err := strconv.Atoi(posStr)
 			if err != nil {
 				return fmt.Errorf("%w: rule[%d] (command=%q): args.position key %q is not a valid integer", ErrInvalidConfig, i, rule.Command, posStr)
 			}
-			if _, err := ParsePattern(pattern); err != nil {
-				return fmt.Errorf("%w: rule[%d] (command=%q): args.position[%d]: %w", ErrInvalidConfig, i, rule.Command, pos, err)
+			for k, pattern := range fp.Patterns {
+				if _, err := ParsePattern(pattern); err != nil {
+					return fmt.Errorf("%w: rule[%d] (command=%q): args.position[%d][%d]: %w", ErrInvalidConfig, i, rule.Command, pos, k, err)
+				}
 			}
 		}
 	}
@@ -449,6 +509,30 @@ func (cfg *Config) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateMatchElement validates a MatchElement (string pattern or sequence object).
+func validateMatchElement(elem MatchElement, context string) error {
+	if elem.IsSequence {
+		// Validate each position in the sequence
+		for posStr, fp := range elem.Sequence {
+			pos, err := strconv.Atoi(posStr)
+			if err != nil {
+				return fmt.Errorf("%s: position key %q is not a valid integer", context, posStr)
+			}
+			for k, pattern := range fp.Patterns {
+				if _, err := ParsePattern(pattern); err != nil {
+					return fmt.Errorf("%s: position[%d][%d]: %w", context, pos, k, err)
+				}
+			}
+		}
+	} else {
+		// Validate the single pattern
+		if _, err := ParsePattern(elem.Pattern); err != nil {
+			return fmt.Errorf("%s: %w", context, err)
+		}
+	}
 	return nil
 }
 

@@ -527,32 +527,33 @@ func (e *Evaluator) matchTrackedRule(tr TrackedRule, cmd Command) (Result, bool)
 		}
 	}
 
-	// Check args.any_match
+	// Check args.any_match (OR across elements: any element matching succeeds)
 	if len(rule.Args.AnyMatch) > 0 {
-		matcher, err := NewMatcher(rule.Args.AnyMatch)
-		if err != nil {
-			return Result{}, false
+		matched := false
+		for _, elem := range rule.Args.AnyMatch {
+			if matchElement(args, elem, e.matchCtx) {
+				matched = true
+				break
+			}
 		}
-		if !matcher.AnyMatchWithContext(args, e.matchCtx) {
+		if !matched {
 			return Result{}, false
 		}
 	}
 
-	// Check args.all_match
+	// Check args.all_match (AND across elements: all elements must match)
 	if len(rule.Args.AllMatch) > 0 {
-		matcher, err := NewMatcher(rule.Args.AllMatch)
-		if err != nil {
-			return Result{}, false
-		}
-		if !matcher.AllMatchWithContext(args, e.matchCtx) {
-			return Result{}, false
+		for _, elem := range rule.Args.AllMatch {
+			if !matchElement(args, elem, e.matchCtx) {
+				return Result{}, false
+			}
 		}
 	}
 
-	// Check args.position
-	for posStr, pattern := range rule.Args.Position {
+	// Check args.position (values can be string or array, OR semantics for arrays)
+	for posStr, fp := range rule.Args.Position {
 		pos, _ := strconv.Atoi(posStr)
-		if !MatchPositionWithContext(args, pos, pattern, e.matchCtx) {
+		if !matchPositionFlexible(args, pos, fp.Patterns, e.matchCtx) {
 			return Result{}, false
 		}
 	}
@@ -738,8 +739,9 @@ func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule) Result 
 
 		// Check if this position has a rule: prefix pattern (positional file rule)
 		if rule != nil && rule.Rule.Args.Position != nil {
-			if posPattern, ok := rule.Rule.Args.Position[posKey]; ok {
-				p, err := ParsePattern(posPattern)
+			if fp, ok := rule.Rule.Args.Position[posKey]; ok && len(fp.Patterns) > 0 {
+				// Use the first pattern to determine file rule type
+				p, err := ParsePattern(fp.Patterns[0])
 				if err == nil && p.IsFileRulePattern() {
 					accessType = p.FileRuleType
 					logDebug("      Arg[%d] %q: using positional rule type %q", i, arg, accessType)
@@ -1046,19 +1048,21 @@ func ruleUsesHome(rule Rule) bool {
 	if strings.Contains(rule.Command, "$HOME") {
 		return true
 	}
-	for _, p := range rule.Args.AnyMatch {
-		if strings.Contains(p, "$HOME") {
+	for _, elem := range rule.Args.AnyMatch {
+		if matchElementContains(elem, "$HOME") {
 			return true
 		}
 	}
-	for _, p := range rule.Args.AllMatch {
-		if strings.Contains(p, "$HOME") {
+	for _, elem := range rule.Args.AllMatch {
+		if matchElementContains(elem, "$HOME") {
 			return true
 		}
 	}
-	for _, p := range rule.Args.Position {
-		if strings.Contains(p, "$HOME") {
-			return true
+	for _, fp := range rule.Args.Position {
+		for _, p := range fp.Patterns {
+			if strings.Contains(p, "$HOME") {
+				return true
+			}
 		}
 	}
 	return false
@@ -1113,18 +1117,113 @@ func ruleUsesPluginRoot(rule Rule) bool {
 	if strings.Contains(rule.Command, "$CLAUDE_PLUGIN_ROOT") {
 		return true
 	}
-	for _, p := range rule.Args.AnyMatch {
-		if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
+	for _, elem := range rule.Args.AnyMatch {
+		if matchElementContains(elem, "$CLAUDE_PLUGIN_ROOT") {
 			return true
 		}
 	}
-	for _, p := range rule.Args.AllMatch {
-		if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
+	for _, elem := range rule.Args.AllMatch {
+		if matchElementContains(elem, "$CLAUDE_PLUGIN_ROOT") {
 			return true
 		}
 	}
-	for _, p := range rule.Args.Position {
-		if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
+	for _, fp := range rule.Args.Position {
+		for _, p := range fp.Patterns {
+			if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// matchElement checks if a MatchElement matches the args.
+// For string patterns: any arg matches the pattern.
+// For sequence objects: consecutive args match relative positions.
+func matchElement(args []string, elem MatchElement, ctx *MatchContext) bool {
+	if elem.IsSequence {
+		return matchSequence(args, elem.Sequence, ctx)
+	}
+	// String pattern: any arg matches
+	return matchAnyArg(args, elem.Pattern, ctx)
+}
+
+// matchAnyArg checks if any arg matches the pattern.
+func matchAnyArg(args []string, pattern string, ctx *MatchContext) bool {
+	p, err := ParsePattern(pattern)
+	if err != nil {
+		return false
+	}
+	for _, arg := range args {
+		if p.MatchWithContext(arg, ctx) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchSequence uses a sliding window to find consecutive args matching the sequence.
+func matchSequence(args []string, seq map[string]FlexiblePattern, ctx *MatchContext) bool {
+	if len(seq) == 0 {
+		return true
+	}
+
+	// Find max position index in the sequence
+	maxPos := 0
+	for posStr := range seq {
+		if pos, err := strconv.Atoi(posStr); err == nil && pos > maxPos {
+			maxPos = pos
+		}
+	}
+
+	// Slide window over args
+	for start := 0; start <= len(args)-(maxPos+1); start++ {
+		if matchSequenceAt(args, start, seq, ctx) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchSequenceAt checks if args at the given start position match the sequence.
+func matchSequenceAt(args []string, start int, seq map[string]FlexiblePattern, ctx *MatchContext) bool {
+	for posStr, fp := range seq {
+		pos, err := strconv.Atoi(posStr)
+		if err != nil {
+			return false
+		}
+		if !matchPositionFlexible(args, start+pos, fp.Patterns, ctx) {
+			return false
+		}
+	}
+	return true
+}
+
+// matchPositionFlexible checks if the arg at a position matches any of the patterns (OR semantics).
+func matchPositionFlexible(args []string, pos int, patterns []string, ctx *MatchContext) bool {
+	if pos < 0 || pos >= len(args) {
+		return false
+	}
+	for _, pattern := range patterns {
+		if MatchPositionWithContext(args, pos, pattern, ctx) {
+			return true // OR: any pattern matches
+		}
+	}
+	return false
+}
+
+// matchElementContains checks if a MatchElement contains a substring in any pattern.
+func matchElementContains(elem MatchElement, substr string) bool {
+	if elem.IsSequence {
+		for _, fp := range elem.Sequence {
+			for _, p := range fp.Patterns {
+				if strings.Contains(p, substr) {
+					return true
+				}
+			}
+		}
+	} else {
+		if strings.Contains(elem.Pattern, substr) {
 			return true
 		}
 	}

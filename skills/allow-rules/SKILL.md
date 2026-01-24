@@ -90,8 +90,57 @@ action = "allow"
 contains = ["--force"]           # must contain all (exact match)
 any_match = ["-r", "-rf"]        # must match at least one
 all_match = ["glob:*.txt"]       # all args must match
-position = { "0" = "/etc/*" }      # arg at position must match (indices are strings)
+position = { "0" = "/etc/*" }    # arg at position must match (indices are strings)
 ```
+
+#### Extended Argument Matching
+
+Position values can be arrays (enum matching with OR semantics):
+
+```toml
+[[rule]]
+command = "git"
+action = "allow"
+[rule.args]
+position = { "0" = ["status", "diff", "log", "branch"] }  # any of these
+
+[[rule]]
+command = "git"
+action = "deny"
+[rule.args]
+position = { "0" = ["push", "pull", "fetch", "clone"] }  # deny network ops
+```
+
+`any_match` and `all_match` support sequence objects for adjacent arg matching:
+
+```toml
+[[rule]]
+command = "ffmpeg"
+action = "allow"
+[rule.args]
+# Match "-i" followed by path under $HOME (sliding window)
+any_match = [
+    { "0" = "-i", "1" = "path:$HOME/**" },
+    "re:^--help$"  # can mix strings and objects
+]
+
+[[rule]]
+command = "openssl"
+action = "allow"
+[rule.args]
+# Require BOTH -in and -out pairs
+all_match = [
+    { "0" = "-in", "1" = ["glob:*.pem", "glob:*.crt"] },
+    { "0" = "-out", "1" = ["glob:*.pem", "glob:*.der"] }
+]
+```
+
+**Sequence behavior:**
+- Keys are relative positions ("0", "1", "2")
+- Values can be strings or arrays (enum)
+- Sliding window matches anywhere in args
+- `any_match`: any match succeeds (OR)
+- `all_match`: all must match (AND)
 
 #### Pipe Context
 
