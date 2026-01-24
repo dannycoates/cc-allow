@@ -748,6 +748,141 @@ With this config:
 - `echo "x" > /etc/config` → denied (redirect to Write deny path)
 - `tar -xf /etc/archive.tar` → allowed (file rules disabled for tar)
 
+## Message Templates
+
+Rule messages support Go `text/template` syntax for dynamic content. Templates are evaluated when a rule matches, allowing messages to include specific details about the command, file, or redirect that triggered the rule.
+
+### Basic Usage
+
+```toml
+[[rule]]
+command = "rm"
+action = "deny"
+message = "{{.ArgsStr}} - recursive deletion not allowed"
+[rule.args]
+any_match = ["flags:r"]
+
+[[redirect]]
+action = "deny"
+message = "Cannot redirect to {{.Target}}"
+[redirect.to]
+pattern = ["path:/etc/**"]
+
+[files.write]
+deny = ["path:/etc/**"]
+deny_message = "Cannot write to {{.FilePath}} - system directory"
+```
+
+### Available Template Fields
+
+Different fields are available depending on the rule type:
+
+#### Command Rules
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `{{.Command}}` | string | Command name (e.g., `rm`, `git`) |
+| `{{.Args}}` | []string | All arguments including command name |
+| `{{.ArgsStr}}` | string | Arguments joined with spaces |
+| `{{.Arg 0}}` | string | First argument after command name |
+| `{{.Arg 1}}` | string | Second argument after command name |
+| `{{.ResolvedPath}}` | string | Absolute path to command binary |
+| `{{.Cwd}}` | string | Effective working directory |
+| `{{.PipesTo}}` | []string | Commands this pipes to |
+| `{{.PipesFrom}}` | []string | Commands piped from (upstream) |
+
+#### Redirect Rules
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `{{.Target}}` | string | Redirect target path |
+| `{{.TargetFileName}}` | string | Base name of target (e.g., `passwd` from `/etc/passwd`) |
+| `{{.TargetDir}}` | string | Directory of target (e.g., `/etc` from `/etc/passwd`) |
+| `{{.Append}}` | bool | True if append mode (`>>`) |
+
+#### Heredoc Rules
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `{{.Delimiter}}` | string | Heredoc delimiter (e.g., `EOF`) |
+| `{{.Body}}` | string | Heredoc content (truncated to 100 chars) |
+
+#### File Rules
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `{{.FilePath}}` | string | Full path being accessed |
+| `{{.FileName}}` | string | Base name of file |
+| `{{.FileDir}}` | string | Directory of file |
+| `{{.Tool}}` | string | File tool: `Read`, `Write`, or `Edit` |
+
+#### Environment (All Rules)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `{{.Home}}` | string | User's home directory |
+| `{{.ProjectRoot}}` | string | Project root directory |
+| `{{.PluginRoot}}` | string | Plugin root (if set) |
+
+### Template Examples
+
+```toml
+# Show the full command that was blocked
+[[rule]]
+command = "git"
+action = "deny"
+message = "{{.ArgsStr}} - force push not allowed"
+[rule.args]
+contains = ["push"]
+any_match = ["--force", "flags:f"]
+# Output: "git push --force origin main - force push not allowed"
+
+# Show which upstream command is piping to shell
+[[rule]]
+command = "bash"
+action = "deny"
+message = "{{.Command}} receiving from {{index .PipesFrom 0}} - piping to shell not allowed"
+[rule.pipe]
+from = ["curl", "wget"]
+# Output: "bash receiving from curl - piping to shell not allowed"
+
+# File tool message with path details
+[files.write]
+deny = ["path:/etc/**"]
+deny_message = "Cannot {{.Tool}} to {{.FileName}} in {{.FileDir}}"
+# Output: "Cannot Write to passwd in /etc"
+
+# Redirect with target info
+[[redirect]]
+action = "deny"
+message = "Cannot write to {{.TargetFileName}} ({{.TargetDir}})"
+[redirect.to]
+pattern = ["path:/etc/**"]
+# Output: "Cannot write to hosts (/etc)"
+
+# Show specific argument
+[[rule]]
+command = "cd"
+action = "deny"
+message = "cd {{.Arg 0}} - only project directories allowed"
+# Output: "cd /etc - only project directories allowed"
+```
+
+### Error Handling
+
+If a template has syntax errors or references missing fields:
+- The raw (unexpanded) message is used instead
+- Errors are logged in debug mode (`--debug`)
+- The rule evaluation continues normally
+
+### Tips
+
+- Use `{{.ArgsStr}}` to show the full command with all arguments
+- Use `{{.Arg N}}` to reference specific positional arguments (0-indexed, excludes command name)
+- Use `{{index .PipesFrom 0}}` to access the first element of an array
+- Empty fields render as empty strings (no error)
+- Templates only work in `message` and `deny_message` fields
+
 ## Testing Your Config
 
 Use the test harness to verify your rules:

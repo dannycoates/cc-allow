@@ -31,7 +31,7 @@ deny = [
     "glob:**/*.key",                 # never read key files
     "glob:**/*.pem",                 # never read PEM files
 ]
-deny_message = "Cannot read sensitive files"
+deny_message = "Cannot read {{.FileName}} - sensitive file"
 
 [files.edit]
 allow = [
@@ -40,7 +40,7 @@ allow = [
 deny = [
     "path:$HOME/.*",                 # never edit dotfiles in home
 ]
-deny_message = "Cannot edit sensitive files"
+deny_message = "Cannot edit {{.FileName}} - sensitive file"
 
 # Also applies to output redirects (>, >>) when redirects.respect_file_rules = true
 [files.write]
@@ -59,7 +59,7 @@ deny = [
     "path:/boot/**",                 # never write to boot
     "path:/root/**",                 # never write to root home
 ]
-deny_message = "Cannot write to system directories"
+deny_message = "Cannot write to {{.FilePath}} - system directory"
 
 # ============================================================================
 # REDIRECTS
@@ -297,7 +297,7 @@ names = [
     "modprobe", "insmod", "rmmod",  # kernel modules
     "update-grub", "grub-install",
 ]
-message = "Dangerous system command blocked"
+message = "{{.Command}} blocked - dangerous system command"
 
 # ============================================================================
 # SHELL CONSTRUCTS
@@ -334,7 +334,7 @@ all_match = ["path:$PROJECT_ROOT/**"]
 [[rule]]
 command = "rm"
 action = "deny"
-message = "Recursive rm only allowed within project directory"
+message = "{{.ArgsStr}} - recursive deletion only allowed within project"
 [rule.args]
 any_match = ["flags:r", "--recursive"]
 
@@ -349,7 +349,7 @@ any_match = ["path:$PROJECT_ROOT/**"]
 [[rule]]
 command = "rm"
 action = "ask"
-message = "Deleting files outside project directory"
+message = "{{.ArgsStr}} - deleting files outside project"
 
 # --- rmdir: Allow (only removes empty directories) ---
 [[rule]]
@@ -360,7 +360,7 @@ action = "allow"
 [[rule]]
 command = "chmod"
 action = "ask"
-message = "Making files executable requires review"
+message = "{{.ArgsStr}} - making files executable requires review"
 [rule.args]
 any_match = ["re:\\+x", "re:[0-7][1357][0-7]", "re:[0-7][0-7][1357]"]
 
@@ -382,7 +382,7 @@ action = "ask"
 [[rule]]
 command = "git"
 action = "deny"
-message = "Force push not allowed"
+message = "{{.ArgsStr}} - force push not allowed"
 [rule.args]
 any_match = ["--force", "flags:f", "--force-with-lease"]
 contains = ["push"]
@@ -391,7 +391,7 @@ contains = ["push"]
 [[rule]]
 command = "git"
 action = "ask"
-message = "Are you sure you want to hard reset? You may lose work"
+message = "{{.ArgsStr}} - hard reset may lose work"
 [rule.args]
 contains = ["reset", "--hard"]
 
@@ -399,7 +399,7 @@ contains = ["reset", "--hard"]
 [[rule]]
 command = "git"
 action = "ask"
-message = "git clean requires review"
+message = "{{.ArgsStr}} - git clean requires review"
 [rule.args]
 contains = ["clean"]
 any_match = ["flags:f", "--force"]
@@ -408,14 +408,14 @@ any_match = ["flags:f", "--force"]
 [[rule]]
 command = "sed"
 action = "deny"
-message = "In-place sed editing not allowed - use Edit tool"
+message = "{{.ArgsStr}} - in-place editing not allowed, use Edit tool"
 [rule.args]
 any_match = ["flags:i", "--in-place"]
 
 [[rule]]
 command = "awk"
 action = "deny"
-message = "In-place awk editing not allowed - use Edit tool"
+message = "{{.ArgsStr}} - in-place editing not allowed, use Edit tool"
 [rule.args]
 any_match = ["flags:i"]
 
@@ -423,21 +423,21 @@ any_match = ["flags:i"]
 [[rule]]
 command = "bash"
 action = "deny"
-message = "Cannot pipe to bash from download commands"
+message = "{{.Command}} receiving from {{index .PipesFrom 0}} - piping to shell not allowed"
 [rule.pipe]
 from = ["curl", "wget", "http"]
 
 [[rule]]
 command = "sh"
 action = "deny"
-message = "Cannot pipe to sh from download commands"
+message = "{{.Command}} receiving from {{index .PipesFrom 0}} - piping to shell not allowed"
 [rule.pipe]
 from = ["curl", "wget", "http"]
 
 [[rule]]
 command = "zsh"
 action = "deny"
-message = "Cannot pipe to zsh from download commands"
+message = "{{.Command}} receiving from {{index .PipesFrom 0}} - piping to shell not allowed"
 [rule.pipe]
 from = ["curl", "wget", "http"]
 
@@ -445,14 +445,14 @@ from = ["curl", "wget", "http"]
 [[rule]]
 command = "docker"
 action = "deny"
-message = "Privileged containers not allowed"
+message = "{{.ArgsStr}} - privileged containers not allowed"
 [rule.args]
 any_match = ["--privileged"]
 
 [[rule]]
 command = "podman"
 action = "deny"
-message = "Privileged containers not allowed"
+message = "{{.ArgsStr}} - privileged containers not allowed"
 [rule.args]
 any_match = ["--privileged"]
 

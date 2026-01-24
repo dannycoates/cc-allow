@@ -364,6 +364,9 @@ func (e *Evaluator) evaluateCommandMerged(cmd Command) Result {
 			if msg == "" {
 				msg = e.merged.Policy.DefaultMessage.Value
 			}
+			// Apply template substitution
+			tmplCtx := newCommandTemplateContext(cmd, e.matchCtx)
+			msg = templateMessage(msg, tmplCtx)
 			return Result{
 				Action:  "deny",
 				Message: msg,
@@ -593,6 +596,9 @@ func (e *Evaluator) matchTrackedRule(tr TrackedRule, cmd Command) (Result, bool)
 	if msg == "" && rule.Action == "deny" {
 		msg = e.merged.Policy.DefaultMessage.Value
 	}
+	// Apply template substitution
+	tmplCtx := newCommandTemplateContext(cmd, e.matchCtx)
+	msg = templateMessage(msg, tmplCtx)
 
 	// Build source description
 	source := tr.Source + ": rule matched (command=" + rule.Command
@@ -885,6 +891,9 @@ func (e *Evaluator) matchTrackedRedirectRule(tr TrackedRedirectRule, redir Redir
 	if msg == "" && rule.Action == "deny" {
 		msg = e.merged.Policy.DefaultMessage.Value
 	}
+	// Apply template substitution
+	tmplCtx := newRedirectTemplateContext(redir, e.matchCtx)
+	msg = templateMessage(msg, tmplCtx)
 
 	source := tr.Source + ": redirect rule matched (to=" + redir.Target
 	if rule.Append != nil {
@@ -947,6 +956,9 @@ func (e *Evaluator) matchTrackedHeredocRule(tr TrackedHeredocRule, hdoc Heredoc)
 	if msg == "" && rule.Action == "deny" {
 		msg = e.merged.Policy.DefaultMessage.Value
 	}
+	// Apply template substitution
+	tmplCtx := newHeredocTemplateContext(hdoc, e.matchCtx)
+	msg = templateMessage(msg, tmplCtx)
 
 	ruleType := "heredoc"
 	if hdoc.IsHereString {

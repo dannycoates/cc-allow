@@ -26,7 +26,7 @@ deny = [
     "glob:**/*.key",                 # never read key files
     "glob:**/*.pem",                 # never read PEM files
 ]
-deny_message = "Cannot read sensitive files"
+deny_message = "Cannot read {{.FileName}} - sensitive file"
 
 [files.edit]
 allow = [
@@ -35,7 +35,7 @@ allow = [
 deny = [
     "path:$HOME/.*",                 # never edit dotfiles in home
 ]
-deny_message = "Cannot edit sensitive files"
+deny_message = "Cannot edit {{.FileName}} - sensitive file"
 
 # Also applies to output redirects (>, >>) when redirects.respect_file_rules = true
 [files.write]
@@ -51,7 +51,7 @@ deny = [
     "path:/sbin/**",                 # never write to sbin
     "path:/var/**",                  # never write to var
 ]
-deny_message = "Cannot write to system directories"
+deny_message = "Cannot write to {{.FilePath}} - system directory"
 
 # ============================================================================
 # REDIRECTS
@@ -141,7 +141,7 @@ names = [
     "shutdown", "reboot", "halt",   # system control
     "killall", "pkill",             # mass process killing
 ]
-message = "Dangerous command blocked by project policy"
+message = "{{.Command}} blocked - dangerous system command"
 
 # ============================================================================
 # SHELL CONSTRUCTS
@@ -160,7 +160,7 @@ subshells = "ask"
 [[rule]]
 command = "rm"
 action = "deny"
-message = "Recursive rm not allowed"
+message = "{{.ArgsStr}} - recursive deletion not allowed"
 [rule.args]
 any_match = ["flags:r", "--recursive"]
 
@@ -168,23 +168,23 @@ any_match = ["flags:r", "--recursive"]
 [[rule]]
 command = "curl"
 action = "deny"
-message = "Use WebFetch tool instead"
+message = "{{.Command}} blocked - use WebFetch tool instead"
 
 [[rule]]
 command = "wget"
 action = "deny"
-message = "Use WebFetch tool instead"
+message = "{{.Command}} blocked - use WebFetch tool instead"
 
 [[rule]]
 command = "fetch"
 action = "deny"
-message = "Use WebFetch tool instead"
+message = "{{.Command}} blocked - use WebFetch tool instead"
 
 # Block dangerous git operations
 [[rule]]
 command = "git"
 action = "deny"
-message = "Force push not allowed"
+message = "{{.ArgsStr}} - force push not allowed"
 [rule.args]
 any_match = ["--force", "flags:f"]
 contains = ["push"]
@@ -192,7 +192,7 @@ contains = ["push"]
 [[rule]]
 command = "git"
 action = "deny"
-message = "Hard reset not allowed"
+message = "{{.ArgsStr}} - hard reset not allowed"
 [rule.args]
 contains = ["reset", "--hard"]
 
@@ -207,4 +207,4 @@ any_match = ["path:/tmp/**", "path:$PROJECT_ROOT/**"]
 [[rule]]
 command = "cd"
 action = "deny"
-message = "cd only allowed to /tmp or project (sub)directories"
+message = "cd {{.Arg 0}} - only /tmp and project directories allowed"

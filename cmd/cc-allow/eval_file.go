@@ -68,6 +68,9 @@ func checkFileDenyList(merged *MergedConfig, toolName, absPath string, matchCtx 
 			if msg == "" {
 				msg = "File access denied"
 			}
+			// Apply template substitution
+			tmplCtx := newFileTemplateContext(toolName, absPath, matchCtx)
+			msg = templateMessage(msg, tmplCtx)
 			return Result{
 				Action:  "deny",
 				Message: msg,

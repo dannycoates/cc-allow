@@ -4,3 +4,4 @@ node_modules
 dist/
 cc-allow.log
 *.local.*
+.claude/plans

@@ -312,6 +312,66 @@ deny = ["/etc/**", "/protected/**"]
 # Now "echo x > /etc/config" is denied
 ```
 
+## Message Templates
+
+Rule messages support Go `text/template` syntax for dynamic content:
+
+```toml
+[[rule]]
+command = "rm"
+action = "deny"
+message = "{{.ArgsStr}} - recursive deletion not allowed"
+
+[files.write]
+deny = ["path:/etc/**"]
+deny_message = "Cannot write to {{.FilePath}} - system directory"
+```
+
+### Available Fields
+
+| Field | Description | Available For |
+|-------|-------------|---------------|
+| `{{.Command}}` | Command name | Command rules |
+| `{{.Args}}` | All arguments (array) | Command rules |
+| `{{.ArgsStr}}` | Arguments as space-separated string | Command rules |
+| `{{.Arg 0}}` | First argument (after command) | Command rules |
+| `{{.ResolvedPath}}` | Absolute path to command | Command rules |
+| `{{.Cwd}}` | Effective working directory | Command rules |
+| `{{.PipesTo}}` | Commands piped to (array) | Command rules |
+| `{{.PipesFrom}}` | Commands piped from (array) | Command rules |
+| `{{.Target}}` | Redirect target path | Redirect rules |
+| `{{.TargetFileName}}` | Base name of redirect target | Redirect rules |
+| `{{.TargetDir}}` | Directory of redirect target | Redirect rules |
+| `{{.Append}}` | True if append mode (>>) | Redirect rules |
+| `{{.Delimiter}}` | Heredoc delimiter | Heredoc rules |
+| `{{.Body}}` | Heredoc content (truncated) | Heredoc rules |
+| `{{.FilePath}}` | File being accessed | File rules |
+| `{{.FileName}}` | Base name of file | File rules |
+| `{{.FileDir}}` | Directory of file | File rules |
+| `{{.Tool}}` | File tool (Read/Write/Edit) | File rules |
+| `{{.Home}}` | $HOME directory | All rules |
+| `{{.ProjectRoot}}` | Project root | All rules |
+
+### Template Examples
+
+```toml
+# Show full command in denial message
+message = "{{.ArgsStr}} - force push not allowed"
+# Output: "git push --force origin main - force push not allowed"
+
+# Show pipe source in message
+message = "{{.Command}} receiving from {{index .PipesFrom 0}} - piping to shell not allowed"
+# Output: "bash receiving from curl - piping to shell not allowed"
+
+# File tool message with path info
+deny_message = "Cannot {{.Tool}} {{.FileName}} in {{.FileDir}}"
+# Output: "Cannot Write config.txt in /etc"
+
+# Redirect message with target info
+message = "Cannot redirect to {{.TargetFileName}}"
+# Output: "Cannot redirect to passwd"
+```
+
 ## Common Tasks
 
 **Allow a command**: Add to `[commands.allow].names`
