@@ -9,6 +9,7 @@ patterns = "rulesets/patterns.toml"
 specificity = "rulesets/specificity.toml"
 pluginroot = "rulesets/pluginroot.toml"
 files = "rulesets/files.toml"
+filerules = "rulesets/filerules.toml"
 
 # Each [[command]] defines a bash string and expected result per ruleset
 # Results: "allow", "deny", "ask"
@@ -1249,3 +1250,214 @@ name = "edit: random path (ask)"
 tool = "Edit"
 path = "/home/user/notes.txt"
 files = "ask"
+
+# =============================================================================
+# FILE RULE INTEGRATION WITH BASH COMMANDS
+# =============================================================================
+# Tests that bash commands respect file rules when respect_file_rules is enabled.
+# The "filerules" ruleset has respect_file_rules = true and configures:
+# - Read rules: allow /project/**, /home/user/**, /tmp/**; deny .ssh, .key, .pem, .env, /etc, /secrets
+# - Write rules: allow /project/**, /tmp/**; deny /etc, /usr, /bin, /protected, .ssh, .key
+# - cp/mv rules with positional file rule patterns
+
+# --- Basic Read Command File Rules ---
+
+[[command]]
+name = "filerules: cat allowed path"
+bash = "cat /project/src/main.go"
+filerules = "allow"   # cat (Read) + /project/** allowed
+
+[[command]]
+name = "filerules: cat denied /etc path"
+bash = "cat /etc/passwd"
+filerules = "deny"    # cat (Read) + /etc/** denied
+
+[[command]]
+name = "filerules: cat denied .key file"
+bash = "cat /home/user/secrets/api.key"
+filerules = "deny"    # cat (Read) + *.key denied
+
+[[command]]
+name = "filerules: cat denied .env file"
+bash = "cat /project/.env"
+filerules = "deny"    # cat (Read) + .env* denied
+
+[[command]]
+name = "filerules: cat denied .ssh path"
+bash = "cat /home/user/.ssh/id_rsa"
+filerules = "deny"    # cat (Read) + .ssh/** denied
+
+[[command]]
+name = "filerules: head allowed path"
+bash = "head /project/readme.txt"
+filerules = "allow"   # head (Read) + /project/** allowed
+
+[[command]]
+name = "filerules: head denied secrets"
+bash = "head /secrets/credentials.json"
+filerules = "deny"    # head (Read) + /secrets/** denied
+
+[[command]]
+name = "filerules: tail allowed tmp"
+bash = "tail /tmp/app.log"
+filerules = "allow"   # tail (Read) + /tmp/** allowed
+
+[[command]]
+name = "filerules: grep allowed home"
+bash = "grep pattern /home/user/docs/notes.txt"
+filerules = "allow"   # grep (Read) + /home/user/** allowed
+
+[[command]]
+name = "filerules: grep denied pem file"
+bash = "grep key /certs/server.pem"
+filerules = "deny"    # grep (Read) + *.pem denied
+
+# --- Basic Write Command File Rules ---
+
+[[command]]
+name = "filerules: rm allowed project"
+bash = "rm /project/temp.txt"
+filerules = "allow"   # rm (Write) + /project/** allowed
+
+[[command]]
+name = "filerules: rm denied /etc"
+bash = "rm /etc/hosts"
+filerules = "deny"    # rm (Write) + /etc/** denied
+
+[[command]]
+name = "filerules: rm denied /usr"
+bash = "rm /usr/local/bin/script"
+filerules = "deny"    # rm (Write) + /usr/** denied
+
+[[command]]
+name = "filerules: rm denied protected"
+bash = "rm /protected/important.dat"
+filerules = "deny"    # rm (Write) + /protected/** denied
+
+[[command]]
+name = "filerules: touch allowed tmp"
+bash = "touch /tmp/newfile.txt"
+filerules = "allow"   # touch (Write) + /tmp/** allowed
+
+[[command]]
+name = "filerules: touch denied /bin"
+bash = "touch /bin/newcmd"
+filerules = "deny"    # touch (Write) + /bin/** denied
+
+# --- Positional File Rules (cp, mv) ---
+
+[[command]]
+name = "filerules: cp allowed source and dest"
+bash = "cp /project/src/file.go /project/backup/file.go"
+filerules = "allow"   # source (Read) /project/** + dest (Write) /project/** both allowed
+
+[[command]]
+name = "filerules: cp denied source (.key)"
+bash = "cp /home/user/.ssh/id_rsa.key /tmp/copy.key"
+filerules = "deny"    # source (Read) .ssh/** denied
+
+[[command]]
+name = "filerules: cp denied dest (/etc)"
+bash = "cp /project/config.txt /etc/config.txt"
+filerules = "deny"    # dest (Write) /etc/** denied
+
+[[command]]
+name = "filerules: cp denied dest (protected)"
+bash = "cp /project/data.txt /protected/data.txt"
+filerules = "deny"    # dest (Write) /protected/** denied
+
+[[command]]
+name = "filerules: mv allowed source and dest"
+bash = "mv /project/old.txt /project/archive/old.txt"
+filerules = "allow"   # source (Read) + dest (Write) both in /project/**
+
+[[command]]
+name = "filerules: mv denied source (.env)"
+bash = "mv /project/.env /tmp/.env.backup"
+filerules = "deny"    # source (Read) .env* denied
+
+[[command]]
+name = "filerules: mv denied dest (/usr)"
+bash = "mv /tmp/script.sh /usr/bin/script"
+filerules = "deny"    # dest (Write) /usr/** denied
+
+# --- Redirect File Rules ---
+
+[[command]]
+name = "filerules: redirect allowed project"
+bash = "echo hello > /project/output.txt"
+filerules = "allow"   # redirect (Write) to /project/** allowed
+
+[[command]]
+name = "filerules: redirect allowed tmp"
+bash = "echo data > /tmp/data.txt"
+filerules = "allow"   # redirect (Write) to /tmp/** allowed
+
+[[command]]
+name = "filerules: redirect denied /etc"
+bash = "echo config > /etc/myconfig"
+filerules = "deny"    # redirect (Write) to /etc/** denied
+
+[[command]]
+name = "filerules: redirect denied protected"
+bash = "cat /project/file.txt > /protected/copy.txt"
+filerules = "deny"    # redirect (Write) to /protected/** denied
+
+[[command]]
+name = "filerules: redirect denied .key"
+bash = "echo secret > /home/user/creds.key"
+filerules = "deny"    # redirect (Write) to *.key denied
+
+[[command]]
+name = "filerules: append denied /usr"
+bash = "echo path >> /usr/local/paths.txt"
+filerules = "deny"    # append (Write) to /usr/** denied
+
+[[command]]
+name = "filerules: input redirect allowed"
+bash = "cat < /project/input.txt"
+filerules = "allow"   # input redirect (Read) from /project/** allowed
+
+[[command]]
+name = "filerules: input redirect denied .pem"
+bash = "cat < /certs/server.pem"
+filerules = "deny"    # input redirect (Read) from *.pem denied
+
+[[command]]
+name = "filerules: input redirect denied /secrets"
+bash = "wc -l < /secrets/data.txt"
+filerules = "deny"    # input redirect (Read) from /secrets/** denied
+
+# --- respect_file_rules = false Override ---
+
+[[command]]
+name = "filerules: tar bypasses file rules"
+bash = "tar -xf /etc/archive.tar"
+filerules = "allow"   # tar has respect_file_rules = false, so /etc path is not checked
+
+[[command]]
+name = "filerules: tar creates in protected (bypassed)"
+bash = "tar -cf /protected/backup.tar /project/"
+filerules = "allow"   # tar has respect_file_rules = false
+
+# --- Mixed Commands ---
+
+[[command]]
+name = "filerules: allowed chain"
+bash = "cat /project/file.txt && echo done"
+filerules = "allow"   # both commands allowed
+
+[[command]]
+name = "filerules: denied in chain"
+bash = "cat /project/file.txt && cat /etc/passwd"
+filerules = "deny"    # second cat denied due to /etc
+
+[[command]]
+name = "filerules: pipe with allowed paths"
+bash = "cat /project/data.txt | grep pattern | wc -l"
+filerules = "allow"   # cat reads allowed path, grep/wc have no file args
+
+[[command]]
+name = "filerules: pipe with denied read"
+bash = "cat /secrets/data.txt | grep secret"
+filerules = "deny"    # cat reads denied path

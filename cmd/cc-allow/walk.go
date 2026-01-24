@@ -28,6 +28,7 @@ type Redirect struct {
 	Append       bool   // true if >> (append mode)
 	IsDynamic    bool   // true if target contains variables
 	IsFdRedirect bool   // true if redirecting to a file descriptor (e.g., 2>&1)
+	IsInput      bool   // true if input redirect (<), false if output (>, >>)
 }
 
 // Heredoc represents an extracted heredoc (<<EOF ... EOF) or here-string (<<<).
@@ -176,11 +177,14 @@ func extractFromStmt(stmt *syntax.Stmt, info *ExtractedInfo, pipeToContext []str
 			target, isDynamic := extractWord(redir.Word)
 			// Check if this is a file descriptor redirect (>&N or N>&M)
 			isFdRedirect := redir.Op == syntax.DplOut || redir.Op == syntax.DplIn
+			// Check if this is an input redirect (<)
+			isInput := redir.Op == syntax.RdrIn || redir.Op == syntax.RdrInOut
 			info.Redirects = append(info.Redirects, Redirect{
 				Target:       target,
 				Append:       redir.Op == syntax.AppOut, // >> only
 				IsDynamic:    isDynamic,
 				IsFdRedirect: isFdRedirect,
+				IsInput:      isInput,
 			})
 		}
 	}

@@ -1482,3 +1482,375 @@ func TestEffectiveCwdExtraction(t *testing.T) {
 		})
 	}
 }
+
+// TestFileRuleIntegrationWithBashCommands tests that bash commands respect file rules.
+func TestFileRuleIntegrationWithBashCommands(t *testing.T) {
+	// Create a temp directory for testing
+	tmpDir, err := os.MkdirTemp("", "file-rule-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a test file
+	testFile := tmpDir + "/allowed.txt"
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Create a secret file
+	secretFile := tmpDir + "/secret.key"
+	if err := os.WriteFile(secretFile, []byte("secret"), 0644); err != nil {
+		t.Fatalf("Failed to create secret file: %v", err)
+	}
+
+	// Config with file rules that deny reading *.key files
+	cfg := &Config{
+		Path:   "(test)",
+		Policy: PolicyConfig{Default: "allow"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"cat", "head", "rm"}},
+		},
+		Files: FilesConfig{
+			Default: "ask",
+			Read: FileToolConfig{
+				Allow: []string{"glob:" + tmpDir + "/**"},
+				Deny:  []string{"glob:**/*.key"},
+			},
+			Write: FileToolConfig{
+				Deny: []string{"glob:**/protected/**"},
+			},
+		},
+	}
+
+	chain := &ConfigChain{Configs: []*Config{cfg}}
+	chain.Merged = MergeConfigs(chain.Configs)
+
+	tests := []struct {
+		name           string
+		input          string
+		expectedAction string
+	}{
+		{
+			name:           "cat allowed file",
+			input:          "cat " + testFile,
+			expectedAction: "allow",
+		},
+		{
+			name:           "cat denied .key file",
+			input:          "cat " + secretFile,
+			expectedAction: "deny",
+		},
+		{
+			name:           "head allowed file",
+			input:          "head " + testFile,
+			expectedAction: "allow",
+		},
+		{
+			name:           "head denied .key file",
+			input:          "head " + secretFile,
+			expectedAction: "deny",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+			f, err := parser.Parse(strings.NewReader(tc.input), "test")
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			info := ExtractFromFile(f)
+			evaluator := NewEvaluator(chain)
+			result := evaluator.Evaluate(info)
+
+			if result.Action != tc.expectedAction {
+				t.Errorf("%q: expected %s, got %s (source: %s)",
+					tc.input, tc.expectedAction, result.Action, result.Source)
+			}
+		})
+	}
+}
+
+// TestFileRulePositionalPatterns tests the rule:read/write/edit positional patterns.
+func TestFileRulePositionalPatterns(t *testing.T) {
+	// Create a temp directory for testing
+	tmpDir, err := os.MkdirTemp("", "positional-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create source and dest files
+	sourceFile := tmpDir + "/source.txt"
+	if err := os.WriteFile(sourceFile, []byte("source"), 0644); err != nil {
+		t.Fatalf("Failed to create source file: %v", err)
+	}
+
+	secretFile := tmpDir + "/secret.key"
+	if err := os.WriteFile(secretFile, []byte("secret"), 0644); err != nil {
+		t.Fatalf("Failed to create secret file: %v", err)
+	}
+
+	// Config with cp rule using positional file rules
+	cfg := &Config{
+		Path:   "(test)",
+		Policy: PolicyConfig{Default: "ask"},
+		Rules: []Rule{
+			{
+				Command: "cp",
+				Action:  "allow",
+				Args: ArgsMatch{
+					Position: map[string]string{
+						"0": "rule:read",  // source is checked with Read rules
+						"1": "rule:write", // dest is checked with Write rules
+					},
+				},
+			},
+		},
+		Files: FilesConfig{
+			Default: "allow",
+			Read: FileToolConfig{
+				Deny: []string{"glob:**/*.key"},
+			},
+			Write: FileToolConfig{
+				Deny: []string{"glob:**/protected/**"},
+			},
+		},
+	}
+
+	chain := &ConfigChain{Configs: []*Config{cfg}}
+	chain.Merged = MergeConfigs(chain.Configs)
+
+	// Create protected directory
+	protectedDir := tmpDir + "/protected"
+	if err := os.Mkdir(protectedDir, 0755); err != nil {
+		t.Fatalf("Failed to create protected dir: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		input          string
+		expectedAction string
+	}{
+		{
+			name:           "cp allowed source to allowed dest",
+			input:          "cp " + sourceFile + " " + tmpDir + "/dest.txt",
+			expectedAction: "allow",
+		},
+		{
+			name:           "cp denied source (.key) to allowed dest",
+			input:          "cp " + secretFile + " " + tmpDir + "/dest.txt",
+			expectedAction: "deny",
+		},
+		{
+			name:           "cp allowed source to denied dest (protected)",
+			input:          "cp " + sourceFile + " " + protectedDir + "/dest.txt",
+			expectedAction: "deny",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+			f, err := parser.Parse(strings.NewReader(tc.input), "test")
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			info := ExtractFromFile(f)
+			evaluator := NewEvaluator(chain)
+			result := evaluator.Evaluate(info)
+
+			if result.Action != tc.expectedAction {
+				t.Errorf("%q: expected %s, got %s (source: %s)",
+					tc.input, tc.expectedAction, result.Action, result.Source)
+			}
+		})
+	}
+}
+
+// TestRedirectFileRules tests that redirect targets respect file rules.
+func TestRedirectFileRules(t *testing.T) {
+	// Create a temp directory for testing
+	tmpDir, err := os.MkdirTemp("", "redirect-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a protected directory
+	protectedDir := tmpDir + "/protected"
+	if err := os.Mkdir(protectedDir, 0755); err != nil {
+		t.Fatalf("Failed to create protected dir: %v", err)
+	}
+
+	// Create an input file
+	inputFile := tmpDir + "/input.txt"
+	if err := os.WriteFile(inputFile, []byte("input"), 0644); err != nil {
+		t.Fatalf("Failed to create input file: %v", err)
+	}
+
+	// Create a secret key file
+	secretFile := tmpDir + "/secret.key"
+	if err := os.WriteFile(secretFile, []byte("secret"), 0644); err != nil {
+		t.Fatalf("Failed to create secret file: %v", err)
+	}
+
+	boolTrue := true
+
+	// Config with redirects.respect_file_rules enabled
+	cfg := &Config{
+		Path:   "(test)",
+		Policy: PolicyConfig{Default: "allow"},
+		Commands: CommandsConfig{
+			Allow: CommandList{Names: []string{"echo", "cat"}},
+		},
+		RedirectsPolicy: RedirectsConfig{
+			RespectFileRules: &boolTrue,
+		},
+		Files: FilesConfig{
+			Default: "allow",
+			Write: FileToolConfig{
+				Deny: []string{"glob:**/protected/**"},
+			},
+			Read: FileToolConfig{
+				Deny: []string{"glob:**/*.key"},
+			},
+		},
+	}
+
+	chain := &ConfigChain{Configs: []*Config{cfg}}
+	chain.Merged = MergeConfigs(chain.Configs)
+
+	tests := []struct {
+		name           string
+		input          string
+		expectedAction string
+	}{
+		{
+			name:           "output redirect to allowed path",
+			input:          "echo hello > " + tmpDir + "/out.txt",
+			expectedAction: "allow",
+		},
+		{
+			name:           "output redirect to denied path (protected)",
+			input:          "echo hello > " + protectedDir + "/out.txt",
+			expectedAction: "deny",
+		},
+		{
+			name:           "input redirect from allowed path",
+			input:          "cat < " + inputFile,
+			expectedAction: "allow",
+		},
+		{
+			name:           "input redirect from denied path (.key)",
+			input:          "cat < " + secretFile,
+			expectedAction: "deny",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+			f, err := parser.Parse(strings.NewReader(tc.input), "test")
+			if err != nil {
+				t.Fatalf("Parse error: %v", err)
+			}
+
+			info := ExtractFromFile(f)
+			evaluator := NewEvaluator(chain)
+			result := evaluator.Evaluate(info)
+
+			if result.Action != tc.expectedAction {
+				t.Errorf("%q: expected %s, got %s (source: %s)",
+					tc.input, tc.expectedAction, result.Action, result.Source)
+			}
+		})
+	}
+}
+
+// TestRulePatternValidation tests that rule: patterns are validated correctly.
+func TestRulePatternValidation(t *testing.T) {
+	tests := []struct {
+		name      string
+		pattern   string
+		wantError bool
+	}{
+		{"valid rule:read", "rule:read", false},
+		{"valid rule:write", "rule:write", false},
+		{"valid rule:edit", "rule:edit", false},
+		{"invalid rule:delete", "rule:delete", true},
+		{"invalid rule:execute", "rule:execute", true},
+		{"invalid rule: (empty)", "rule:", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ParsePattern(tc.pattern)
+			if tc.wantError && err == nil {
+				t.Errorf("Expected error for pattern %q, got nil", tc.pattern)
+			}
+			if !tc.wantError && err != nil {
+				t.Errorf("Unexpected error for pattern %q: %v", tc.pattern, err)
+			}
+		})
+	}
+}
+
+// TestRespectFileRulesDisabled tests that file rule checking can be disabled.
+func TestRespectFileRulesDisabled(t *testing.T) {
+	// Create a temp directory for testing
+	tmpDir, err := os.MkdirTemp("", "disable-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a secret file
+	secretFile := tmpDir + "/secret.key"
+	if err := os.WriteFile(secretFile, []byte("secret"), 0644); err != nil {
+		t.Fatalf("Failed to create secret file: %v", err)
+	}
+
+	boolFalse := false
+
+	// Config with file rules but respect_file_rules disabled on the rule
+	cfg := &Config{
+		Path:   "(test)",
+		Policy: PolicyConfig{Default: "ask"},
+		Rules: []Rule{
+			{
+				Command:          "cat",
+				Action:           "allow",
+				RespectFileRules: &boolFalse, // Disable file rule checking for this rule
+			},
+		},
+		Files: FilesConfig{
+			Default: "ask",
+			Read: FileToolConfig{
+				Deny: []string{"glob:**/*.key"},
+			},
+		},
+	}
+
+	chain := &ConfigChain{Configs: []*Config{cfg}}
+	chain.Merged = MergeConfigs(chain.Configs)
+
+	// cat secret.key should be allowed because respect_file_rules is disabled
+	input := "cat " + secretFile
+	parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+	f, err := parser.Parse(strings.NewReader(input), "test")
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+
+	info := ExtractFromFile(f)
+	evaluator := NewEvaluator(chain)
+	result := evaluator.Evaluate(info)
+
+	if result.Action != "allow" {
+		t.Errorf("cat secret.key with respect_file_rules=false should be allowed, got %s", result.Action)
+	}
+}

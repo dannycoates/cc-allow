@@ -11,15 +11,16 @@ import (
 
 // Config represents the complete configuration for cc-allow.
 type Config struct {
-	Path       string           `toml:"-"` // path this config was loaded from (not in TOML)
-	Policy     PolicyConfig     `toml:"policy"`
-	Commands   CommandsConfig   `toml:"commands"`
-	Files      FilesConfig      `toml:"files"` // file tool permissions (Read, Edit, Write)
-	Rules      []Rule           `toml:"rule"`
-	Redirects  []RedirectRule   `toml:"redirect"`
-	Heredocs   []HeredocRule    `toml:"heredoc"`
-	Constructs ConstructsConfig `toml:"constructs"`
-	Debug      DebugConfig      `toml:"debug"`
+	Path            string           `toml:"-"` // path this config was loaded from (not in TOML)
+	Policy          PolicyConfig     `toml:"policy"`
+	Commands        CommandsConfig   `toml:"commands"`
+	Files           FilesConfig      `toml:"files"` // file tool permissions (Read, Edit, Write)
+	Rules           []Rule           `toml:"rule"`
+	RedirectsPolicy RedirectsConfig  `toml:"redirects"` // redirect policy settings
+	Redirects       []RedirectRule   `toml:"redirect"`  // redirect rules
+	Heredocs        []HeredocRule    `toml:"heredoc"`
+	Constructs      ConstructsConfig `toml:"constructs"`
+	Debug           DebugConfig      `toml:"debug"`
 }
 
 // DebugConfig controls debug logging behavior.
@@ -29,11 +30,12 @@ type DebugConfig struct {
 
 // PolicyConfig defines the default behavior when no rules match.
 type PolicyConfig struct {
-	Default            string   `toml:"default"`             // "allow", "deny", or "ask" (default: "ask")
-	DynamicCommands    string   `toml:"dynamic_commands"`    // how to handle $VAR or $(cmd) as command names
-	DefaultMessage     string   `toml:"default_message"`     // fallback message when rule has no message
-	AllowedPaths       []string `toml:"allowed_paths"`       // directories to search for commands (defaults to $PATH)
-	UnresolvedCommands string   `toml:"unresolved_commands"` // "ask" or "deny" for commands not found
+	Default            string   `toml:"default"`              // "allow", "deny", or "ask" (default: "ask")
+	DynamicCommands    string   `toml:"dynamic_commands"`     // how to handle $VAR or $(cmd) as command names
+	DefaultMessage     string   `toml:"default_message"`      // fallback message when rule has no message
+	AllowedPaths       []string `toml:"allowed_paths"`        // directories to search for commands (defaults to $PATH)
+	UnresolvedCommands string   `toml:"unresolved_commands"`  // "ask" or "deny" for commands not found
+	RespectFileRules   *bool    `toml:"respect_file_rules"`   // if true, check file rules for command args (default: true)
 }
 
 // CommandsConfig provides quick lists for common allow/deny patterns.
@@ -65,11 +67,13 @@ type FileToolConfig struct {
 
 // Rule represents a detailed command rule with argument matching.
 type Rule struct {
-	Command string      `toml:"command"` // command name or "*" for any
-	Action  string      `toml:"action"`  // "allow" or "deny"
-	Message string      `toml:"message"` // custom message for denials
-	Args    ArgsMatch   `toml:"args"`    // argument matching options
-	Pipe    PipeContext `toml:"pipe"`    // pipe context rules
+	Command          string      `toml:"command"`           // command name or "*" for any
+	Action           string      `toml:"action"`            // "allow" or "deny"
+	Message          string      `toml:"message"`           // custom message for denials
+	Args             ArgsMatch   `toml:"args"`              // argument matching options
+	Pipe             PipeContext `toml:"pipe"`              // pipe context rules
+	RespectFileRules *bool       `toml:"respect_file_rules"` // override policy.respect_file_rules for this rule
+	FileAccessType   string      `toml:"file_access_type"`   // override inferred file access type ("Read", "Write", "Edit")
 }
 
 // ArgsMatch provides different ways to match command arguments.
@@ -123,6 +127,11 @@ func (r Rule) Specificity() int {
 	}
 
 	return score
+}
+
+// RedirectsConfig holds policy settings for redirect rules.
+type RedirectsConfig struct {
+	RespectFileRules *bool `toml:"respect_file_rules"` // if true, check file rules for redirect targets (default: false)
 }
 
 // RedirectRule controls output/input redirection.
@@ -180,9 +189,11 @@ type TrackedValue struct {
 // TrackedRule wraps a Rule with source tracking and shadowing info.
 type TrackedRule struct {
 	Rule
-	Source    string // config file path this rule came from
-	Shadowed  bool   // true if a stricter rule from a later config overrides this
-	Shadowing string // if this shadows a parent rule, the path of the shadowed config
+	Source             string // config file path this rule came from
+	Shadowed           bool   // true if a stricter rule from a later config overrides this
+	Shadowing          string // if this shadows a parent rule, the path of the shadowed config
+	RespectFileRules   *bool  // resolved value from rule or policy (nil = use policy default)
+	ResolvedAccessType string // resolved file access type for this command
 }
 
 // TrackedRedirectRule wraps a RedirectRule with source tracking and shadowing info.
@@ -229,8 +240,14 @@ type MergedPolicy struct {
 	DynamicCommands     TrackedValue
 	DefaultMessage      TrackedValue
 	UnresolvedCommands  TrackedValue
-	AllowedPaths        []string // union of all allowed paths
-	AllowedPathsSources []string // sources for each path
+	RespectFileRules    TrackedValue // "true" or "false" as string, default "true"
+	AllowedPaths        []string     // union of all allowed paths
+	AllowedPathsSources []string     // sources for each path
+}
+
+// MergedRedirectsConfig holds merged redirect policy settings.
+type MergedRedirectsConfig struct {
+	RespectFileRules TrackedValue // "true" or "false" as string, default "false"
 }
 
 // MergedConstructs holds constructs settings with source tracking.
@@ -244,16 +261,17 @@ type MergedConstructs struct {
 // MergedConfig represents the result of merging all configs in the chain.
 // Each policy field tracks its source, rules accumulate with shadowing detection.
 type MergedConfig struct {
-	Sources       []string // all config file paths that contributed, in order
-	Policy        MergedPolicy
-	Constructs    MergedConstructs
-	Files         MergedFilesConfig     // file tool permissions
-	CommandsDeny  []TrackedCommandEntry // union of all deny lists
-	CommandsAllow []TrackedCommandEntry // union of all allow lists
-	Rules         []TrackedRule
-	Redirects     []TrackedRedirectRule
-	Heredocs      []TrackedHeredocRule
-	Debug         DebugConfig // just use the last one (or first non-empty)
+	Sources         []string // all config file paths that contributed, in order
+	Policy          MergedPolicy
+	Constructs      MergedConstructs
+	Files           MergedFilesConfig     // file tool permissions
+	RedirectsPolicy MergedRedirectsConfig // redirect policy settings
+	CommandsDeny    []TrackedCommandEntry // union of all deny lists
+	CommandsAllow   []TrackedCommandEntry // union of all allow lists
+	Rules           []TrackedRule
+	Redirects       []TrackedRedirectRule
+	Heredocs        []TrackedHeredocRule
+	Debug           DebugConfig // just use the last one (or first non-empty)
 }
 
 // LoadConfig reads and parses a TOML configuration file.

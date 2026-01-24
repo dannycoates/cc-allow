@@ -144,6 +144,7 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 | `re:` | Regular expression | `re:^/etc/.*` |
 | `path:` | Path pattern with variable expansion | `path:$PROJECT_ROOT/**` |
 | `flags:` | Flag pattern (chars must appear) | `flags:rf`, `flags[--]:rec` |
+| `rule:` | File rule marker for positional args | `rule:read`, `rule:write`, `rule:edit` |
 | (none) | Exact match (or glob if contains `*?[`) | `--verbose` |
 
 ### Negation
@@ -225,6 +226,91 @@ deny_message = "Cannot write outside project directory"
 **Evaluation order**: deny → allow → default (deny always wins)
 
 **Pattern types**: Same as command rules — `path:`, `glob:`, `re:`
+
+## File Rule Integration with Bash Commands
+
+Bash commands can automatically respect file rules based on their arguments. When enabled, commands like `cat /etc/passwd` will be denied if `/etc/**` is in the Read deny list.
+
+### Enabling File Rule Checking
+
+```toml
+[policy]
+respect_file_rules = true  # default: true (only active when file rules exist)
+
+[redirects]
+respect_file_rules = true  # check file rules for redirect targets (default: false)
+```
+
+File rule checking is automatically enabled when file rules are configured. If no `[files.*]` rules exist, commands are evaluated without file arg checking.
+
+### Known Command Access Types
+
+Commands are mapped to file access types:
+
+| Access Type | Commands |
+|-------------|----------|
+| Read | `cat`, `less`, `head`, `tail`, `grep`, `find`, `file`, `wc`, `diff`, `stat` |
+| Write | `rm`, `rmdir`, `touch`, `mkdir`, `chmod`, `chown`, `ln` |
+| Edit | `sed` (with `-i`) |
+
+Unknown commands skip file arg checking unless configured with `file_access_type`.
+
+### Per-Rule Configuration
+
+Override file rule behavior on specific rules:
+
+```toml
+# Disable file rule checking for tar (complex arguments)
+[[rule]]
+command = "tar"
+action = "allow"
+respect_file_rules = false
+
+# Force Write access type for custom command
+[[rule]]
+command = "mycommand"
+action = "allow"
+file_access_type = "Write"
+```
+
+### Positional File Rules (cp, mv)
+
+Use `rule:read`, `rule:write`, or `rule:edit` in position patterns to check specific arguments against file rules:
+
+```toml
+# cp: source checked with Read rules, dest checked with Write rules
+[[rule]]
+command = "cp"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+
+# mv: same pattern
+[[rule]]
+command = "mv"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+```
+
+This ensures `cp secret.key /tmp/` is denied if `*.key` is in Read deny list, and `cp file.txt /etc/` is denied if `/etc/**` is in Write deny list.
+
+### Redirect File Rules
+
+When `redirects.respect_file_rules = true`, redirect targets are checked:
+
+- Output redirects (`>`, `>>`) → checked against Write file rules
+- Input redirects (`<`) → checked against Read file rules
+
+```toml
+[redirects]
+respect_file_rules = true
+
+[files.write]
+deny = ["/etc/**", "/protected/**"]
+
+# Now "echo x > /etc/config" is denied
+```
 
 ## Common Tasks
 

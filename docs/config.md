@@ -302,8 +302,11 @@ Patterns support these prefixes:
 | `re:` | Regular expression | `re:^/etc/.*` |
 | `path:` | Path pattern with variable expansion | `path:$PROJECT_ROOT/**` |
 | `flags:` | Flag pattern (chars must appear) | `flags:rf`, `flags[--]:rec` |
+| `rule:` | File rule marker for positional args | `rule:read`, `rule:write`, `rule:edit` |
 
 Without a prefix, the string is matched exactly (or treated as glob if it contains `*`, `?`, or `[`).
+
+**Note:** The `rule:` prefix is special — it marks a positional argument for file rule checking rather than pattern matching. See "Positional File Rules" in the File Rule Integration section.
 
 ### Negation
 
@@ -544,6 +547,206 @@ File rules merge the same way as command rules:
 - Deny lists union across configs (anything denied anywhere stays denied)
 - Allow lists union across configs
 - Stricter default wins
+
+## File Rule Integration with Bash Commands
+
+When file rules are configured, bash commands can automatically have their file arguments checked against those rules. This provides unified security: if `/etc/**` is denied for the Read file tool, then `cat /etc/passwd` is also denied.
+
+### Enabling File Rule Integration
+
+File rule checking for bash commands is controlled by two settings:
+
+```toml
+[policy]
+respect_file_rules = true  # Check file rules for command arguments (default: true)
+
+[redirects]
+respect_file_rules = true  # Check file rules for redirect targets (default: false)
+```
+
+**Important:** File rule checking only activates when file rules are actually configured. If there are no `[files.*]` sections with allow/deny patterns, commands are evaluated without file argument checking (backward compatible).
+
+### How It Works
+
+1. When a command is evaluated and would be **allowed**, file arguments are checked
+2. Each path-like argument is resolved to an absolute path
+3. The argument is checked against file rules based on the command's access type
+4. If any argument is denied by file rules, the command is denied
+
+### Default Access Types
+
+Commands are automatically mapped to file access types:
+
+| Access Type | Commands |
+|-------------|----------|
+| Read | `cat`, `less`, `more`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `find`, `file`, `wc`, `diff`, `cmp`, `stat`, `od`, `xxd`, `hexdump`, `strings` |
+| Write | `rm`, `rmdir`, `touch`, `mkdir`, `chmod`, `chown`, `chgrp`, `ln`, `unlink` |
+| Edit | `sed` |
+
+Commands not in this list skip file argument checking unless configured with `file_access_type`.
+
+### Path Argument Detection
+
+Only arguments that look like file paths are checked:
+- Absolute paths (`/etc/passwd`)
+- Relative paths with indicators (`./file`, `../parent/file`)
+- Home directory paths (`~/documents`)
+- Bare filenames with extensions (`README.md`, `file.txt`) — only if the file exists
+
+Flags (`-rf`, `--verbose`) and non-path arguments are skipped.
+
+### Per-Rule Configuration
+
+Override file rule behavior on specific rules:
+
+```toml
+# Disable file rule checking for tar (has complex argument patterns)
+[[rule]]
+command = "tar"
+action = "allow"
+respect_file_rules = false
+
+# Force a specific access type for a custom command
+[[rule]]
+command = "mybackup"
+action = "allow"
+file_access_type = "Read"  # Check all file args against Read rules
+```
+
+#### Rule Fields for File Integration
+
+| Field | Description |
+|-------|-------------|
+| `respect_file_rules` | `true` or `false` — override policy default for this rule |
+| `file_access_type` | `"Read"`, `"Write"`, or `"Edit"` — override inferred access type |
+
+### Positional File Rules
+
+For commands like `cp` and `mv` where different arguments have different access semantics, use the `rule:` prefix in position patterns:
+
+```toml
+# cp: first arg is source (read), second arg is dest (write)
+[[rule]]
+command = "cp"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+
+# mv: same pattern as cp
+[[rule]]
+command = "mv"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+
+# install: source is read, dest is write
+[[rule]]
+command = "install"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+```
+
+The `rule:` prefix accepts three values:
+- `rule:read` — check this position against Read file rules
+- `rule:write` — check this position against Write file rules
+- `rule:edit` — check this position against Edit file rules
+
+**Example behavior with file rules:**
+
+```toml
+[files.read]
+deny = ["glob:**/*.key", "path:$HOME/.ssh/**"]
+
+[files.write]
+deny = ["path:/etc/**", "path:/protected/**"]
+```
+
+- `cp ~/.ssh/id_rsa /tmp/key` → **denied** (source matches Read deny)
+- `cp /tmp/file /etc/config` → **denied** (dest matches Write deny)
+- `cp /project/file /tmp/backup` → **allowed** (both pass)
+
+### Redirect File Rules
+
+When `redirects.respect_file_rules = true`, redirect targets are checked against file rules:
+
+- Output redirects (`>`, `>>`) are checked against **Write** file rules
+- Input redirects (`<`) are checked against **Read** file rules
+
+```toml
+[redirects]
+respect_file_rules = true
+
+[files.write]
+deny = ["path:/etc/**", "path:/protected/**"]
+
+[files.read]
+deny = ["glob:**/*.key"]
+```
+
+With this configuration:
+- `echo "data" > /etc/config` → **denied** (Write to /etc)
+- `echo "data" >> /protected/log` → **denied** (Write to /protected)
+- `cat < ~/.ssh/id_rsa.key` → **denied** (Read from *.key)
+
+**Note:** Explicit `[[redirect]]` pattern rules take precedence over file rule checking. File rules are only checked when no redirect pattern matches.
+
+### Complete Example
+
+```toml
+[policy]
+default = "allow"
+respect_file_rules = true
+
+[redirects]
+respect_file_rules = true
+
+[commands.allow]
+names = ["cat", "head", "tail", "grep", "rm", "touch", "cp", "mv", "echo"]
+
+# File rules applied to both file tools AND bash command arguments
+[files]
+default = "allow"
+
+[files.read]
+allow = ["path:$PROJECT_ROOT/**", "path:$HOME/**", "/tmp/**"]
+deny = ["path:$HOME/.ssh/**", "glob:**/*.key", "glob:**/*.pem", "glob:**/.env*", "/etc/**", "/secrets/**"]
+
+[files.write]
+allow = ["path:$PROJECT_ROOT/**", "/tmp/**"]
+deny = ["/etc/**", "/usr/**", "/bin/**", "/protected/**", "path:$HOME/.ssh/**"]
+
+# Positional rules for cp/mv
+[[rule]]
+command = "cp"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+
+[[rule]]
+command = "mv"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+
+# Disable file checking for tar (complex arguments)
+[[rule]]
+command = "tar"
+action = "allow"
+respect_file_rules = false
+```
+
+With this config:
+- `cat /project/file.txt` → allowed (project path)
+- `cat /etc/passwd` → denied (Read deny: /etc/**)
+- `cat ~/.ssh/id_rsa` → denied (Read deny: .ssh/**)
+- `rm /project/temp.txt` → allowed (Write allow: project)
+- `rm /etc/hosts` → denied (Write deny: /etc/**)
+- `cp /project/src.txt /project/dst.txt` → allowed (both paths pass)
+- `cp ~/.ssh/key /tmp/key` → denied (source fails Read rules)
+- `cp /tmp/file /etc/config` → denied (dest fails Write rules)
+- `echo "x" > /etc/config` → denied (redirect to Write deny path)
+- `tar -xf /etc/archive.tar` → allowed (file rules disabled for tar)
 
 ## Testing Your Config
 

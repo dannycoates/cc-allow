@@ -1,0 +1,86 @@
+# File rule integration test ruleset
+# Tests that bash commands respect file rules based on their arguments
+# This tests the new respect_file_rules feature
+
+[policy]
+default = "allow"
+respect_file_rules = true  # Enable checking file rules for command arguments
+
+[redirects]
+respect_file_rules = true  # Enable checking file rules for redirect targets
+
+[commands.allow]
+names = ["cat", "head", "tail", "less", "grep", "wc", "rm", "touch", "cp", "mv", "echo"]
+
+[commands.deny]
+names = ["sudo"]
+
+# File rules that will be applied to command arguments
+[files]
+default = "allow"
+
+[files.read]
+allow = [
+    "/project/**",
+    "/home/user/**",
+    "/tmp/**",
+]
+deny = [
+    "glob:**/.ssh/**",
+    "glob:**/*.key",
+    "glob:**/*.pem",
+    "glob:**/.env*",
+    "/etc/**",
+    "/secrets/**",
+]
+
+[files.write]
+allow = [
+    "/project/**",
+    "/tmp/**",
+]
+deny = [
+    "/etc/**",
+    "/usr/**",
+    "/bin/**",
+    "/protected/**",
+    "glob:**/.ssh/**",
+    "glob:**/*.key",
+]
+
+[files.edit]
+allow = [
+    "/project/**",
+]
+deny = [
+    "/etc/**",
+    "glob:**/.env*",
+]
+
+# --- Rules with explicit file rule checking ---
+
+# cp: position 0 = source (read), position 1 = dest (write)
+[[rule]]
+command = "cp"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+
+# mv: position 0 = source (read), position 1 = dest (write)
+[[rule]]
+command = "mv"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+
+# tar: disable file rule checking for complex command
+[[rule]]
+command = "tar"
+action = "allow"
+respect_file_rules = false
+
+# Custom command with Write access type override
+[[rule]]
+command = "mywrite"
+action = "allow"
+file_access_type = "Write"

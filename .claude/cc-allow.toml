@@ -6,14 +6,73 @@ default = "ask"                    # defer to Claude Code's permission system
 dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
 default_message = "Command not allowed by project policy"
 
-# Common safe commands for development
+# ============================================================================
+# FILE PERMISSIONS (Read, Edit, Write)
+# ============================================================================
+# Control Claude Code's Read, Edit, and Write file tools.
+# Also controls bash commands that access files and redirects.
+# Evaluation order: deny -> allow -> default (deny always wins)
+
+[files]
+default = "ask"  # defer to Claude Code when no rules match
+
+[files.read]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow reading project files
+    "path:$CLAUDE_PLUGIN_ROOT/**",   # allow reading plugin files
+]
+deny = [
+    "path:$HOME/.ssh/**",            # never read SSH keys
+    "glob:**/*.key",                 # never read key files
+    "glob:**/*.pem",                 # never read PEM files
+]
+deny_message = "Cannot read sensitive files"
+
+[files.edit]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow editing project files
+]
+deny = [
+    "path:$HOME/.*",                 # never edit dotfiles in home
+]
+deny_message = "Cannot edit sensitive files"
+
+# Also applies to output redirects (>, >>) when redirects.respect_file_rules = true
+[files.write]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow writing to project
+    "path:/tmp/**",                  # allow writing to /tmp
+]
+deny = [
+    "path:$HOME/.*",                 # never write to dotfiles
+    "path:/etc/**",                  # never write to system config
+    "path:/usr/**",                  # never write to system directories
+    "path:/bin/**",                  # never write to bin
+    "path:/sbin/**",                 # never write to sbin
+    "path:/var/**",                  # never write to var
+]
+deny_message = "Cannot write to system directories"
+
+# ============================================================================
+# REDIRECTS
+# ============================================================================
+
+[redirects]
+respect_file_rules = true
+
+[[redirect]]
+action = "allow"
+[redirect.to]
+exact = ["/dev/null"]
+
+# ============================================================================
+# ALLOWED COMMANDS
+# ============================================================================
+
 [commands.allow]
 names = [
-    # -------------------------------------------------------------------------
     # Plugin/Skill Binaries
-    # -------------------------------------------------------------------------
-    "path:$CLAUDE_PLUGIN_ROOT/**",  # allow binaries from loaded skill/plugin
-
+    "path:$CLAUDE_PLUGIN_ROOT/**",
 
     # File & Directory Navigation
     "ls", "dir", "vdir", "pwd", "tree", "file", "stat",
@@ -65,13 +124,16 @@ names = [
     "watch", "timeout", "strace", "ltrace",
     "md5sum", "sha1sum", "sha256sum", "sha512sum", "base64",
     "nix", "nix-env", "nix-shell",
-    # Us
+    # Project binaries
     "path:$PROJECT_ROOT/cc-allow", "path:$PROJECT_ROOT/print-ast", "cc-query", "path:/tmp/cc-allow-test",
     # Remove commands (handled by rules below)
     "rm", "rmdir", "chmod",
 ]
 
-# Dangerous commands - always block
+# ============================================================================
+# DENIED COMMANDS
+# ============================================================================
+
 [commands.deny]
 names = [
     "sudo", "su", "doas",           # privilege escalation
@@ -81,12 +143,20 @@ names = [
 ]
 message = "Dangerous command blocked by project policy"
 
+# ============================================================================
+# SHELL CONSTRUCTS
+# ============================================================================
+
 [constructs]
 function_definitions = "deny"       # prevent command shadowing
 background = "ask"                 # allow but defer to Claude Code
 subshells = "ask"
 
-# Block recursive rm - the -r flag can appear anywhere in a dash group (e.g., -r, -rf, -fr)
+# ============================================================================
+# SPECIFIC RULES
+# ============================================================================
+
+# Block recursive rm
 [[rule]]
 command = "rm"
 action = "deny"
@@ -94,6 +164,7 @@ message = "Recursive rm not allowed"
 [rule.args]
 any_match = ["flags:r", "--recursive"]
 
+# Block curl/wget/fetch - use WebFetch tool instead
 [[rule]]
 command = "curl"
 action = "deny"
@@ -124,32 +195,6 @@ action = "deny"
 message = "Hard reset not allowed"
 [rule.args]
 contains = ["reset", "--hard"]
-
-# Allow redirecting to /dev/null
-[[redirect]]
-action = "allow"
-[redirect.to]
-exact = ["/dev/null"]
-
-# Allow writes to /tmp
-[[redirect]]
-action = "allow"
-[redirect.to]
-pattern = ["path:/tmp/**"]
-
-# Block writes to system directories
-[[redirect]]
-action = "deny"
-message = "Cannot write to system directories"
-[redirect.to]
-pattern = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**", "path:/var/**"]
-
-# Block writes to home directory dotfiles
-[[redirect]]
-action = "deny"
-message = "Cannot modify shell configuration files"
-[redirect.to]
-exact = [".bashrc", ".zshrc", ".profile", ".bash_profile", ".zprofile"]
 
 # Allow cd only to /tmp and project root
 [[rule]]

@@ -10,6 +10,70 @@ dynamic_commands = "ask"           # $VAR or $(cmd) as command names
 default_message = "Command not in allow list"
 
 # ============================================================================
+# FILE PERMISSIONS (Read, Edit, Write)
+# ============================================================================
+# Control Claude Code's Read, Edit, and Write file tools.
+# Also controls bash commands that access files and redirects.
+# Evaluation order: deny -> allow -> default (deny always wins)
+
+[files]
+default = "ask"  # defer to Claude Code when no rules match
+
+[files.read]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow reading project files
+    "path:$CLAUDE_PLUGIN_ROOT/**",   # allow reading plugin files
+]
+deny = [
+    "path:$HOME/.ssh/**",            # never read SSH keys
+    "glob:**/*.key",                 # never read key files
+    "glob:**/*.pem",                 # never read PEM files
+]
+deny_message = "Cannot read sensitive files"
+
+[files.edit]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow editing project files
+]
+deny = [
+    "path:$HOME/.*",                 # never edit dotfiles in home
+]
+deny_message = "Cannot edit sensitive files"
+
+# Also applies to output redirects (>, >>) when redirects.respect_file_rules = true
+[files.write]
+allow = [
+    "path:$PROJECT_ROOT/**",         # allow writing to project
+]
+deny = [
+    "path:$HOME/.*",                 # never write to dotfiles
+    "path:/etc/**",                  # never write to system config
+    "path:/usr/**",                  # never write to system directories
+    "path:/bin/**",                  # never write to bin
+    "path:/sbin/**",                 # never write to sbin
+    "path:/lib/**",                  # never write to lib
+    "path:/lib64/**",                # never write to lib64
+    "path:/var/**",                  # never write to var
+    "path:/boot/**",                 # never write to boot
+    "path:/root/**",                 # never write to root home
+]
+deny_message = "Cannot write to system directories"
+
+# ============================================================================
+# REDIRECTS
+# ============================================================================
+# Redirects respect file rules - output redirects (>, >>) check Write rules,
+# input redirects (<) check Read rules.
+
+[redirects]
+respect_file_rules = true
+
+[[redirect]]
+action = "allow"
+[redirect.to]
+exact = ["/dev/null"]
+
+# ============================================================================
 # ALLOWED COMMANDS
 # ============================================================================
 # These are generally safe read-only or low-risk commands.
@@ -381,90 +445,3 @@ command = "ssh"
 action = "ask"
 [rule.args]
 any_match = ["flags:o"]
-
-# ============================================================================
-# REDIRECT RULES
-# ============================================================================
-# Block writes to sensitive locations.
-
-# Allow redirecting to /dev/null
-[[redirect]]
-action = "allow"
-[redirect.to]
-exact = ["/dev/null"]
-
-# Block writes to system directories
-[[redirect]]
-action = "deny"
-message = "Cannot write to system directories"
-[redirect.to]
-pattern = [
-    "re:^/etc/.*",
-    "re:^/usr/.*",
-    "re:^/bin/.*",
-    "re:^/sbin/.*",
-    "re:^/lib/.*",
-    "re:^/lib64/.*",
-    "re:^/var/.*",
-    "re:^/boot/.*",
-    "re:^/root/.*",
-]
-
-# Block writes to shell configs
-[[redirect]]
-action = "deny"
-message = "Cannot modify shell configuration files"
-[redirect.to]
-pattern = ["re:.*rc$", "re:.*profile$", "re:.*_login", "re:.*_logout"]
-
-# Block appending to shell configs
-[[redirect]]
-action = "deny"
-append = true
-message = "Cannot append to shell configuration"
-[redirect.to]
-pattern = ["re:.*rc$", "re:.*profile$", "re:.*_login", "re:.*_logout"]
-
-# ============================================================================
-# FILE TOOL PERMISSIONS (Read, Edit, Write)
-# ============================================================================
-# Control Claude Code's Read, Edit, and Write file tools.
-# Evaluation order: deny -> allow -> default (deny always wins)
-
-[files]
-default = "ask"  # defer to Claude Code when no rules match
-
-# --- Read tool: control file reading ---
-[files.read]
-allow = [
-    "path:$PROJECT_ROOT/**",         # allow reading project files
-    "path:$CLAUDE_PLUGIN_ROOT/**",   # allow reading plugin files
-]
-deny = [
-    "path:$HOME/.ssh/**",            # never read SSH keys
-    "glob:**/*.key",                 # never read key files
-    "glob:**/*.pem",                 # never read PEM files
-]
-deny_message = "Cannot read sensitive files"
-
-# --- Edit tool: control file editing ---
-[files.edit]
-allow = [
-    "path:$PROJECT_ROOT/**",         # allow editing project files
-]
-deny = [
-    "path:$HOME/.*",                 # never edit dotfiles in home
-]
-deny_message = "Cannot edit sensitive files"
-
-# --- Write tool: control file creation/overwriting ---
-[files.write]
-allow = [
-    "path:$PROJECT_ROOT/**",         # allow writing to project
-]
-deny = [
-    "path:$HOME/.*",                 # never write to dotfiles
-    "path:/etc/**",                  # never write to system config
-    "path:/usr/**",                  # never write to system directories
-]
-deny_message = "Cannot write outside project directory"

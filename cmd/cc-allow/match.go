@@ -16,8 +16,9 @@ const (
 	PatternGlob PatternType = iota
 	PatternRegex
 	PatternLiteral
-	PatternPath // path pattern with variable expansion and symlink resolution
-	PatternFlag // flag pattern matching characters in flags (e.g., flags:rf matches -rf, -fr)
+	PatternPath     // path pattern with variable expansion and symlink resolution
+	PatternFlag     // flag pattern matching characters in flags (e.g., flags:rf matches -rf, -fr)
+	PatternFileRule // file rule marker (e.g., rule:read, rule:write, rule:edit)
 )
 
 // MatchContext provides context needed for path pattern matching.
@@ -34,6 +35,7 @@ type Pattern struct {
 	Negated       bool           // if true, match result is inverted
 	FlagDelimiter string         // flag delimiter ("-" or "--") for flag patterns
 	FlagChars     string         // characters that must all be present (for flag patterns)
+	FileRuleType  string         // for PatternFileRule: "Read", "Write", or "Edit"
 }
 
 // ParsePattern parses a pattern string and determines its type.
@@ -43,10 +45,12 @@ type Pattern struct {
 //   - "path:" for path patterns with variable expansion ($PROJECT_ROOT, $HOME)
 //   - "flags:" for flag patterns (e.g., "flags:rf" matches -rf, -fr, -vrf)
 //   - "flags[delim]:" for flag patterns with explicit delimiter (e.g., "flags[--]:rec")
+//   - "rule:" for file rule markers (e.g., "rule:read", "rule:write", "rule:edit")
 //   - No prefix defaults to glob
 //
 // Patterns with explicit prefixes can be negated by prepending "!"
 // (e.g., "!path:/foo", "!re:test", "!glob:*.txt", "!flags:r")
+// Note: "rule:" patterns cannot be negated and are markers, not matchers.
 func ParsePattern(s string) (*Pattern, error) {
 	p := &Pattern{Raw: s}
 
@@ -65,6 +69,20 @@ func ParsePattern(s string) (*Pattern, error) {
 	}
 
 	switch {
+	case strings.HasPrefix(s, "rule:"):
+		p.Type = PatternFileRule
+		ruleType := strings.TrimPrefix(s, "rule:")
+		switch ruleType {
+		case "read":
+			p.FileRuleType = "Read"
+		case "write":
+			p.FileRuleType = "Write"
+		case "edit":
+			p.FileRuleType = "Edit"
+		default:
+			return nil, fmt.Errorf("invalid file rule type %q (must be read, write, or edit)", ruleType)
+		}
+		return p, nil
 	case strings.HasPrefix(s, "re:"):
 		p.Type = PatternRegex
 		re, err := regexp.Compile(strings.TrimPrefix(s, "re:"))
@@ -171,11 +189,21 @@ func (p *Pattern) MatchWithContext(s string, ctx *MatchContext) bool {
 		matched = p.matchPath(s, ctx)
 	case PatternFlag:
 		matched = p.matchFlag(s)
+	case PatternFileRule:
+		// File rule patterns are markers, not matchers.
+		// They signal that file rules should be checked for this position.
+		// Return true to indicate the position "matches" (will be checked by file rules).
+		return true
 	}
 	if p.Negated {
 		return !matched
 	}
 	return matched
+}
+
+// IsFileRulePattern returns true if this is a file rule marker pattern.
+func (p *Pattern) IsFileRulePattern() bool {
+	return p.Type == PatternFileRule
 }
 
 // matchPath handles path pattern matching with variable expansion and path resolution.

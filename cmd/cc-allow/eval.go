@@ -10,6 +10,44 @@ import (
 	"cc-allow/pkg/pathutil"
 )
 
+// defaultFileAccessTypes maps known commands to their default file access type.
+// Commands not in this map default to "ask" for their file arguments.
+var defaultFileAccessTypes = map[string]string{
+	// Read commands
+	"cat":   "Read",
+	"less":  "Read",
+	"more":  "Read",
+	"head":  "Read",
+	"tail":  "Read",
+	"grep":  "Read",
+	"egrep": "Read",
+	"fgrep": "Read",
+	"find":  "Read",
+	"file":  "Read",
+	"wc":    "Read",
+	"diff":  "Read",
+	"cmp":   "Read",
+	"stat":  "Read",
+	"od":    "Read",
+	"xxd":   "Read",
+	"hexdump": "Read",
+	"strings": "Read",
+
+	// Write commands (modify/delete/create)
+	"rm":    "Write",
+	"rmdir": "Write",
+	"touch": "Write",
+	"mkdir": "Write",
+	"chmod": "Write",
+	"chown": "Write",
+	"chgrp": "Write",
+	"ln":    "Write",
+	"unlink": "Write",
+
+	// Edit commands (modify in place)
+	"sed": "Edit", // Note: only -i makes it edit, but we're conservative
+}
+
 // Result represents the evaluation result.
 type Result struct {
 	Action  string // "allow", "deny", or "ask"
@@ -382,12 +420,27 @@ func (e *Evaluator) evaluateCommandMerged(cmd Command) Result {
 		})
 		winner := matches[0]
 		logDebug("    Selected rule[%d] with specificity=%d action=%s", winner.index, winner.specificity, winner.rule.Rule.Action)
+
+		// If the rule allows the command, check file arguments
+		if winner.result.Action == "allow" && e.shouldRespectFileRules(&winner.rule) {
+			fileResult := e.checkCommandFileArgs(cmd, &winner.rule)
+			if fileResult.Action != "allow" {
+				return fileResult
+			}
+		}
 		return winner.result
 	}
 
 	// If in allow list and no rule matched, allow
 	if inAllowList {
 		logDebug("    No rules matched, using allow list")
+		// Check file arguments with policy defaults
+		if e.shouldRespectFileRules(nil) {
+			fileResult := e.checkCommandFileArgs(cmd, nil)
+			if fileResult.Action != "allow" {
+				return fileResult
+			}
+		}
 		return Result{Action: "allow", Source: allowSource + ": commands.allow.names"}
 	}
 
@@ -408,6 +461,15 @@ func (e *Evaluator) evaluateCommandMerged(cmd Command) Result {
 	// Use default policy
 	tv := e.merged.Policy.Default
 	logDebug("    No rules matched, using policy.default=%s (from %s)", tv.Value, tv.Source)
+
+	// If policy allows, check file arguments
+	if tv.Value == "allow" && e.shouldRespectFileRules(nil) {
+		fileResult := e.checkCommandFileArgs(cmd, nil)
+		if fileResult.Action != "allow" {
+			return fileResult
+		}
+	}
+
 	return Result{
 		Action:  tv.Value,
 		Message: e.merged.Policy.DefaultMessage.Value,
@@ -562,6 +624,158 @@ func (e *Evaluator) matchTrackedRule(tr TrackedRule, cmd Command) (Result, bool)
 	}, true
 }
 
+// hasFileRulesConfigured checks if any file rules are configured.
+// Returns true if there are any deny or allow patterns for any file tool.
+func (e *Evaluator) hasFileRulesConfigured() bool {
+	for _, entries := range e.merged.Files.Deny {
+		if len(entries) > 0 {
+			return true
+		}
+	}
+	for _, entries := range e.merged.Files.Allow {
+		if len(entries) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldRespectFileRules determines if file rules should be checked for a command.
+// Returns true if policy.respect_file_rules is "true" (or unset, defaulting to true),
+// AND there are actually file rules configured. If no file rules exist, checking is skipped.
+// Rule-level settings can override this behavior.
+func (e *Evaluator) shouldRespectFileRules(rule *TrackedRule) bool {
+	// Rule-level override takes precedence (explicit true/false)
+	if rule != nil && rule.Rule.RespectFileRules != nil {
+		// Even if explicitly enabled, only check if there are rules to check against
+		if *rule.Rule.RespectFileRules {
+			return e.hasFileRulesConfigured()
+		}
+		return false
+	}
+	// Policy default - only enabled if there are file rules configured
+	if e.merged.Policy.RespectFileRules.Value == "true" {
+		return e.hasFileRulesConfigured()
+	}
+	return false
+}
+
+// getFileAccessType returns the file access type for a command.
+// Priority: rule.file_access_type > defaultFileAccessTypes map > "ask"
+func (e *Evaluator) getFileAccessType(cmdName string, rule *TrackedRule) string {
+	// Rule-level override
+	if rule != nil && rule.Rule.FileAccessType != "" {
+		return rule.Rule.FileAccessType
+	}
+	// Check known command types
+	if accessType, ok := defaultFileAccessTypes[cmdName]; ok {
+		return accessType
+	}
+	// Unknown commands default to checking all file rules (returns "ask" to indicate unknown)
+	return ""
+}
+
+// isPathArgument checks if an argument appears to be a file path.
+// Uses heuristics: path indicators (/,./,~) or file extension + existence check.
+func (e *Evaluator) isPathArgument(arg, cwd, accessType string) bool {
+	// Skip flags
+	if strings.HasPrefix(arg, "-") {
+		return false
+	}
+
+	// Check for obvious path indicators
+	if pathutil.IsPathLike(arg) {
+		return true
+	}
+
+	// Extension heuristic for bare filenames (e.g., "README.md", "file.txt")
+	if pathutil.HasFileExtension(arg) {
+		// Verify existence based on access type
+		absPath := pathutil.ResolvePath(arg, cwd, e.matchCtx.PathVars.Home)
+		switch accessType {
+		case "Write":
+			// For write operations, check if parent directory exists
+			return pathutil.DirExists(filepath.Dir(absPath))
+		default:
+			// For read/edit operations, check if file exists
+			return pathutil.FileExists(absPath)
+		}
+	}
+
+	return false
+}
+
+// checkCommandFileArgs checks file arguments against file rules.
+// Returns a result that should be combined with the command's normal evaluation.
+func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule) Result {
+	result := Result{Action: "allow"}
+
+	// Get arguments (excluding command name)
+	args := cmd.Args
+	if len(args) > 0 {
+		args = args[1:]
+	}
+	if len(args) == 0 {
+		return result
+	}
+
+	// Get the default access type for this command
+	defaultAccessType := e.getFileAccessType(cmd.Name, rule)
+
+	logDebug("    Checking file args (default_access_type=%q)", defaultAccessType)
+
+	for i, arg := range args {
+		posKey := strconv.Itoa(i) // "0", "1", etc. (0-based)
+
+		// Determine the access type for this argument
+		var accessType string
+
+		// Check if this position has a rule: prefix pattern (positional file rule)
+		if rule != nil && rule.Rule.Args.Position != nil {
+			if posPattern, ok := rule.Rule.Args.Position[posKey]; ok {
+				p, err := ParsePattern(posPattern)
+				if err == nil && p.IsFileRulePattern() {
+					accessType = p.FileRuleType
+					logDebug("      Arg[%d] %q: using positional rule type %q", i, arg, accessType)
+				}
+			}
+		}
+
+		// Fall back to default access type if no positional rule
+		if accessType == "" {
+			accessType = defaultAccessType
+		}
+
+		// If we still don't have an access type, skip this arg
+		if accessType == "" {
+			continue
+		}
+
+		// Check if this looks like a path argument
+		if !e.isPathArgument(arg, cmd.EffectiveCwd, accessType) {
+			continue
+		}
+
+		// Resolve to absolute path
+		absPath := pathutil.ResolvePath(arg, cmd.EffectiveCwd, e.matchCtx.PathVars.Home)
+		logDebug("      Arg[%d] %q -> %q: checking %s rules", i, arg, absPath, accessType)
+
+		// Check against file rules
+		fileResult := checkFilePathAgainstRules(e.merged, accessType, absPath, e.matchCtx)
+		fileResult.Command = cmd.Name
+		if fileResult.Action == "deny" {
+			fileResult.Message = "File argument denied: " + arg
+		}
+
+		result = combineResults(result, fileResult)
+		if result.Action == "deny" {
+			return result // Early exit on deny
+		}
+	}
+
+	return result
+}
+
 // evaluateRedirectMerged checks a redirect against the merged config.
 func (e *Evaluator) evaluateRedirectMerged(redir Redirect) Result {
 	logDebug("  Evaluating redirect to %q (append=%v, fd=%v)", redir.Target, redir.Append, redir.IsFdRedirect)
@@ -602,6 +816,29 @@ func (e *Evaluator) evaluateRedirectMerged(redir Redirect) Result {
 			logDebug("    Matched redirect rule[%d]: action=%s (from %s)", i, tr.RedirectRule.Action, tr.Source)
 			return result
 		}
+	}
+
+	// No pattern rule matched - check file rules if enabled AND there are file rules configured
+	if e.merged.RedirectsPolicy.RespectFileRules.Value == "true" && e.hasFileRulesConfigured() {
+		// Determine file access type based on redirect direction
+		accessType := "Write"
+		if redir.IsInput {
+			accessType = "Read"
+		}
+
+		// Resolve target path
+		absPath := pathutil.ResolvePath(redir.Target, e.matchCtx.PathVars.Cwd, e.matchCtx.PathVars.Home)
+		logDebug("    Checking redirect target against %s file rules: %q -> %q", accessType, redir.Target, absPath)
+
+		fileResult := checkFilePathAgainstRules(e.merged, accessType, absPath, e.matchCtx)
+		if fileResult.Action == "deny" {
+			fileResult.Message = "Redirect target denied: " + redir.Target
+			return fileResult
+		}
+		if fileResult.Action == "allow" {
+			return fileResult
+		}
+		// If "ask", fall through to policy default
 	}
 
 	// No rule matched - use policy default

@@ -1,7 +1,9 @@
 package pathutil
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -100,4 +102,39 @@ func IsPathLike(s string) bool {
 	}
 
 	return false
+}
+
+// extRegex matches strings ending with a file extension (e.g., "file.txt", "README.md")
+var extRegex = regexp.MustCompile(`\.\w+$`)
+
+// HasFileExtension checks if a string appears to have a file extension.
+// Used as a heuristic to detect bare filenames like "README.md" or "file.txt".
+// Excludes strings that start with "-" (flags) and strings that are just extensions.
+func HasFileExtension(s string) bool {
+	if s == "" || strings.HasPrefix(s, "-") {
+		return false
+	}
+	// Must have content before the extension
+	if strings.HasPrefix(s, ".") && !strings.Contains(s[1:], ".") {
+		return false // just ".md" is not a filename with extension
+	}
+	return extRegex.MatchString(s)
+}
+
+// FileExists checks if a file exists at the given path.
+func FileExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
+}
+
+// DirExists checks if a directory exists at the given path.
+func DirExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
 }

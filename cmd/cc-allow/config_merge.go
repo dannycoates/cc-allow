@@ -70,6 +70,22 @@ func newEmptyMergedConfig() *MergedConfig {
 	}
 }
 
+// mergeBoolPointerToTracked converts a *bool to TrackedValue for merging.
+// For respect_file_rules: false is stricter than true (more restrictive = doesn't check file rules by default,
+// but actually we want true to be the secure default, so true = check file rules is stricter/more secure).
+// We use a special merge that allows override rather than strictness-based.
+func mergeBoolPointerToTracked(current TrackedValue, newVal *bool, newSource string) TrackedValue {
+	if newVal == nil {
+		return current
+	}
+	// Any explicit setting overrides - later configs win for boolean settings
+	val := "false"
+	if *newVal {
+		val = "true"
+	}
+	return TrackedValue{Value: val, Source: newSource}
+}
+
 // mergeConfigInto merges a raw config into an existing MergedConfig.
 // The raw config can only make things stricter, not looser.
 func mergeConfigInto(merged *MergedConfig, cfg *Config) {
@@ -81,6 +97,7 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	merged.Policy.DynamicCommands = mergeTrackedValue(merged.Policy.DynamicCommands, cfg.Policy.DynamicCommands, source)
 	merged.Policy.UnresolvedCommands = mergeTrackedValue(merged.Policy.UnresolvedCommands, cfg.Policy.UnresolvedCommands, source)
 	merged.Policy.DefaultMessage = mergeTrackedMessage(merged.Policy.DefaultMessage, cfg.Policy.DefaultMessage, source)
+	merged.Policy.RespectFileRules = mergeBoolPointerToTracked(merged.Policy.RespectFileRules, cfg.Policy.RespectFileRules, source)
 
 	// Merge allowed_paths (union)
 	for _, p := range cfg.Policy.AllowedPaths {
@@ -114,6 +131,10 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 
 	// Merge rules with shadowing detection
 	merged.Rules = mergeRules(merged.Rules, cfg.Rules, source)
+
+	// Merge redirects policy
+	merged.RedirectsPolicy.RespectFileRules = mergeBoolPointerToTracked(
+		merged.RedirectsPolicy.RespectFileRules, cfg.RedirectsPolicy.RespectFileRules, source)
 
 	// Merge redirects with shadowing detection
 	merged.Redirects = mergeRedirectRules(merged.Redirects, cfg.Redirects, source)
@@ -180,6 +201,10 @@ func applyMergedDefaults(merged *MergedConfig) {
 	if merged.Policy.DefaultMessage.Value == "" {
 		merged.Policy.DefaultMessage = TrackedValue{Value: "Command not allowed", Source: "(default)"}
 	}
+	// RespectFileRules defaults to true (secure by default)
+	if merged.Policy.RespectFileRules.Value == "" {
+		merged.Policy.RespectFileRules = TrackedValue{Value: "true", Source: "(default)"}
+	}
 	if merged.Constructs.Subshells.Value == "" {
 		merged.Constructs.Subshells = TrackedValue{Value: "ask", Source: "(default)"}
 	}
@@ -195,6 +220,10 @@ func applyMergedDefaults(merged *MergedConfig) {
 	// Files default
 	if merged.Files.Default.Value == "" {
 		merged.Files.Default = TrackedValue{Value: "ask", Source: "(default)"}
+	}
+	// Redirects policy: respect_file_rules defaults to false (backward compatible)
+	if merged.RedirectsPolicy.RespectFileRules.Value == "" {
+		merged.RedirectsPolicy.RespectFileRules = TrackedValue{Value: "false", Source: "(default)"}
 	}
 }
 

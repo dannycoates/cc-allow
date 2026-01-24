@@ -25,6 +25,13 @@ func evaluateFileTool(chain *ConfigChain, toolName, filePath string) Result {
 	absPath := resolveFilePath(filePath, pathVars)
 	logDebug("  Resolved path: %q -> %q", filePath, absPath)
 
+	return checkFilePathAgainstRules(merged, toolName, absPath, matchCtx)
+}
+
+// checkFilePathAgainstRules checks an absolute file path against file rules.
+// This is the core file rule checking logic, usable for both file tools and command args.
+// toolName should be "Read", "Write", or "Edit".
+func checkFilePathAgainstRules(merged *MergedConfig, toolName, absPath string, matchCtx *MatchContext) Result {
 	// 1. Check deny lists first (deny always wins)
 	if result, ok := checkFileDenyList(merged, toolName, absPath, matchCtx); ok {
 		return result

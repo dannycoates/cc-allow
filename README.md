@@ -10,6 +10,7 @@ Bash command permission control for Claude Code. Parses bash commands into an AS
 - **Layered configs** - Global defaults with project-level overrides
 - **Pipe security** - Block dangerous patterns like `curl | bash`
 - **Redirect control** - Prevent writes to sensitive paths
+- **File rule integration** - Bash commands respect file access rules (e.g., `cat /etc/passwd` denied if `/etc/**` is in Read deny list)
 
 ## Disclaimer
 
@@ -143,6 +144,38 @@ message = "Cannot write to system directories"
 pattern = ["path:/etc/**", "path:/usr/**"]
 ```
 
+### File Rule Integration
+
+Bash commands automatically respect file rules based on their arguments:
+
+```toml
+[policy]
+respect_file_rules = true  # enabled by default when file rules exist
+
+[files.read]
+allow = ["path:$PROJECT_ROOT/**"]
+deny = ["path:$HOME/.ssh/**", "glob:**/*.key"]
+
+[files.write]
+deny = ["path:/etc/**", "path:$HOME/.bashrc"]
+```
+
+With this config:
+- `cat ~/.ssh/id_rsa` → denied (Read command accessing denied path)
+- `echo "x" > ~/.bashrc` → denied (redirect to denied Write path)
+
+For commands like `cp` and `mv` where arguments have different access types, use positional file rules:
+
+```toml
+[[rule]]
+command = "cp"
+action = "allow"
+[rule.args]
+position = { "0" = "rule:read", "1" = "rule:write" }
+```
+
+This checks the source against Read rules and destination against Write rules.
+
 See [docs/config.md](docs/config.md) for complete configuration reference.
 
 ## CLI Reference
@@ -174,8 +207,9 @@ cc-allow --debug
 2. Commands, arguments, pipes, and redirects are extracted from the AST
 3. Rules from all config layers are evaluated
 4. The most specific matching rule wins within each config
-5. Results are merged across configs (deny > allow > ask)
-6. Exit code indicates the final decision
+5. If file rules are configured, command arguments are checked against them
+6. Results are merged across configs (deny > allow > ask)
+7. Exit code indicates the final decision
 
 ## Example Global Config
 

@@ -67,6 +67,12 @@ func runFmt(configPath string) {
 		fmt.Printf("\n[%d] %s\n", i+1, path)
 		fmt.Printf("    policy.default = %q\n", cfg.Policy.Default)
 		fmt.Printf("    policy.dynamic_commands = %q\n", cfg.Policy.DynamicCommands)
+		if cfg.Policy.RespectFileRules != nil {
+			fmt.Printf("    policy.respect_file_rules = %v\n", *cfg.Policy.RespectFileRules)
+		}
+		if cfg.RedirectsPolicy.RespectFileRules != nil {
+			fmt.Printf("    redirects.respect_file_rules = %v\n", *cfg.RedirectsPolicy.RespectFileRules)
+		}
 
 		if len(cfg.Commands.Allow.Names) > 0 {
 			fmt.Printf("    commands.allow.names = %d command(s)\n", len(cfg.Commands.Allow.Names))
@@ -220,6 +226,12 @@ func formatRule(r Rule) string {
 	}
 	if len(r.Pipe.From) > 0 {
 		result += fmt.Sprintf(" pipe.from=%v", r.Pipe.From)
+	}
+	if r.RespectFileRules != nil {
+		result += fmt.Sprintf(" respect_file_rules=%v", *r.RespectFileRules)
+	}
+	if r.FileAccessType != "" {
+		result += fmt.Sprintf(" file_access_type=%q", r.FileAccessType)
 	}
 
 	return result

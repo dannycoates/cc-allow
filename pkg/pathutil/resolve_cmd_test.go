@@ -253,3 +253,109 @@ func TestCommandResolver_Symlink(t *testing.T) {
 		t.Errorf("Expected symlink to resolve to real path %q, got %q", realPath, result.Path)
 	}
 }
+
+func TestHasFileExtension(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		// Files with extensions
+		{"file.txt", true},
+		{"README.md", true},
+		{"script.py", true},
+		{"config.json", true},
+		{"archive.tar.gz", true},
+		{"path/to/file.txt", true},
+
+		// Files without extensions or edge cases
+		{"file", false},
+		{"README", false},
+		{"Makefile", false},
+		{".gitignore", false}, // just extension, no name
+		{".env", false},
+		{"-file.txt", false}, // starts with -, looks like flag
+		{"--config.txt", false},
+		{"", false},
+		{".", false},
+		{"..", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got := HasFileExtension(tc.input)
+			if got != tc.expected {
+				t.Errorf("HasFileExtension(%q) = %v, want %v", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestFileExists(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a file
+	filePath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(filePath, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a directory
+	dirPath := filepath.Join(tmpDir, "subdir")
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+	}{
+		{"existing file", filePath, true},
+		{"existing directory", dirPath, false}, // directory is not a file
+		{"non-existent", filepath.Join(tmpDir, "nonexistent"), false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := FileExists(tc.path)
+			if got != tc.expected {
+				t.Errorf("FileExists(%q) = %v, want %v", tc.path, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestDirExists(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a file
+	filePath := filepath.Join(tmpDir, "test.txt")
+	if err := os.WriteFile(filePath, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a directory
+	dirPath := filepath.Join(tmpDir, "subdir")
+	if err := os.Mkdir(dirPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name     string
+		path     string
+		expected bool
+	}{
+		{"existing directory", dirPath, true},
+		{"existing file", filePath, false}, // file is not a directory
+		{"non-existent", filepath.Join(tmpDir, "nonexistent"), false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := DirExists(tc.path)
+			if got != tc.expected {
+				t.Errorf("DirExists(%q) = %v, want %v", tc.path, got, tc.expected)
+			}
+		})
+	}
+}
