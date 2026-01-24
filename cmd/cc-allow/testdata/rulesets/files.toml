@@ -1,0 +1,44 @@
+# File permission ruleset for testing Read, Write, Edit tools
+
+[files]
+default = "ask"
+
+[files.read]
+allow = [
+    "/project/**",
+    "/home/user/docs/**",
+    "glob:**/*.md",
+    "glob:**/*.txt",
+]
+deny = [
+    "/etc/**",
+    "/secrets/**",
+    "glob:**/.env*",
+    "glob:**/*.key",
+    "glob:**/*.pem",
+    "re:.*password.*",
+]
+
+[files.write]
+allow = [
+    "/project/**",
+    "/tmp/**",
+]
+deny = [
+    "/etc/**",
+    "/usr/**",
+    "/bin/**",
+    "/sbin/**",
+    "glob:**/.env*",
+    "glob:**/*.key",
+]
+deny_message = "Cannot write to system or sensitive files"
+
+[files.edit]
+allow = [
+    "/project/**",
+]
+deny = [
+    "/etc/**",
+    "glob:**/.env*",
+]

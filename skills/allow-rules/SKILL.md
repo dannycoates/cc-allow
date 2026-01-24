@@ -260,13 +260,14 @@ deny_message = "Cannot write outside project directory"
    ```
 6. Test the new rule with a matching command:
    ```bash
-   # Test bash command
+   # Test bash command (default, or use --bash)
    echo 'git push --force' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow
    echo $?  # 0=allow, 1=ask, 2=deny
 
-   # Test file tool (use --hook mode with JSON input)
-   echo '{"tool_name":"Read","tool_input":{"file_path":"/etc/passwd"}}' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --hook
-   echo '{"tool_name":"Write","tool_input":{"file_path":"$HOME/.bashrc"}}' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --hook
+   # Test file tools (stdin is the file path)
+   echo '/etc/passwd' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --read
+   echo '$HOME/.bashrc' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --write
+   echo '/project/src/main.go' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --edit
    ```
 7. Use `--debug` for detailed evaluation trace:
    ```bash

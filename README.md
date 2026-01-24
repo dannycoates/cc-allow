@@ -42,9 +42,14 @@ go install github.com/dannycoates/cc-allow/cmd/cc-allow@latest
 ## Usage
 
 ```bash
-# Evaluate a command
+# Evaluate a bash command (default)
 echo 'rm -rf /' | cc-allow
 # Exit code: 2 (deny)
+
+# Evaluate file tool permissions
+echo '/etc/passwd' | cc-allow --read
+echo '/project/src/main.go' | cc-allow --write
+echo '/home/user/.bashrc' | cc-allow --edit
 
 # With explicit config
 echo 'ls -la' | cc-allow --config ./my-rules.toml
@@ -143,10 +148,16 @@ See [docs/config.md](docs/config.md) for complete configuration reference.
 ## CLI Reference
 
 ```bash
-# Pipe mode - evaluate a command
+# Bash mode (default) - evaluate a bash command
 echo 'some command' | cc-allow
+echo 'some command' | cc-allow --bash
 
-# Hook mode - for Claude Code PreToolUse hooks
+# File modes - evaluate file tool permissions (stdin is file path)
+echo '/path/to/file' | cc-allow --read
+echo '/path/to/file' | cc-allow --write
+echo '/path/to/file' | cc-allow --edit
+
+# Hook mode - for Claude Code PreToolUse hooks (JSON input/output)
 cc-allow --hook < tool_input.json
 
 # Fmt mode - validate config and show rules by specificity

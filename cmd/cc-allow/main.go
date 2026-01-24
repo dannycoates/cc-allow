@@ -56,7 +56,37 @@ func main() {
 	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and $TMPDIR/cc-allow.log")
 	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
 	initMode := flag.Bool("init", false, "create project config at .claude/cc-allow.toml")
+
+	// Tool-specific modes (stdin is the path or command to check)
+	bashMode := flag.Bool("bash", false, "check bash command rules (stdin is bash command)")
+	readMode := flag.Bool("read", false, "check file read rules (stdin is file path)")
+	writeMode := flag.Bool("write", false, "check file write rules (stdin is file path)")
+	editMode := flag.Bool("edit", false, "check file edit rules (stdin is file path)")
 	flag.Parse()
+
+	// Determine tool mode
+	toolMode := ""
+	modeCount := 0
+	if *bashMode {
+		toolMode = "Bash"
+		modeCount++
+	}
+	if *readMode {
+		toolMode = "Read"
+		modeCount++
+	}
+	if *writeMode {
+		toolMode = "Write"
+		modeCount++
+	}
+	if *editMode {
+		toolMode = "Edit"
+		modeCount++
+	}
+	if modeCount > 1 {
+		fmt.Fprintln(os.Stderr, "Error: only one of --bash, --read, --write, --edit can be specified")
+		os.Exit(ExitError)
+	}
 
 	switch {
 	case *showVersion:
@@ -67,14 +97,15 @@ func main() {
 	case *fmtMode:
 		runFmt(*configPath)
 	default:
-		runEval(*configPath, *hookMode, *debugMode)
+		runEval(*configPath, *hookMode, *debugMode, toolMode)
 	}
 }
 
 // runEval evaluates a tool request against the config chain.
 // In hook mode, it reads JSON from stdin and outputs JSON.
-// In pipe mode, it reads the bash command directly from stdin.
-func runEval(configPath string, hookMode, debugMode bool) {
+// In pipe mode, it reads the input directly from stdin.
+// toolMode specifies the tool type: "Bash", "Read", "Write", "Edit", or "" (defaults to Bash).
+func runEval(configPath string, hookMode, debugMode bool, toolMode string) {
 	// Load configuration chain from standard locations + explicit path
 	chain, err := LoadConfigChain(configPath)
 	if err != nil {
@@ -89,30 +120,56 @@ func runEval(configPath string, hookMode, debugMode bool) {
 	}
 	logDebugConfigChain(chain)
 
-	dispatcher := NewToolDispatcher(chain)
+	// Build input
+	input, err := buildInput(hookMode, toolMode)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(ExitError)
+	}
 
+	// Dispatch
+	dispatcher := NewToolDispatcher(chain)
+	result := dispatcher.Dispatch(input)
+
+	// Output
 	if hookMode {
-		// Parse JSON hook input
-		var hookInput HookInput
-		if err := json.NewDecoder(os.Stdin).Decode(&hookInput); err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing hook JSON: %v\n", err)
-			os.Exit(ExitError)
-		}
-		result := dispatcher.Dispatch(hookInput)
 		outputHookResult(result)
 	} else {
-		// Pipe mode: read bash command from stdin
-		data, err := io.ReadAll(os.Stdin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
-			os.Exit(ExitError)
-		}
-		var hookInput HookInput
-		hookInput.ToolName = "Bash"
-		hookInput.ToolInput.Command = string(data)
-		result := dispatcher.Dispatch(hookInput)
 		outputPlainResult(result)
 	}
+}
+
+// buildInput constructs a HookInput from stdin based on mode.
+func buildInput(hookMode bool, toolMode string) (HookInput, error) {
+	if hookMode {
+		var input HookInput
+		if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
+			return HookInput{}, fmt.Errorf("parsing hook JSON: %w", err)
+		}
+		return input, nil
+	}
+
+	// Pipe mode: read raw input from stdin
+	data, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return HookInput{}, fmt.Errorf("reading stdin: %w", err)
+	}
+	value := strings.TrimSpace(string(data))
+
+	// Default to Bash
+	if toolMode == "" {
+		toolMode = "Bash"
+	}
+
+	var input HookInput
+	input.ToolName = toolMode
+	switch toolMode {
+	case "Bash":
+		input.ToolInput.Command = value
+	case "Read", "Write", "Edit":
+		input.ToolInput.FilePath = value
+	}
+	return input, nil
 }
 
 func outputHookResult(result Result) {

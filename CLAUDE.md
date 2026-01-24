@@ -89,7 +89,8 @@ The harness (`harness_test.go`) runs command sets against multiple rulesets defi
 
 ## CLI Modes
 
-- **Pipe mode** (default): `echo 'cmd' | cc-allow`
+- **Bash mode** (default): `echo 'cmd' | cc-allow` or `cc-allow --bash`
+- **File modes**: `echo '/path' | cc-allow --read|--write|--edit`
 - **Hook mode**: `cc-allow --hook` - Parses Claude Code JSON, outputs JSON response
 - **Fmt mode**: `cc-allow --fmt` - Validate and display config
 - **Init mode**: `cc-allow --init` - Create project config from template

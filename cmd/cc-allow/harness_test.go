@@ -15,6 +15,7 @@ import (
 type HarnessConfig struct {
 	Rulesets map[string]string `toml:"rulesets"`
 	Commands []HarnessCommand  `toml:"command"`
+	Files    []HarnessFile     `toml:"file"`
 }
 
 // HarnessCommand represents a single test command with expected results per ruleset
@@ -69,6 +70,45 @@ func (h *HarnessCommand) GetBash(testdataDir string) (string, error) {
 	}
 	// Otherwise use inline bash (even if empty)
 	return h.Bash, nil
+}
+
+// HarnessFile represents a single file tool test with expected results per ruleset
+type HarnessFile struct {
+	Name string `toml:"name"`
+	Tool string `toml:"tool"` // Read, Write, or Edit
+	Path string `toml:"path"` // file path to test
+	// Expected results are stored as a map, populated dynamically from TOML fields
+	Expected map[string]string `toml:"-"`
+}
+
+// UnmarshalTOML implements custom unmarshaling to capture ruleset expectations
+func (h *HarnessFile) UnmarshalTOML(data interface{}) error {
+	d, ok := data.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("expected map, got %T", data)
+	}
+
+	h.Expected = make(map[string]string)
+
+	for key, val := range d {
+		strVal, ok := val.(string)
+		if !ok {
+			continue
+		}
+		switch key {
+		case "name":
+			h.Name = strVal
+		case "tool":
+			h.Tool = strVal
+		case "path":
+			h.Path = strVal
+		default:
+			// Assume any other string field is a ruleset expectation
+			h.Expected[key] = strVal
+		}
+	}
+
+	return nil
 }
 
 func TestHarness(t *testing.T) {
@@ -134,6 +174,29 @@ func TestHarness(t *testing.T) {
 			})
 		}
 	}
+
+	// Run each file test against each ruleset
+	for _, file := range harness.Files {
+		for rulesetName, expectedAction := range file.Expected {
+			cfg, ok := rulesets[rulesetName]
+			if !ok {
+				t.Errorf("File %q references unknown ruleset %q", file.Name, rulesetName)
+				continue
+			}
+
+			testName := fmt.Sprintf("%s/%s", rulesetName, file.Name)
+			t.Run(testName, func(t *testing.T) {
+				result := evalFile(t, cfg, file.Tool, file.Path)
+				if result.Action != expectedAction {
+					t.Errorf("tool=%s path=%q\nexpected %s, got %s (source: %s)",
+						file.Tool, file.Path, expectedAction, result.Action, result.Source)
+					if result.Message != "" {
+						t.Logf("message: %s", result.Message)
+					}
+				}
+			})
+		}
+	}
 }
 
 func evalBash(t *testing.T, cfg *Config, bash string) Result {
@@ -150,9 +213,15 @@ func evalBash(t *testing.T, cfg *Config, bash string) Result {
 	}
 
 	info := ExtractFromFile(f)
-	chain := &ConfigChain{Configs: []*Config{cfg}}
+	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
 	eval := NewEvaluator(chain)
 	return eval.Evaluate(info)
+}
+
+func evalFile(t *testing.T, cfg *Config, tool, path string) Result {
+	t.Helper()
+	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
+	return evaluateFileTool(chain, tool, path)
 }
 
 // TestHarnessRulesetLoading verifies all rulesets can be loaded

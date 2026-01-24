@@ -8,6 +8,7 @@ default = "rulesets/default.toml"
 patterns = "rulesets/patterns.toml"
 specificity = "rulesets/specificity.toml"
 pluginroot = "rulesets/pluginroot.toml"
+files = "rulesets/files.toml"
 
 # Each [[command]] defines a bash string and expected result per ruleset
 # Results: "allow", "deny", "ask"
@@ -1072,3 +1073,179 @@ pluginroot = "allow"   # ls is in commands.allow, no path restriction
 name = "pluginroot: pwd (allowed command, no path)"
 bash = "pwd"
 pluginroot = "allow"   # pwd is in commands.allow list
+
+# =============================================================================
+# FILE TOOL TESTS
+# =============================================================================
+# Each [[file]] defines a file tool operation and expected result per ruleset
+# tool: "Read", "Write", or "Edit"
+# path: the file path to check
+# Results: "allow", "deny", "ask"
+
+# --- Read Tool Tests ---
+
+[[file]]
+name = "read: project source file"
+tool = "Read"
+path = "/project/src/main.go"
+files = "allow"
+
+[[file]]
+name = "read: project nested file"
+tool = "Read"
+path = "/project/lib/utils/helper.go"
+files = "allow"
+
+[[file]]
+name = "read: user docs"
+tool = "Read"
+path = "/home/user/docs/readme.txt"
+files = "allow"
+
+[[file]]
+name = "read: markdown anywhere"
+tool = "Read"
+path = "/var/notes/todo.md"
+files = "allow"
+
+[[file]]
+name = "read: /etc/passwd (denied)"
+tool = "Read"
+path = "/etc/passwd"
+files = "deny"
+
+[[file]]
+name = "read: /etc/hosts (denied)"
+tool = "Read"
+path = "/etc/hosts"
+files = "deny"
+
+[[file]]
+name = "read: secrets directory (denied)"
+tool = "Read"
+path = "/secrets/api-key.txt"
+files = "deny"
+
+[[file]]
+name = "read: .env file (denied)"
+tool = "Read"
+path = "/project/.env"
+files = "deny"
+
+[[file]]
+name = "read: .env.local (denied)"
+tool = "Read"
+path = "/project/config/.env.local"
+files = "deny"
+
+[[file]]
+name = "read: private key (denied)"
+tool = "Read"
+path = "/home/user/.ssh/id_rsa.key"
+files = "deny"
+
+[[file]]
+name = "read: pem certificate (denied)"
+tool = "Read"
+path = "/certs/server.pem"
+files = "deny"
+
+[[file]]
+name = "read: password file (denied by regex)"
+tool = "Read"
+path = "/config/password.txt"
+files = "deny"
+
+[[file]]
+name = "read: random path (ask)"
+tool = "Read"
+path = "/var/log/app.log"
+files = "ask"
+
+# --- Write Tool Tests ---
+
+[[file]]
+name = "write: project file"
+tool = "Write"
+path = "/project/output.txt"
+files = "allow"
+
+[[file]]
+name = "write: project nested"
+tool = "Write"
+path = "/project/build/artifact.bin"
+files = "allow"
+
+[[file]]
+name = "write: tmp file"
+tool = "Write"
+path = "/tmp/scratch.txt"
+files = "allow"
+
+[[file]]
+name = "write: /etc/hosts (denied)"
+tool = "Write"
+path = "/etc/hosts"
+files = "deny"
+
+[[file]]
+name = "write: /usr/bin (denied)"
+tool = "Write"
+path = "/usr/bin/myapp"
+files = "deny"
+
+[[file]]
+name = "write: /bin (denied)"
+tool = "Write"
+path = "/bin/script"
+files = "deny"
+
+[[file]]
+name = "write: .env (denied)"
+tool = "Write"
+path = "/project/.env"
+files = "deny"
+
+[[file]]
+name = "write: private key (denied)"
+tool = "Write"
+path = "/home/user/.ssh/new.key"
+files = "deny"
+
+[[file]]
+name = "write: random path (ask)"
+tool = "Write"
+path = "/var/data/output.csv"
+files = "ask"
+
+# --- Edit Tool Tests ---
+
+[[file]]
+name = "edit: project file"
+tool = "Edit"
+path = "/project/src/main.go"
+files = "allow"
+
+[[file]]
+name = "edit: project config"
+tool = "Edit"
+path = "/project/config/settings.json"
+files = "allow"
+
+[[file]]
+name = "edit: /etc/passwd (denied)"
+tool = "Edit"
+path = "/etc/passwd"
+files = "deny"
+
+[[file]]
+name = "edit: .env (denied)"
+tool = "Edit"
+path = "/project/.env"
+files = "deny"
+
+[[file]]
+name = "edit: random path (ask)"
+tool = "Edit"
+path = "/home/user/notes.txt"
+files = "ask"
