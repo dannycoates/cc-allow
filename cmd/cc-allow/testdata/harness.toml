@@ -7,6 +7,7 @@ permissive = "rulesets/permissive.toml"
 default = "rulesets/default.toml"
 patterns = "rulesets/patterns.toml"
 specificity = "rulesets/specificity.toml"
+pluginroot = "rulesets/pluginroot.toml"
 
 # Each [[command]] defines a bash string and expected result per ruleset
 # Results: "allow", "deny", "ask"
@@ -932,3 +933,142 @@ patterns = "allow"   # flags:c matches -cvf
 name = "flags: tar --extract (long flag, no match for flags:xf)"
 bash = "tar --extract -f archive.tar"
 patterns = "ask"     # --extract doesn't match flags:xf (different delimiter)
+
+# =============================================================================
+# CLAUDE_PLUGIN_ROOT TESTS
+# =============================================================================
+# Tests for $CLAUDE_PLUGIN_ROOT variable expansion in path patterns.
+# The test harness sets CLAUDE_PLUGIN_ROOT=/opt/my-plugin for these tests.
+# This simulates a Claude Code skill/plugin restricting commands to its directory.
+
+# --- Basic Plugin Root Path Tests ---
+
+[[command]]
+name = "pluginroot: cat file inside plugin"
+bash = "cat /opt/my-plugin/config.json"
+pluginroot = "allow"   # path:$CLAUDE_PLUGIN_ROOT/** matches
+
+[[command]]
+name = "pluginroot: cat file in plugin subdirectory"
+bash = "cat /opt/my-plugin/scripts/setup.sh"
+pluginroot = "allow"   # path:$CLAUDE_PLUGIN_ROOT/** matches nested paths
+
+[[command]]
+name = "pluginroot: cat file outside plugin"
+bash = "cat /etc/passwd"
+pluginroot = "deny"    # !path:$CLAUDE_PLUGIN_ROOT/** denies external paths
+
+[[command]]
+name = "pluginroot: cat file in different opt directory"
+bash = "cat /opt/other-plugin/file.txt"
+pluginroot = "deny"    # not under /opt/my-plugin
+
+[[command]]
+name = "pluginroot: cat /tmp file"
+bash = "cat /tmp/secrets.txt"
+pluginroot = "deny"    # /tmp is outside plugin root
+
+# --- Touch (File Creation) Tests ---
+
+[[command]]
+name = "pluginroot: touch file inside plugin"
+bash = "touch /opt/my-plugin/newfile.txt"
+pluginroot = "allow"   # all_match path:$CLAUDE_PLUGIN_ROOT/**
+
+[[command]]
+name = "pluginroot: touch file outside plugin"
+bash = "touch /tmp/newfile.txt"
+pluginroot = "deny"    # outside plugin root
+
+[[command]]
+name = "pluginroot: touch in plugin subdirectory"
+bash = "touch /opt/my-plugin/data/cache.db"
+pluginroot = "allow"   # nested path still matches
+
+# --- Remove (rm) Tests ---
+
+[[command]]
+name = "pluginroot: rm file inside plugin"
+bash = "rm /opt/my-plugin/temp.log"
+pluginroot = "allow"   # all_match path:$CLAUDE_PLUGIN_ROOT/**
+
+[[command]]
+name = "pluginroot: rm file outside plugin"
+bash = "rm /tmp/important.txt"
+pluginroot = "deny"    # outside plugin root
+
+[[command]]
+name = "pluginroot: rm -rf inside plugin"
+bash = "rm -rf /opt/my-plugin/cache/"
+pluginroot = "allow"   # within plugin root
+
+[[command]]
+name = "pluginroot: rm -rf outside plugin"
+bash = "rm -rf /var/log/"
+pluginroot = "deny"    # outside plugin root
+
+# --- Bash Script Execution Tests ---
+
+[[command]]
+name = "pluginroot: bash script inside plugin"
+bash = "bash /opt/my-plugin/scripts/install.sh"
+pluginroot = "allow"   # position.0 matches path:$CLAUDE_PLUGIN_ROOT/**
+
+[[command]]
+name = "pluginroot: bash script outside plugin"
+bash = "bash /tmp/malicious.sh"
+pluginroot = "deny"    # script path outside plugin root
+
+[[command]]
+name = "pluginroot: bash inline command (no script path)"
+bash = "bash -c 'echo hello'"
+pluginroot = "deny"    # -c doesn't match path pattern at position 0
+
+# --- Redirect Tests ---
+
+[[command]]
+name = "pluginroot: redirect to file inside plugin"
+bash = "echo 'data' > /opt/my-plugin/output.txt"
+pluginroot = "allow"   # redirect path:$CLAUDE_PLUGIN_ROOT/**
+
+[[command]]
+name = "pluginroot: redirect to file outside plugin"
+bash = "echo 'data' > /tmp/output.txt"
+pluginroot = "deny"    # redirect outside plugin root
+
+[[command]]
+name = "pluginroot: append to file inside plugin"
+bash = "echo 'more data' >> /opt/my-plugin/log.txt"
+pluginroot = "allow"   # append within plugin root
+
+[[command]]
+name = "pluginroot: append to file outside plugin"
+bash = "echo 'malicious' >> ~/.bashrc"
+pluginroot = "deny"    # append outside plugin root
+
+# --- Edge Cases ---
+
+[[command]]
+name = "pluginroot: exact plugin root path"
+bash = "cat /opt/my-plugin"
+pluginroot = "allow"   # /** pattern includes the root path itself
+
+[[command]]
+name = "pluginroot: path traversal attempt"
+bash = "cat /opt/my-plugin/../other-plugin/secrets.txt"
+pluginroot = "deny"    # path normalization should catch traversal
+
+[[command]]
+name = "pluginroot: sudo inside plugin (still denied)"
+bash = "sudo cat /opt/my-plugin/config.json"
+pluginroot = "deny"    # sudo in commands.deny list
+
+[[command]]
+name = "pluginroot: ls inside plugin (in allow list)"
+bash = "ls /opt/my-plugin/"
+pluginroot = "allow"   # ls is in commands.allow, no path restriction
+
+[[command]]
+name = "pluginroot: pwd (allowed command, no path)"
+bash = "pwd"
+pluginroot = "allow"   # pwd is in commands.allow list

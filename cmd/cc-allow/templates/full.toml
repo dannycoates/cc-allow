@@ -18,11 +18,17 @@ unresolved_commands = "ask"        # "ask" or "deny" for commands not found in P
 # Note: Dangerous variations (like rm -rf) are blocked by specific rules below.
 #
 # Command names can use path: prefix to match by resolved filesystem path:
-#   "path:$PROJECT_ROOT/bin/*"  - allow project-local binaries
-#   "path:/usr/bin/git"         - allow git only from /usr/bin
+#   "path:$PROJECT_ROOT/bin/*"      - allow project-local binaries
+#   "path:$CLAUDE_PLUGIN_ROOT/**"   - allow plugin/skill-local binaries
+#   "path:/usr/bin/git"             - allow git only from /usr/bin
 
 [commands.allow]
 names = [
+    # -------------------------------------------------------------------------
+    # Plugin/Skill Binaries
+    # -------------------------------------------------------------------------
+    "path:$CLAUDE_PLUGIN_ROOT/**",  # allow binaries from loaded skill/plugin
+
     # -------------------------------------------------------------------------
     # File & Directory Navigation
     # -------------------------------------------------------------------------

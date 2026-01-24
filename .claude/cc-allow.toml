@@ -9,6 +9,12 @@ default_message = "Command not allowed by project policy"
 # Common safe commands for development
 [commands.allow]
 names = [
+    # -------------------------------------------------------------------------
+    # Plugin/Skill Binaries
+    # -------------------------------------------------------------------------
+    "path:$CLAUDE_PLUGIN_ROOT/**",  # allow binaries from loaded skill/plugin
+
+
     # File & Directory Navigation
     "ls", "dir", "vdir", "pwd", "tree", "file", "stat",
     "basename", "dirname", "realpath", "readlink",

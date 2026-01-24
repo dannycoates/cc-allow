@@ -216,7 +216,7 @@ Path matching:
 
 0. If no project config exists, initialize one:
    ```bash
-   cc-allow --init
+   ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --init
    ```
 1. Read the existing config at `.claude/cc-allow.toml`
 2. Determine what change is needed
@@ -224,14 +224,14 @@ Path matching:
 4. Write the updated config
 5. Validate with `--fmt` to check syntax and view rules by specificity:
    ```bash
-   ./cc-allow --fmt
+   ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --fmt
    ```
 6. Test the new rule with a matching command:
    ```bash
-   echo 'git push --force' | ./cc-allow
+   echo 'git push --force' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow
    echo $?  # 0=allow, 1=ask, 2=deny
    ```
 7. Use `--debug` for detailed evaluation trace:
    ```bash
-   echo 'git push --force' | ./cc-allow --debug
+   echo 'git push --force' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --debug
    ```

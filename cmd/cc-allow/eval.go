@@ -114,6 +114,11 @@ func NewEvaluator(chain *ConfigChain) *Evaluator {
 		configError = fmt.Errorf("config uses $HOME but HOME environment variable is not set")
 	}
 
+	// Check if config uses $CLAUDE_PLUGIN_ROOT but env var is not set
+	if configError == nil && !pathVars.PluginRootSet && merged != nil && mergedConfigUsesPluginRoot(merged) {
+		configError = fmt.Errorf("config uses $CLAUDE_PLUGIN_ROOT but CLAUDE_PLUGIN_ROOT environment variable is not set")
+	}
+
 	return &Evaluator{
 		chain:  chain,
 		merged: merged,
@@ -804,6 +809,73 @@ func ruleUsesHome(rule Rule) bool {
 	}
 	for _, p := range rule.Args.Position {
 		if strings.Contains(p, "$HOME") {
+			return true
+		}
+	}
+	return false
+}
+
+// mergedConfigUsesPluginRoot checks if any pattern in the merged config uses $CLAUDE_PLUGIN_ROOT.
+func mergedConfigUsesPluginRoot(m *MergedConfig) bool {
+	// Check commands.allow.names
+	for _, entry := range m.CommandsAllow {
+		if strings.Contains(entry.Name, "$CLAUDE_PLUGIN_ROOT") {
+			return true
+		}
+	}
+
+	// Check commands.deny.names
+	for _, entry := range m.CommandsDeny {
+		if strings.Contains(entry.Name, "$CLAUDE_PLUGIN_ROOT") {
+			return true
+		}
+	}
+
+	// Check rules
+	for _, tr := range m.Rules {
+		if ruleUsesPluginRoot(tr.Rule) {
+			return true
+		}
+	}
+
+	// Check redirect rules
+	for _, rr := range m.Redirects {
+		for _, p := range rr.To.Pattern {
+			if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
+				return true
+			}
+		}
+	}
+
+	// Check heredoc rules
+	for _, hr := range m.Heredocs {
+		for _, p := range hr.ContentMatch {
+			if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// ruleUsesPluginRoot checks if a rule uses $CLAUDE_PLUGIN_ROOT in any of its patterns.
+func ruleUsesPluginRoot(rule Rule) bool {
+	if strings.Contains(rule.Command, "$CLAUDE_PLUGIN_ROOT") {
+		return true
+	}
+	for _, p := range rule.Args.AnyMatch {
+		if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
+			return true
+		}
+	}
+	for _, p := range rule.Args.AllMatch {
+		if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
+			return true
+		}
+	}
+	for _, p := range rule.Args.Position {
+		if strings.Contains(p, "$CLAUDE_PLUGIN_ROOT") {
 			return true
 		}
 	}
