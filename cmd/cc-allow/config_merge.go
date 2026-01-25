@@ -173,7 +173,7 @@ func mergeFilesConfig(merged *MergedFilesConfig, cfg *FilesConfig, source string
 			merged.Deny[tool.name] = append(merged.Deny[tool.name], TrackedFilePatternEntry{
 				Pattern: pattern,
 				Source:  source,
-				Message: tool.config.DenyMessage,
+				Message: tool.config.Message,
 			})
 		}
 

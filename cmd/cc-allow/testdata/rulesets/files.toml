@@ -34,7 +34,7 @@ deny = [
     "path:**/.env*",
     "path:**/*.key",
 ]
-deny_message = "Cannot write to system or sensitive files"
+message = "Cannot write to system or sensitive files"
 
 [files.edit]
 allow = [

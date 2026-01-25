@@ -9,11 +9,11 @@ dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
 default_message = "Command not allowed by project policy"
 
 # ============================================================================
-# PATH ALIASES
+# ALIASES
 # ============================================================================
-# Define reusable path patterns to reduce repetition
+# Define reusable pattern aliases to reduce repetition
 
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
 tmp = "path:/tmp/**"
@@ -41,18 +41,18 @@ default = "ask"  # defer to Claude Code when no rules match
 [files.read]
 allow = ["alias:project", "alias:plugin"]
 deny = ["alias:sensitive-read"]
-deny_message = "Cannot read {{.FileName}} - sensitive file"
+message = "Cannot read {{.FileName}} - sensitive file"
 
 [files.edit]
 allow = ["alias:project"]
 deny = ["path:$HOME/.*"]
-deny_message = "Cannot edit {{.FileName}} - sensitive file"
+message = "Cannot edit {{.FileName}} - sensitive file"
 
 # Also applies to output redirects (>, >>) when redirects.respect_file_rules = true
 [files.write]
 allow = ["alias:safe-write"]
 deny = ["alias:sensitive-write"]
-deny_message = "Cannot write to {{.FilePath}} - system directory"
+message = "Cannot write to {{.FilePath}} - system directory"
 
 # ============================================================================
 # REDIRECTS
@@ -68,7 +68,7 @@ respect_file_rules = true
 [allow]
 commands = [
     # Plugin/Skill Binaries
-    "path:$CLAUDE_PLUGIN_ROOT/**",
+    "alias:plugin",
 
     # File & Directory Navigation
     "ls", "dir", "vdir", "pwd", "tree", "file", "stat",
@@ -121,7 +121,7 @@ commands = [
     "md5sum", "sha1sum", "sha256sum", "sha512sum", "base64",
     "nix", "nix-env", "nix-shell", "wc",
     # Project binaries
-    "path:$PROJECT_ROOT/cc-allow", "path:$PROJECT_ROOT/print-ast", "cc-query", "path:/tmp/cc-allow-test",
+    "path:$PROJECT_ROOT/cc-allow", "path:$PROJECT_ROOT/print-ast", "path:/tmp/cc-allow-test",
     # Remove commands (handled by rules below)
     "rm", "rmdir", "chmod",
 ]
@@ -176,7 +176,7 @@ args.any_match = ["--force", "flags:f"]
 message = "{{.ArgsStr}} - hard reset not allowed"
 args.contains = ["--hard"]
 
-# Block cd to anywhere except /tmp and project root
+# Block cd to anywhere except /tmp and project dirs
 [[deny.cd]]
 message = "cd {{.Arg 0}} - only /tmp and project directories allowed"
 

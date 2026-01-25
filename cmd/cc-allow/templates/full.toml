@@ -14,11 +14,11 @@ default_message = "Command not in allow list"
 unresolved_commands = "ask"        # "ask" or "deny" for commands not found in PATH
 
 # ============================================================================
-# PATH ALIASES
+# ALIASES
 # ============================================================================
-# Define reusable path patterns to reduce repetition
+# Define reusable pattern aliases to reduce repetition
 
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
 sensitive-read = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
@@ -48,18 +48,18 @@ default = "ask"  # defer to Claude Code when no rules match
 [files.read]
 allow = ["alias:project", "alias:plugin"]
 deny = ["alias:sensitive-read"]
-deny_message = "Cannot read {{.FileName}} - sensitive file"
+message = "Cannot read {{.FileName}} - sensitive file"
 
 [files.edit]
 allow = ["alias:project"]
 deny = ["path:$HOME/.*"]
-deny_message = "Cannot edit {{.FileName}} - sensitive file"
+message = "Cannot edit {{.FileName}} - sensitive file"
 
 # Also applies to output redirects (>, >>) when redirects.respect_file_rules = true
 [files.write]
 allow = ["alias:project"]
 deny = ["alias:sensitive-write"]
-deny_message = "Cannot write to {{.FilePath}} - system directory"
+message = "Cannot write to {{.FilePath}} - system directory"
 
 # ============================================================================
 # REDIRECTS

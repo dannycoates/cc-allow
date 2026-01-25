@@ -20,7 +20,7 @@ const (
 type Config struct {
 	Version         string                  `toml:"version"` // config format version (e.g., "1.0")
 	Path            string                  `toml:"-"`       // path this config was loaded from (not in TOML)
-	Paths           map[string]PathAlias    `toml:"paths"`   // path aliases for reuse
+	Aliases         map[string]Alias        `toml:"aliases"` // named pattern aliases for reuse
 	Policy          PolicyConfig            `toml:"policy"`
 	Commands        CommandsConfig          `toml:"commands"` // DEPRECATED: old format
 	Files           FilesConfig             `toml:"files"`    // file tool permissions (Read, Edit, Write)
@@ -35,14 +35,14 @@ type Config struct {
 	Debug           DebugConfig             `toml:"debug"`
 }
 
-// PathAlias holds one or more patterns that can be referenced with alias:name.
+// Alias holds one or more patterns that can be referenced with alias:name.
 // Can be parsed from either a string or array of strings in TOML.
-type PathAlias struct {
+type Alias struct {
 	Patterns []string
 }
 
-// UnmarshalTOML implements custom TOML unmarshaling for PathAlias.
-func (pa *PathAlias) UnmarshalTOML(data interface{}) error {
+// UnmarshalTOML implements custom TOML unmarshaling for Alias.
+func (pa *Alias) UnmarshalTOML(data interface{}) error {
 	switch v := data.(type) {
 	case string:
 		pa.Patterns = []string{v}
@@ -106,8 +106,8 @@ type FilesConfig struct {
 // FileToolConfig provides allow/deny lists for a specific file tool.
 type FileToolConfig struct {
 	Allow       []string `toml:"allow"`        // patterns to allow
-	Deny        []string `toml:"deny"`         // patterns to deny
-	DenyMessage string   `toml:"deny_message"` // custom message for denials
+	Deny    []string `toml:"deny"`    // patterns to deny
+	Message string   `toml:"message"` // custom message for denials
 }
 
 // Rule represents a detailed command rule with argument matching.
@@ -465,7 +465,7 @@ func parseConfigInternal(data string) (*Config, error) {
 	}
 
 	// Parse nested command rules from action sections
-	nestedRules, err := parseNestedRules(raw, cfg.Paths)
+	nestedRules, err := parseNestedRules(raw, cfg.Aliases)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrConfigParse, err)
 	}
@@ -507,7 +507,7 @@ func isReservedRuleKey(key string) bool {
 }
 
 // parseNestedRules extracts rules from [[allow.X]], [[deny.X]], [[ask.X]] tables.
-func parseNestedRules(raw map[string]interface{}, aliases map[string]PathAlias) ([]Rule, error) {
+func parseNestedRules(raw map[string]interface{}, aliases map[string]Alias) ([]Rule, error) {
 	var rules []Rule
 
 	for _, action := range []string{"allow", "deny", "ask"} {
@@ -817,15 +817,15 @@ func convertBulkCommandsToRules(cfg *Config) []Rule {
 // resolveAliasesInConfig expands all alias: patterns to their underlying patterns.
 func resolveAliasesInConfig(cfg *Config) error {
 	// Initialize empty map if nil to simplify checks
-	if cfg.Paths == nil {
-		cfg.Paths = make(map[string]PathAlias)
+	if cfg.Aliases == nil {
+		cfg.Aliases = make(map[string]Alias)
 	}
 
 	// Helper to expand aliases in a slice of strings
 	expandPatterns := func(patterns []string) ([]string, error) {
 		var result []string
 		for _, p := range patterns {
-			expanded, err := expandAlias(p, cfg.Paths)
+			expanded, err := expandAlias(p, cfg.Aliases)
 			if err != nil {
 				return nil, err
 			}
@@ -847,14 +847,14 @@ func resolveAliasesInConfig(cfg *Config) error {
 
 		// Expand args.any_match
 		for j := range rule.Args.AnyMatch {
-			if err := expandMatchElement(&rule.Args.AnyMatch[j], cfg.Paths); err != nil {
+			if err := expandMatchElement(&rule.Args.AnyMatch[j], cfg.Aliases); err != nil {
 				return fmt.Errorf("rule[%d] args.any_match[%d]: %w", i, j, err)
 			}
 		}
 
 		// Expand args.all_match
 		for j := range rule.Args.AllMatch {
-			if err := expandMatchElement(&rule.Args.AllMatch[j], cfg.Paths); err != nil {
+			if err := expandMatchElement(&rule.Args.AllMatch[j], cfg.Aliases); err != nil {
 				return fmt.Errorf("rule[%d] args.all_match[%d]: %w", i, j, err)
 			}
 		}
@@ -928,7 +928,7 @@ func resolveAliasesInConfig(cfg *Config) error {
 }
 
 // expandAlias expands a single pattern, returning the underlying patterns if it's an alias.
-func expandAlias(pattern string, aliases map[string]PathAlias) ([]string, error) {
+func expandAlias(pattern string, aliases map[string]Alias) ([]string, error) {
 	if !strings.HasPrefix(pattern, "alias:") {
 		return []string{pattern}, nil
 	}
@@ -953,7 +953,7 @@ func expandAlias(pattern string, aliases map[string]PathAlias) ([]string, error)
 }
 
 // expandMatchElement expands aliases in a MatchElement.
-func expandMatchElement(elem *MatchElement, aliases map[string]PathAlias) error {
+func expandMatchElement(elem *MatchElement, aliases map[string]Alias) error {
 	if elem.IsSequence {
 		for key, fp := range elem.Sequence {
 			var expanded []string
@@ -1055,12 +1055,12 @@ func validateConfigVersion(version string) error {
 // Validate checks that all patterns in the config are valid.
 // This catches invalid regex patterns at load time rather than at evaluation time.
 func (cfg *Config) Validate() error {
-	// Validate path aliases (check for reserved prefixes)
-	for name := range cfg.Paths {
+	// Validate aliases (check for reserved prefixes)
+	for name := range cfg.Aliases {
 		if strings.HasPrefix(name, "path:") || strings.HasPrefix(name, "glob:") ||
 			strings.HasPrefix(name, "re:") || strings.HasPrefix(name, "flags:") ||
-			strings.HasPrefix(name, "alias:") || strings.HasPrefix(name, "rule:") {
-			return fmt.Errorf("%w: paths: alias name %q cannot start with a reserved prefix", ErrInvalidConfig, name)
+			strings.HasPrefix(name, "alias:") || strings.HasPrefix(name, "files:") {
+			return fmt.Errorf("%w: aliases: name %q cannot start with a reserved prefix", ErrInvalidConfig, name)
 		}
 	}
 

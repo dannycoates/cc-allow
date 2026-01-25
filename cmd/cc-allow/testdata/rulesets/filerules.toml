@@ -76,11 +76,11 @@ deny = [
 
 # cp: position 0 = source (read), position 1 = dest (write)
 [[allow.cp]]
-args.position = { "0" = "rule:read", "1" = "rule:write" }
+args.position = { "0" = "files:read", "1" = "files:write" }
 
 # mv: position 0 = source (read), position 1 = dest (write)
 [[allow.mv]]
-args.position = { "0" = "rule:read", "1" = "rule:write" }
+args.position = { "0" = "files:read", "1" = "files:write" }
 
 # tar: disable file rule checking for complex command
 [[allow.tar]]

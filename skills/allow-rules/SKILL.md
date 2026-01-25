@@ -28,12 +28,12 @@ default_message = "Command not allowed"
 unresolved_commands = "ask"   # "ask" or "deny" for commands not found
 ```
 
-### Path Aliases
+### Aliases
 
-Define reusable path patterns:
+Define reusable pattern aliases:
 
 ```toml
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
 safe-write = ["path:$PROJECT_ROOT/**", "path:/tmp/**"]
@@ -246,7 +246,7 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 | `re:` | Regular expression | `re:^/etc/.*` |
 | `flags:` | Flag pattern (chars must appear) | `flags:rf`, `flags[--]:rec` |
 | `alias:` | Reference to path alias | `alias:project`, `alias:sensitive` |
-| `rule:` | File rule marker for positional args | `rule:read`, `rule:write`, `rule:edit` |
+| `files:` | File rule marker for positional args | `files:read`, `files:write`, `files:edit` |
 | (none) | Exact literal match | `--verbose` |
 
 ### Negation
@@ -286,7 +286,7 @@ default = "ask"
 [files.read]
 allow = ["alias:project", "alias:plugin"]
 deny = ["alias:sensitive"]
-deny_message = "Cannot read sensitive files"
+message = "Cannot read sensitive files"
 
 [files.edit]
 allow = ["alias:project"]
@@ -295,7 +295,7 @@ deny = ["path:$HOME/.*"]
 [files.write]
 allow = ["alias:project", "path:/tmp/**"]
 deny = ["path:$HOME/.*", "path:/etc/**", "path:/usr/**"]
-deny_message = "Cannot write outside project"
+message = "Cannot write outside project"
 ```
 
 **Evaluation order**: deny → allow → default (deny always wins)
@@ -332,10 +332,10 @@ file_access_type = "Write"  # force specific access type
 
 ```toml
 [[allow.cp]]
-args.position = { "0" = "rule:read", "1" = "rule:write" }
+args.position = { "0" = "files:read", "1" = "files:write" }
 
 [[allow.mv]]
-args.position = { "0" = "rule:read", "1" = "rule:write" }
+args.position = { "0" = "files:read", "1" = "files:write" }
 ```
 
 ## Message Templates
@@ -345,7 +345,7 @@ args.position = { "0" = "rule:read", "1" = "rule:write" }
 message = "{{.ArgsStr}} - recursive deletion not allowed"
 
 [files.write]
-deny_message = "Cannot write to {{.FilePath}} - system directory"
+message = "Cannot write to {{.FilePath}} - system directory"
 ```
 
 | Field | Description | Available For |

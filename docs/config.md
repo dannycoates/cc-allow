@@ -67,10 +67,10 @@ cc-allow resolves command names to their absolute filesystem paths using `allowe
 
 ### Path Aliases
 
-Define reusable path patterns to reduce repetition:
+Define reusable pattern aliases to reduce repetition:
 
 ```toml
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
 safe-write = ["path:$PROJECT_ROOT/**", "path:/tmp/**"]
@@ -92,7 +92,7 @@ Aliases can be:
 - **String**: Single pattern (expands in place)
 - **Array**: Multiple patterns (expands inline)
 
-Alias names cannot start with reserved prefixes (`path:`, `re:`, `flags:`, `alias:`, `rule:`).
+Alias names cannot start with reserved prefixes (`path:`, `re:`, `flags:`, `alias:`, `files:`).
 
 ### Action-Based Sections (Recommended)
 
@@ -241,7 +241,7 @@ When multiple rules match a command, the **most specific rule wins** based on a 
 
 ### Rule Specificity
 
-Specificity is calculated by summing points for each condition in a rule:
+Specificity is calculated by summing points for each condition in a files:
 
 | Condition | Points | Rationale |
 |-----------|--------|-----------|
@@ -475,12 +475,12 @@ Patterns support these prefixes:
 | `path:` | Glob pattern with optional variable expansion | `path:*.txt`, `path:$PROJECT_ROOT/**` |
 | `re:` | Regular expression | `re:^/etc/.*` |
 | `flags:` | Flag pattern (chars must appear) | `flags:rf`, `flags[--]:rec` |
-| `alias:` | Reference to path alias defined in `[paths]` | `alias:project`, `alias:sensitive` |
-| `rule:` | File rule marker for positional args | `rule:read`, `rule:write`, `rule:edit` |
+| `alias:` | Reference to alias defined in `[aliases]` | `alias:project`, `alias:sensitive` |
+| `files:` | File rule marker for positional args | `files:read`, `files:write`, `files:edit` |
 
 Without a prefix, the string is matched exactly as a literal.
 
-**Note:** The `rule:` prefix is special — it marks a positional argument for file rule checking rather than pattern matching. See "Positional File Rules" in the File Rule Integration section.
+**Note:** The `files:` prefix is special — it marks a positional argument for file rule checking rather than pattern matching. See "Positional File Rules" in the File Rule Integration section.
 
 ### Negation
 
@@ -611,7 +611,7 @@ Note: When using `-` as delimiter, `--` prefixed arguments are excluded to avoid
 ```toml
 # Strict security policy
 
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 sensitive = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
 system = ["path:/etc/**", "path:/usr/**", "path:/bin/**"]
@@ -695,17 +695,17 @@ default = "ask"  # "allow", "deny", or "ask" when no rules match
 [files.read]
 allow = ["path:$PROJECT_ROOT/**", "path:$CLAUDE_PLUGIN_ROOT/**"]
 deny = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
-deny_message = "Cannot read sensitive files"
+message = "Cannot read sensitive files"
 
 [files.edit]
 allow = ["path:$PROJECT_ROOT/**"]
 deny = ["path:$HOME/.*"]
-deny_message = "Cannot edit sensitive files"
+message = "Cannot edit sensitive files"
 
 [files.write]
 allow = ["path:$PROJECT_ROOT/**"]
 deny = ["path:$HOME/.*", "path:/etc/**", "path:/usr/**"]
-deny_message = "Cannot write outside project directory"
+message = "Cannot write outside project directory"
 ```
 
 ### Evaluation Order
@@ -819,7 +819,7 @@ file_access_type = "Read"  # Check all file args against Read rules
 
 ### Positional File Rules
 
-For commands like `cp` and `mv` where different arguments have different access semantics, use the `rule:` prefix in position patterns:
+For commands like `cp` and `mv` where different arguments have different access semantics, use the `files:` prefix in position patterns:
 
 ```toml
 # cp: first arg is source (read), second arg is dest (write)
@@ -827,27 +827,27 @@ For commands like `cp` and `mv` where different arguments have different access 
 command = "cp"
 action = "allow"
 [rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+position = { "0" = "files:read", "1" = "files:write" }
 
 # mv: same pattern as cp
 [[rule]]
 command = "mv"
 action = "allow"
 [rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+position = { "0" = "files:read", "1" = "files:write" }
 
 # install: source is read, dest is write
 [[rule]]
 command = "install"
 action = "allow"
 [rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+position = { "0" = "files:read", "1" = "files:write" }
 ```
 
-The `rule:` prefix accepts three values:
-- `rule:read` — check this position against Read file rules
-- `rule:write` — check this position against Write file rules
-- `rule:edit` — check this position against Edit file rules
+The `files:` prefix accepts three values:
+- `files:read` — check this position against Read file rules
+- `files:write` — check this position against Write file rules
+- `files:edit` — check this position against Edit file rules
 
 **Example behavior with file rules:**
 
@@ -918,13 +918,13 @@ deny = ["/etc/**", "/usr/**", "/bin/**", "/protected/**", "path:$HOME/.ssh/**"]
 command = "cp"
 action = "allow"
 [rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+position = { "0" = "files:read", "1" = "files:write" }
 
 [[rule]]
 command = "mv"
 action = "allow"
 [rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+position = { "0" = "files:read", "1" = "files:write" }
 
 # Disable file checking for tar (complex arguments)
 [[rule]]
@@ -967,7 +967,7 @@ pattern = ["path:/etc/**"]
 
 [files.write]
 deny = ["path:/etc/**"]
-deny_message = "Cannot write to {{.FilePath}} - system directory"
+message = "Cannot write to {{.FilePath}} - system directory"
 ```
 
 ### Available Template Fields
@@ -1046,7 +1046,7 @@ from = ["curl", "wget"]
 # File tool message with path details
 [files.write]
 deny = ["path:/etc/**"]
-deny_message = "Cannot {{.Tool}} to {{.FileName}} in {{.FileDir}}"
+message = "Cannot {{.Tool}} to {{.FileName}} in {{.FileDir}}"
 # Output: "Cannot Write to passwd in /etc"
 
 # Redirect with target info
@@ -1078,7 +1078,7 @@ If a template has syntax errors or references missing fields:
 - Use `{{.Arg N}}` to reference specific positional arguments (0-indexed, excludes command name)
 - Use `{{index .PipesFrom 0}}` to access the first element of an array
 - Empty fields render as empty strings (no error)
-- Templates only work in `message` and `deny_message` fields
+- Templates only work in `message` and `message` fields
 
 ## Kitchen Sink Example
 

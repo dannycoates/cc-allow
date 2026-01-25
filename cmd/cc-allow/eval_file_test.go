@@ -204,11 +204,11 @@ deny = ["path:/secrets/**"]
 	}
 }
 
-func TestEvalFileToolDenyMessage(t *testing.T) {
+func TestEvalFileToolMessage(t *testing.T) {
 	config := `
 [files.write]
 deny = ["path:/etc/**"]
-deny_message = "Cannot write to system files"
+message = "Cannot write to system files"
 `
 	cfg, err := ParseConfig(config)
 	if err != nil {

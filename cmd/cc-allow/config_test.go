@@ -541,7 +541,7 @@ args.any_match = ["flags:r"]
 	}
 }
 
-func TestParsePathAliases(t *testing.T) {
+func TestParseAliases(t *testing.T) {
 	tests := []struct {
 		name    string
 		config  string
@@ -551,7 +551,7 @@ func TestParsePathAliases(t *testing.T) {
 		{
 			name: "single string alias",
 			config: `
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 
 [files.read]
@@ -570,7 +570,7 @@ allow = ["alias:project"]
 		{
 			name: "array alias",
 			config: `
-[paths]
+[aliases]
 safe = ["path:$PROJECT_ROOT/**", "path:/tmp/**"]
 
 [files.write]
@@ -591,7 +591,7 @@ allow = ["alias:safe"]
 		{
 			name: "alias in rule args",
 			config: `
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 
 [[allow.rm]]
@@ -627,7 +627,7 @@ allow = ["alias:undefined"]
 		{
 			name: "reserved prefix in alias name",
 			config: `
-[paths]
+[aliases]
 "path:foo" = "bar"
 `,
 			wantErr: "cannot start with a reserved prefix",
@@ -635,7 +635,7 @@ allow = ["alias:undefined"]
 		{
 			name: "alias in allow.commands",
 			config: `
-[paths]
+[aliases]
 plugin-bin = "path:$CLAUDE_PLUGIN_ROOT/**"
 
 [allow]
@@ -656,7 +656,7 @@ commands = ["alias:plugin-bin", "ls"]
 		{
 			name: "alias in redirect pattern",
 			config: `
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 
 [[redirect]]
@@ -679,7 +679,7 @@ pattern = ["alias:project"]
 		{
 			name: "array alias in deny.commands",
 			config: `
-[paths]
+[aliases]
 dangerous = ["sudo", "su", "doas"]
 
 [deny]

@@ -1324,7 +1324,7 @@ func TestPathPatternInRuleCommand(t *testing.T) {
 	// Commands that resolve to /usr/bin should be allowed
 	r := parseAndEval(t, cfg, "ls -la")
 	// This test depends on system configuration - ls may or may not be in /usr/bin
-	t.Logf("ls with path:/usr/bin/* rule: action=%s", r.Action)
+	t.Logf("ls with path:/usr/bin/* files: action=%s", r.Action)
 }
 
 func TestAllowedPathsRestriction(t *testing.T) {
@@ -1590,7 +1590,7 @@ func TestFileRuleIntegrationWithBashCommands(t *testing.T) {
 	}
 }
 
-// TestFileRulePositionalPatterns tests the rule:read/write/edit positional patterns.
+// TestFileRulePositionalPatterns tests the files:read/write/edit positional patterns.
 func TestFileRulePositionalPatterns(t *testing.T) {
 	// Create a temp directory for testing
 	tmpDir, err := os.MkdirTemp("", "positional-test")
@@ -1620,8 +1620,8 @@ func TestFileRulePositionalPatterns(t *testing.T) {
 				Action:  "allow",
 				Args: ArgsMatch{
 					Position: stringsToFlexiblePatternMap(map[string]string{
-						"0": "rule:read",  // source is checked with Read rules
-						"1": "rule:write", // dest is checked with Write rules
+						"0": "files:read",  // source is checked with Read rules
+						"1": "files:write", // dest is checked with Write rules
 					}),
 				},
 			},
@@ -1788,19 +1788,19 @@ func TestRedirectFileRules(t *testing.T) {
 	}
 }
 
-// TestRulePatternValidation tests that rule: patterns are validated correctly.
+// TestRulePatternValidation tests that files: patterns are validated correctly.
 func TestRulePatternValidation(t *testing.T) {
 	tests := []struct {
 		name      string
 		pattern   string
 		wantError bool
 	}{
-		{"valid rule:read", "rule:read", false},
-		{"valid rule:write", "rule:write", false},
-		{"valid rule:edit", "rule:edit", false},
-		{"invalid rule:delete", "rule:delete", true},
-		{"invalid rule:execute", "rule:execute", true},
-		{"invalid rule: (empty)", "rule:", true},
+		{"valid files:read", "files:read", false},
+		{"valid files:write", "files:write", false},
+		{"valid files:edit", "files:edit", false},
+		{"invalid files:delete", "files:delete", true},
+		{"invalid files:execute", "files:execute", true},
+		{"invalid files: (empty)", "files:", true},
 	}
 
 	for _, tc := range tests {

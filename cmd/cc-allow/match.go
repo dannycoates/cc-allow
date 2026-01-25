@@ -17,7 +17,7 @@ const (
 	PatternLiteral
 	PatternPath     // path pattern with variable expansion and symlink resolution (also used for glob-like matching)
 	PatternFlag     // flag pattern matching characters in flags (e.g., flags:rf matches -rf, -fr)
-	PatternFileRule // file rule marker (e.g., rule:read, rule:write, rule:edit)
+	PatternFileRule // file rule marker (e.g., files:read, files:write, files:edit)
 )
 
 // MatchContext provides context needed for path pattern matching.
@@ -43,12 +43,12 @@ type Pattern struct {
 //   - "path:" for path patterns with variable expansion ($PROJECT_ROOT, $HOME) and glob-style matching
 //   - "flags:" for flag patterns (e.g., "flags:rf" matches -rf, -fr, -vrf)
 //   - "flags[delim]:" for flag patterns with explicit delimiter (e.g., "flags[--]:rec")
-//   - "rule:" for file rule markers (e.g., "rule:read", "rule:write", "rule:edit")
+//   - "files:" for file rule markers (e.g., "files:read", "files:write", "files:edit")
 //   - No prefix defaults to literal match
 //
 // Patterns with explicit prefixes can be negated by prepending "!"
 // (e.g., "!path:/foo", "!re:test", "!flags:r")
-// Note: "rule:" patterns cannot be negated and are markers, not matchers.
+// Note: "files:" patterns cannot be negated and are markers, not matchers.
 func ParsePattern(s string) (*Pattern, error) {
 	p := &Pattern{Raw: s}
 
@@ -66,9 +66,9 @@ func ParsePattern(s string) (*Pattern, error) {
 	}
 
 	switch {
-	case strings.HasPrefix(s, "rule:"):
+	case strings.HasPrefix(s, "files:"):
 		p.Type = PatternFileRule
-		ruleType := strings.TrimPrefix(s, "rule:")
+		ruleType := strings.TrimPrefix(s, "files:")
 		switch ruleType {
 		case "read":
 			p.FileRuleType = "Read"

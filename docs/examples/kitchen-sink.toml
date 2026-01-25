@@ -236,15 +236,15 @@ file_access_type = "Read"          # check all file args against Read rules
 
 # cp: source is Read, destination is Write
 [[allow.cp]]
-args.position = { "0" = "rule:read", "1" = "rule:write" }
+args.position = { "0" = "files:read", "1" = "files:write" }
 
 # mv: same pattern as cp
 [[allow.mv]]
-args.position = { "0" = "rule:read", "1" = "rule:write" }
+args.position = { "0" = "files:read", "1" = "files:write" }
 
 # install: source is Read, destination is Write
 [[allow.install]]
-args.position = { "0" = "rule:read", "1" = "rule:write" }
+args.position = { "0" = "files:read", "1" = "files:write" }
 
 # =============================================================================
 # REDIRECTS
@@ -338,7 +338,7 @@ deny = [
     "path:**/*password*",
     "re:.*\\.(key|pem|p12|pfx)$",
 ]
-deny_message = "Cannot read {{.FilePath}} — sensitive file"
+message = "Cannot read {{.FilePath}} — sensitive file"
 
 [files.edit]
 allow = [
@@ -349,7 +349,7 @@ deny = [
     "path:**/.env*",
     "path:**/*.key",
 ]
-deny_message = "Cannot edit {{.FileName}} in {{.FileDir}}"
+message = "Cannot edit {{.FileName}} in {{.FileDir}}"
 
 [files.write]
 allow = [
@@ -374,7 +374,7 @@ deny = [
     "path:**/*.key",
     "path:**/*.pem",
 ]
-deny_message = "Cannot write to {{.FilePath}} — {{.FileDir}} is protected"
+message = "Cannot write to {{.FilePath}} — {{.FileDir}} is protected"
 
 # =============================================================================
 # MESSAGE TEMPLATES — Examples
@@ -398,7 +398,7 @@ deny_message = "Cannot write to {{.FilePath}} — {{.FileDir}} is protected"
 # message = "Cannot write to {{.TargetFileName}} in {{.TargetDir}}"
 
 # File context
-# deny_message = "Cannot {{.Tool}} {{.FileName}} — protected"
+# message = "Cannot {{.Tool}} {{.FileName}} — protected"
 
 # Environment variables
 # message = "Outside {{.ProjectRoot}} — blocked"

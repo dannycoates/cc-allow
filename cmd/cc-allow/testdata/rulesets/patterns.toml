@@ -8,10 +8,10 @@ default = "ask"
 dynamic_commands = "deny"
 
 # ============================================================================
-# PATH ALIASES
+# ALIASES
 # ============================================================================
 
-[paths]
+[aliases]
 project = "path:$PROJECT_ROOT/**"
 etc = "path:/etc/**"
 

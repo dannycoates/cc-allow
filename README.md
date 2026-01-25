@@ -171,7 +171,7 @@ For commands like `cp` and `mv` where arguments have different access types, use
 command = "cp"
 action = "allow"
 [rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+position = { "0" = "files:read", "1" = "files:write" }
 ```
 
 This checks the source against Read rules and destination against Write rules.
