@@ -12,16 +12,16 @@ func TestParsePattern(t *testing.T) {
 		wantNegated bool
 	}{
 		{"hello", PatternLiteral, false},
-		{"*.txt", PatternGlob, false},
-		{"glob:*.txt", PatternGlob, false},
+		{"*.txt", PatternLiteral, false},   // bare patterns are literals
+		{"path:*.txt", PatternPath, false}, // explicit path: prefix for glob patterns
 		{"re:^foo$", PatternRegex, false},
 		{"file.txt", PatternLiteral, false},
 		{"dir/file", PatternLiteral, false},
-		{"dir/*", PatternGlob, false},
+		{"dir/*", PatternLiteral, false},   // bare patterns are literals
 		// Negation only works with explicit prefixes
 		{"!hello", PatternLiteral, false},  // literal "!hello", not negated
-		{"!*.txt", PatternGlob, false},     // glob "!*.txt", not negated
-		{"!glob:*.txt", PatternGlob, true}, // negated glob
+		{"!*.txt", PatternLiteral, false},  // literal "!*.txt", not negated (no path: prefix)
+		{"!path:*.txt", PatternPath, true}, // negated path
 		{"!re:^foo$", PatternRegex, true},  // negated regex
 		{"!path:$PROJECT_ROOT/**", PatternPath, true}, // negated path
 		// Flag patterns
@@ -61,11 +61,15 @@ func TestPatternMatch(t *testing.T) {
 		{"hello", "world", false},
 		{"hello", "hello!", false},
 
-		// Glob
-		{"*.txt", "file.txt", true},
-		{"*.txt", "file.log", false},
-		{"glob:test.*", "test.go", true},
-		{"glob:test.*", "test", false},
+		// Path patterns (for glob-like matching of non-path strings)
+		{"path:*.txt", "file.txt", true},
+		{"path:*.txt", "file.log", false},
+		{"path:test.*", "test.go", true},
+		{"path:test.*", "test", false},
+
+		// Bare patterns with glob chars are now literals
+		{"*.txt", "*.txt", true},     // literal match
+		{"*.txt", "file.txt", false}, // no glob matching
 
 		// Regex
 		{"re:^foo$", "foo", true},
@@ -77,9 +81,9 @@ func TestPatternMatch(t *testing.T) {
 		{"!hello", "!hello", true},   // literal match of "!hello"
 		{"!hello", "hello", false},   // not negated, so doesn't match "hello"
 
-		// Negated glob (explicit prefix)
-		{"!glob:*.txt", "file.txt", false},
-		{"!glob:*.txt", "file.log", true},
+		// Negated path (for glob-like matching)
+		{"!path:*.txt", "file.txt", false},
+		{"!path:*.txt", "file.log", true},
 
 		// Negated regex
 		{"!re:^foo$", "foo", false},
@@ -138,7 +142,7 @@ func TestPatternMatch(t *testing.T) {
 }
 
 func TestMatcherAnyMatch(t *testing.T) {
-	m, err := NewMatcher([]string{"*.txt", "*.log"})
+	m, err := NewMatcher([]string{"path:*.txt", "path:*.log"})
 	if err != nil {
 		t.Fatalf("NewMatcher error: %v", err)
 	}
@@ -153,7 +157,7 @@ func TestMatcherAnyMatch(t *testing.T) {
 }
 
 func TestMatcherAllMatch(t *testing.T) {
-	m, err := NewMatcher([]string{"-f", "*.tmp"})
+	m, err := NewMatcher([]string{"-f", "path:*.tmp"})
 	if err != nil {
 		t.Fatalf("NewMatcher error: %v", err)
 	}
@@ -163,7 +167,7 @@ func TestMatcherAllMatch(t *testing.T) {
 	}
 
 	if m.AllMatch([]string{"-f", "file.txt"}) {
-		t.Error("expected no all match (*.tmp not found)")
+		t.Error("expected no all match (path:*.tmp not found)")
 	}
 
 	if m.AllMatch([]string{"-r", "file.tmp"}) {
@@ -198,8 +202,8 @@ func TestMatchPosition(t *testing.T) {
 		t.Error("expected position 0 to match -f")
 	}
 
-	if !MatchPosition(args, 1, "*.txt") {
-		t.Error("expected position 1 to match *.txt")
+	if !MatchPosition(args, 1, "path:*.txt") {
+		t.Error("expected position 1 to match path:*.txt")
 	}
 
 	if MatchPosition(args, 5, "anything") {
@@ -399,7 +403,7 @@ func TestPathPatternWithoutContext(t *testing.T) {
 
 func TestDoublestarGlobbing(t *testing.T) {
 	// Test that ** works for recursive matching (via doublestar library)
-	p, err := ParsePattern("src/**/*.go")
+	p, err := ParsePattern("path:src/**/*.go")
 	if err != nil {
 		t.Fatalf("ParsePattern error: %v", err)
 	}

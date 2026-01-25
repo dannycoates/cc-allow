@@ -1,6 +1,8 @@
 # Test harness for cc-allow
 # Matrix of bash commands tested against multiple rulesets
 
+version = "1.0"
+
 [rulesets]
 strict = "rulesets/strict.toml"
 permissive = "rulesets/permissive.toml"
@@ -507,7 +509,7 @@ bash = "echo 'ls' | eval"
 strict = "deny"      # eval not in strict allow list, default=deny
 permissive = "allow" # eval not denied, default=allow
 default = "ask"
-patterns = "deny"    # eval with pipe.from = ["*"]
+patterns = "deny"    # eval with pipe.from = ["path:*"]
 
 [[command]]
 name = "eval standalone (allowed)"
@@ -523,7 +525,7 @@ bash = "cat script.sh | source /dev/stdin"
 strict = "deny"      # strict denies all redirects
 permissive = "allow"
 default = "ask"
-patterns = "deny"    # source with pipe.from = ["*"]
+patterns = "deny"    # source with pipe.from = ["path:*"]
 
 [[command]]
 name = "bash from nc (denied)"
@@ -610,7 +612,7 @@ bash = "echo 'export PATH' >> ~/.zshrc"
 strict = "deny"
 permissive = "allow"
 default = "ask"
-patterns = "deny"    # append=true + glob:*/.zshrc
+patterns = "deny"    # append=true + path:*/.zshrc
 
 [[command]]
 name = "append to ~/.profile (denied)"
@@ -618,7 +620,7 @@ bash = "echo 'source ~/.env' >> ~/.profile"
 strict = "deny"
 permissive = "allow"
 default = "ask"
-patterns = "deny"    # append=true + glob:*/.profile
+patterns = "deny"    # append=true + path:*/.profile
 
 [[command]]
 name = "overwrite .bashrc (not append, different rule)"

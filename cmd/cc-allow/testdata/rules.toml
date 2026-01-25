@@ -1,5 +1,7 @@
 # Example cc-allow configuration
 
+version = "1.0"
+
 [policy]
 default = "ask"                              # "allow", "deny", or "ask" when no rule matches
 dynamic_commands = "ask"                     # commands with $VAR or $(cmd) as the name
@@ -62,7 +64,7 @@ any_match = ["-r", "-rf", "-fr", "--recursive"]
 action = "deny"
 message = "Cannot redirect to system directories"
 [redirect.to]
-pattern = ["glob:/etc/*", "glob:/var/*", "glob:/usr/*"]
+pattern = ["path:/etc/*", "path:/var/*", "path:/usr/*"]
 
 # Deny appending to shell configs
 [[redirect]]

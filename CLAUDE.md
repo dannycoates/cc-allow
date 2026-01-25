@@ -55,7 +55,7 @@ Bash Input → [main.go] Parse → [walk.go] AST Extraction → [eval.go] Rule E
 ### Evaluation Logic
 
 1. **Specificity-based matching** - More specific rules win (CSS-like scoring):
-   - Named command (not `*`): +100
+   - Exact command (no prefix): +100
    - Each `args.position` entry: +20
    - Each `args.contains` entry: +10
    - Each `args.any_match`/`args.all_match`: +5
@@ -74,9 +74,8 @@ Bash Input → [main.go] Parse → [walk.go] AST Extraction → [eval.go] Rule E
 
 ### Pattern Types
 
-- `glob:*.txt` - Shell glob with `**` support
+- `path:*.txt` - Glob pattern with `**` support (also used for path variable expansion)
 - `re:^/etc/.*` - Regular expression
-- `path:$PROJECT_ROOT/**` - Path pattern with variable expansion
 - `!prefix:pattern` - Negation (only with explicit prefix)
 
 ### Pipe Context Tracking

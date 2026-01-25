@@ -1,10 +1,32 @@
 # cc-allow config for development projects
 # Sensible defaults: allow dev tools, block dangerous operations
 
+version = "1.0"
+
 [policy]
 default = "ask"                    # defer to Claude Code's permission system
 dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
 default_message = "Command not allowed by project policy"
+
+# ============================================================================
+# PATH ALIASES
+# ============================================================================
+# Define reusable path patterns to reduce repetition
+
+[paths]
+project = "path:$PROJECT_ROOT/**"
+plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
+tmp = "path:/tmp/**"
+safe-write = ["path:$PROJECT_ROOT/**", "path:/tmp/**", "path:/dev/null"]
+sensitive-read = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
+sensitive-write = [
+    "path:$HOME/.*",
+    "path:/etc/**",
+    "path:/usr/**",
+    "path:/bin/**",
+    "path:/sbin/**",
+    "path:/var/**",
+]
 
 # ============================================================================
 # FILE PERMISSIONS (Read, Edit, Write)
@@ -17,41 +39,19 @@ default_message = "Command not allowed by project policy"
 default = "ask"  # defer to Claude Code when no rules match
 
 [files.read]
-allow = [
-    "path:$PROJECT_ROOT/**",         # allow reading project files
-    "path:$CLAUDE_PLUGIN_ROOT/**",   # allow reading plugin files
-]
-deny = [
-    "path:$HOME/.ssh/**",            # never read SSH keys
-    "glob:**/*.key",                 # never read key files
-    "glob:**/*.pem",                 # never read PEM files
-]
+allow = ["alias:project", "alias:plugin"]
+deny = ["alias:sensitive-read"]
 deny_message = "Cannot read {{.FileName}} - sensitive file"
 
 [files.edit]
-allow = [
-    "path:$PROJECT_ROOT/**",         # allow editing project files
-]
-deny = [
-    "path:$HOME/.*",                 # never edit dotfiles in home
-]
+allow = ["alias:project"]
+deny = ["path:$HOME/.*"]
 deny_message = "Cannot edit {{.FileName}} - sensitive file"
 
 # Also applies to output redirects (>, >>) when redirects.respect_file_rules = true
 [files.write]
-allow = [
-    "path:$PROJECT_ROOT/**",         # allow writing to project
-    "path:/tmp/**",                  # allow writing to /tmp
-    "path:/dev/null"
-]
-deny = [
-    "path:$HOME/.*",                 # never write to dotfiles
-    "path:/etc/**",                  # never write to system config
-    "path:/usr/**",                  # never write to system directories
-    "path:/bin/**",                  # never write to bin
-    "path:/sbin/**",                 # never write to sbin
-    "path:/var/**",                  # never write to var
-]
+allow = ["alias:safe-write"]
+deny = ["alias:sensitive-write"]
 deny_message = "Cannot write to {{.FilePath}} - system directory"
 
 # ============================================================================
@@ -65,8 +65,8 @@ respect_file_rules = true
 # ALLOWED COMMANDS
 # ============================================================================
 
-[commands.allow]
-names = [
+[allow]
+commands = [
     # Plugin/Skill Binaries
     "path:$CLAUDE_PLUGIN_ROOT/**",
 
@@ -119,7 +119,7 @@ names = [
     "man", "info", "help", "apropos", "whatis", "tldr",
     "watch", "timeout", "strace", "ltrace",
     "md5sum", "sha1sum", "sha256sum", "sha512sum", "base64",
-    "nix", "nix-env", "nix-shell",
+    "nix", "nix-env", "nix-shell", "wc",
     # Project binaries
     "path:$PROJECT_ROOT/cc-allow", "path:$PROJECT_ROOT/print-ast", "cc-query", "path:/tmp/cc-allow-test",
     # Remove commands (handled by rules below)
@@ -130,8 +130,8 @@ names = [
 # DENIED COMMANDS
 # ============================================================================
 
-[commands.deny]
-names = [
+[deny]
+commands = [
     "sudo", "su", "doas",           # privilege escalation
     "dd", "mkfs", "fdisk", "parted", # disk operations
     "shutdown", "reboot", "halt",   # system control
@@ -149,58 +149,41 @@ background = "ask"                 # allow but defer to Claude Code
 subshells = "ask"
 
 # ============================================================================
-# SPECIFIC RULES
+# SPECIFIC RULES - Deny rules
 # ============================================================================
 
 # Block recursive rm
-[[rule]]
-command = "rm"
-action = "deny"
+[[deny.rm]]
 message = "{{.ArgsStr}} - recursive deletion not allowed"
-[rule.args]
-any_match = ["flags:r", "--recursive"]
+args.any_match = ["flags:r", "--recursive"]
 
 # Block curl/wget/fetch - use WebFetch tool instead
-[[rule]]
-command = "curl"
-action = "deny"
+[[deny.curl]]
 message = "{{.Command}} blocked - use WebFetch tool instead"
 
-[[rule]]
-command = "wget"
-action = "deny"
+[[deny.wget]]
 message = "{{.Command}} blocked - use WebFetch tool instead"
 
-[[rule]]
-command = "fetch"
-action = "deny"
+[[deny.fetch]]
 message = "{{.Command}} blocked - use WebFetch tool instead"
 
 # Block dangerous git operations
-[[rule]]
-command = "git"
-action = "deny"
+[[deny.git.push]]
 message = "{{.ArgsStr}} - force push not allowed"
-[rule.args]
-any_match = ["--force", "flags:f"]
-contains = ["push"]
+args.any_match = ["--force", "flags:f"]
 
-[[rule]]
-command = "git"
-action = "deny"
+[[deny.git.reset]]
 message = "{{.ArgsStr}} - hard reset not allowed"
-[rule.args]
-contains = ["reset", "--hard"]
+args.contains = ["--hard"]
+
+# Block cd to anywhere except /tmp and project root
+[[deny.cd]]
+message = "cd {{.Arg 0}} - only /tmp and project directories allowed"
+
+# ============================================================================
+# SPECIFIC RULES - Allow rules
+# ============================================================================
 
 # Allow cd only to /tmp and project root
-[[rule]]
-command = "cd"
-action = "allow"
-[rule.args]
-any_match = ["path:/tmp/**", "path:$PROJECT_ROOT/**"]
-
-# Block cd to anywhere else
-[[rule]]
-command = "cd"
-action = "deny"
-message = "cd {{.Arg 0}} - only /tmp and project directories allowed"
+[[allow.cd]]
+args.any_match = ["alias:tmp", "alias:project"]

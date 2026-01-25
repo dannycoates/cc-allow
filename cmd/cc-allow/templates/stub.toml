@@ -4,6 +4,8 @@
 #
 # See: https://github.com/dackerman/cc-allow
 
+version = "1.0"
+
 [policy]
 # default = "ask"
 # dynamic_commands = "ask"

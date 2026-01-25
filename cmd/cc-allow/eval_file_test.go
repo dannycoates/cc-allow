@@ -16,7 +16,7 @@ func TestEvalFileTool(t *testing.T) {
 			name: "allow read in project root",
 			config: `
 [files.read]
-allow = ["/project/**"]
+allow = ["path:/project/**"]
 `,
 			tool:       "Read",
 			filePath:   "/project/src/main.go",
@@ -26,8 +26,8 @@ allow = ["/project/**"]
 			name: "deny read outside project",
 			config: `
 [files.read]
-allow = ["/project/**"]
-deny = ["/etc/**"]
+allow = ["path:/project/**"]
+deny = ["path:/etc/**"]
 `,
 			tool:       "Read",
 			filePath:   "/etc/passwd",
@@ -37,8 +37,8 @@ deny = ["/etc/**"]
 			name: "deny wins over allow",
 			config: `
 [files.read]
-allow = ["/**"]
-deny = ["/secret/**"]
+allow = ["path:/**"]
+deny = ["path:/secret/**"]
 `,
 			tool:       "Read",
 			filePath:   "/secret/key.pem",
@@ -50,7 +50,7 @@ deny = ["/secret/**"]
 [files]
 default = "ask"
 [files.read]
-allow = ["/allowed/**"]
+allow = ["path:/allowed/**"]
 `,
 			tool:       "Read",
 			filePath:   "/other/file.txt",
@@ -62,7 +62,7 @@ allow = ["/allowed/**"]
 [files]
 default = "deny"
 [files.read]
-allow = ["/allowed/**"]
+allow = ["path:/allowed/**"]
 `,
 			tool:       "Read",
 			filePath:   "/other/file.txt",
@@ -72,9 +72,9 @@ allow = ["/allowed/**"]
 			name: "write tool separate from read",
 			config: `
 [files.read]
-allow = ["/**"]
+allow = ["path:/**"]
 [files.write]
-deny = ["/**"]
+deny = ["path:/**"]
 `,
 			tool:       "Write",
 			filePath:   "/project/file.txt",
@@ -84,7 +84,7 @@ deny = ["/**"]
 			name: "edit tool allow",
 			config: `
 [files.edit]
-allow = ["/project/**"]
+allow = ["path:/project/**"]
 `,
 			tool:       "Edit",
 			filePath:   "/project/src/main.go",
@@ -94,7 +94,7 @@ allow = ["/project/**"]
 			name: "glob pattern .env files",
 			config: `
 [files.read]
-deny = ["glob:**/.env*"]
+deny = ["path:**/.env*"]
 `,
 			tool:       "Read",
 			filePath:   "/project/.env",
@@ -104,7 +104,7 @@ deny = ["glob:**/.env*"]
 			name: "glob pattern nested .env",
 			config: `
 [files.read]
-deny = ["glob:**/.env*"]
+deny = ["path:**/.env*"]
 `,
 			tool:       "Read",
 			filePath:   "/project/config/.env.local",
@@ -149,11 +149,11 @@ func TestEvalFileToolConfigMerge(t *testing.T) {
 [files]
 default = "ask"
 [files.read]
-allow = ["/**"]
+allow = ["path:/**"]
 `
 	projectConfig := `
 [files.read]
-deny = ["/secrets/**"]
+deny = ["path:/secrets/**"]
 `
 
 	global, err := parseConfigRaw(globalConfig)
@@ -207,7 +207,7 @@ deny = ["/secrets/**"]
 func TestEvalFileToolDenyMessage(t *testing.T) {
 	config := `
 [files.write]
-deny = ["/etc/**"]
+deny = ["path:/etc/**"]
 deny_message = "Cannot write to system files"
 `
 	cfg, err := ParseConfig(config)
@@ -239,7 +239,7 @@ func TestFilePatternValidation(t *testing.T) {
 			name: "valid glob pattern",
 			config: `
 [files.read]
-allow = ["glob:**/*.go"]
+allow = ["path:**/*.go"]
 `,
 			wantErr: false,
 		},

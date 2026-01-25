@@ -154,7 +154,7 @@ respect_file_rules = true  # enabled by default when file rules exist
 
 [files.read]
 allow = ["path:$PROJECT_ROOT/**"]
-deny = ["path:$HOME/.ssh/**", "glob:**/*.key"]
+deny = ["path:$HOME/.ssh/**", "path:**/*.key"]
 
 [files.write]
 deny = ["path:/etc/**", "path:$HOME/.bashrc"]

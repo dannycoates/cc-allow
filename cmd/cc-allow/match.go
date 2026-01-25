@@ -13,10 +13,9 @@ import (
 type PatternType int
 
 const (
-	PatternGlob PatternType = iota
-	PatternRegex
+	PatternRegex PatternType = iota
 	PatternLiteral
-	PatternPath     // path pattern with variable expansion and symlink resolution
+	PatternPath     // path pattern with variable expansion and symlink resolution (also used for glob-like matching)
 	PatternFlag     // flag pattern matching characters in flags (e.g., flags:rf matches -rf, -fr)
 	PatternFileRule // file rule marker (e.g., rule:read, rule:write, rule:edit)
 )
@@ -41,15 +40,14 @@ type Pattern struct {
 // ParsePattern parses a pattern string and determines its type.
 // Supported prefixes:
 //   - "re:" for regex patterns
-//   - "glob:" for explicit glob patterns
-//   - "path:" for path patterns with variable expansion ($PROJECT_ROOT, $HOME)
+//   - "path:" for path patterns with variable expansion ($PROJECT_ROOT, $HOME) and glob-style matching
 //   - "flags:" for flag patterns (e.g., "flags:rf" matches -rf, -fr, -vrf)
 //   - "flags[delim]:" for flag patterns with explicit delimiter (e.g., "flags[--]:rec")
 //   - "rule:" for file rule markers (e.g., "rule:read", "rule:write", "rule:edit")
-//   - No prefix defaults to glob
+//   - No prefix defaults to literal match
 //
 // Patterns with explicit prefixes can be negated by prepending "!"
-// (e.g., "!path:/foo", "!re:test", "!glob:*.txt", "!flags:r")
+// (e.g., "!path:/foo", "!re:test", "!flags:r")
 // Note: "rule:" patterns cannot be negated and are markers, not matchers.
 func ParsePattern(s string) (*Pattern, error) {
 	p := &Pattern{Raw: s}
@@ -59,7 +57,6 @@ func ParsePattern(s string) (*Pattern, error) {
 		rest := s[1:]
 		if strings.HasPrefix(rest, "re:") ||
 			strings.HasPrefix(rest, "path:") ||
-			strings.HasPrefix(rest, "glob:") ||
 			strings.HasPrefix(rest, "flags:") ||
 			strings.HasPrefix(rest, "flags[") {
 			p.Negated = true
@@ -93,9 +90,6 @@ func ParsePattern(s string) (*Pattern, error) {
 	case strings.HasPrefix(s, "path:"):
 		p.Type = PatternPath
 		p.PathPattern = strings.TrimPrefix(s, "path:")
-	case strings.HasPrefix(s, "glob:"):
-		p.Type = PatternGlob
-		p.Raw = strings.TrimPrefix(s, "glob:")
 	case strings.HasPrefix(s, "flags:"), strings.HasPrefix(s, "flags["):
 		p.Type = PatternFlag
 		delimiter, chars, err := parseFlagPattern(s)
@@ -105,19 +99,10 @@ func ParsePattern(s string) (*Pattern, error) {
 		p.FlagDelimiter = delimiter
 		p.FlagChars = chars
 	default:
-		// Default to glob if the pattern contains glob metacharacters
-		if containsGlobMeta(s) {
-			p.Type = PatternGlob
-		} else {
-			p.Type = PatternLiteral
-		}
+		// No prefix means literal match
+		p.Type = PatternLiteral
 	}
 	return p, nil
-}
-
-// containsGlobMeta checks if a string contains glob metacharacters.
-func containsGlobMeta(s string) bool {
-	return strings.ContainsAny(s, "*?[")
 }
 
 // parseFlagPattern parses "flags:chars" or "flags[delim]:chars" and returns
@@ -181,8 +166,6 @@ func (p *Pattern) MatchWithContext(s string, ctx *MatchContext) bool {
 	switch p.Type {
 	case PatternRegex:
 		matched = p.Regex.MatchString(s)
-	case PatternGlob:
-		matched, _ = doublestar.Match(p.Raw, s)
 	case PatternLiteral:
 		matched = s == p.Raw
 	case PatternPath:
@@ -207,24 +190,28 @@ func (p *Pattern) IsFileRulePattern() bool {
 }
 
 // matchPath handles path pattern matching with variable expansion and path resolution.
+// If the pattern contains path variables ($PROJECT_ROOT, $HOME, $CLAUDE_PLUGIN_ROOT) and
+// the input is path-like, does full variable expansion and path resolution.
+// Otherwise, does raw doublestar glob matching.
 func (p *Pattern) matchPath(s string, ctx *MatchContext) bool {
-	if ctx == nil || ctx.PathVars == nil {
-		return false
+	// Only do full path resolution if:
+	// 1. The pattern contains path variables that need expansion
+	// 2. The input looks like a path
+	// 3. We have context for resolution
+	if pathutil.HasPathVars(p.PathPattern) && pathutil.IsPathLike(s) && ctx != nil && ctx.PathVars != nil {
+		// Expand variables in the pattern
+		expandedPattern := ctx.PathVars.ExpandPattern(p.PathPattern)
+
+		// Resolve the argument to an absolute path
+		resolved := pathutil.ResolvePath(s, ctx.PathVars.Cwd, ctx.PathVars.Home)
+
+		// Use doublestar for gitignore-style matching
+		matched, _ := doublestar.Match(expandedPattern, resolved)
+		return matched
 	}
 
-	// Only match path-like arguments
-	if !pathutil.IsPathLike(s) {
-		return false
-	}
-
-	// Expand variables in the pattern
-	expandedPattern := ctx.PathVars.ExpandPattern(p.PathPattern)
-
-	// Resolve the argument to an absolute path
-	resolved := pathutil.ResolvePath(s, ctx.PathVars.Cwd, ctx.PathVars.Home)
-
-	// Use doublestar for gitignore-style matching
-	matched, _ := doublestar.Match(expandedPattern, resolved)
+	// For patterns without path variables or non-path strings, do raw doublestar matching
+	matched, _ := doublestar.Match(p.PathPattern, s)
 	return matched
 }
 

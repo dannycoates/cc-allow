@@ -1,93 +1,99 @@
 # Extended argument matching ruleset
 # Tests position enums, any_match sequences, and all_match sequences
 
+version = "1.0"
+
 [policy]
 default = "ask"
 dynamic_commands = "deny"
 
-[commands.allow]
-names = ["echo", "ls", "cat"]
+# ============================================================================
+# ALLOWED COMMANDS
+# ============================================================================
 
-# Position with enum values (OR semantics)
-[[rule]]
-command = "git"
-action = "allow"
+[allow]
+commands = ["echo", "ls", "cat"]
+
+# ============================================================================
+# POSITION WITH ENUM VALUES (OR SEMANTICS)
+# ============================================================================
+
+# Allow safe read-only git commands
+[[allow.git]]
 message = "Safe read-only git commands"
-[rule.args]
-position = { "0" = ["status", "diff", "log", "branch", "show", "blame"] }
+args.position = { "0" = ["status", "diff", "log", "branch", "show", "blame"] }
 
-[[rule]]
-command = "git"
-action = "deny"
+# Deny network git operations
+[[deny.git]]
 message = "Network git operations denied"
-[rule.args]
-position = { "0" = ["push", "pull", "fetch", "clone"] }
+args.position = { "0" = ["push", "pull", "fetch", "clone"] }
 
-# any_match with sequence objects
-[[rule]]
-command = "ffmpeg"
-action = "allow"
+# ============================================================================
+# ANY_MATCH WITH SEQUENCE OBJECTS
+# ============================================================================
+
+# ffmpeg with safe input path
+[[allow.ffmpeg]]
 message = "ffmpeg with safe input path"
-[rule.args]
-any_match = [
+args.any_match = [
     { "0" = "-i", "1" = "path:$HOME/**" },
     { "0" = "-i", "1" = "path:$PROJECT_ROOT/**" }
 ]
 
-[[rule]]
-command = "ffmpeg"
-action = "deny"
+# ffmpeg with system input denied
+[[deny.ffmpeg]]
 message = "ffmpeg with system input denied"
-[rule.args]
-any_match = [
+args.any_match = [
     { "0" = "-i", "1" = "path:/etc/**" },
     { "0" = "-i", "1" = "path:/sys/**" }
 ]
 
-# any_match mixing strings and sequences
-[[rule]]
-command = "curl"
-action = "allow"
+# ============================================================================
+# ANY_MATCH MIXING STRINGS AND SEQUENCES
+# ============================================================================
+
+# Allowed curl patterns
+[[allow.curl]]
 message = "Allowed curl patterns"
-[rule.args]
-any_match = [
+args.any_match = [
     "re:^https://localhost",
     "re:^http://127\\.0\\.0\\.1",
     { "0" = "-o", "1" = "path:/tmp/**" }
 ]
 
-# all_match with sequences (multiple required pairs)
-[[rule]]
-command = "openssl"
-action = "allow"
+# ============================================================================
+# ALL_MATCH WITH SEQUENCES (MULTIPLE REQUIRED PAIRS)
+# ============================================================================
+
+# openssl with proper in/out
+[[allow.openssl]]
 message = "openssl with proper in/out"
-[rule.args]
-all_match = [
-    { "0" = "-in", "1" = ["glob:*.pem", "glob:*.crt", "glob:*.key"] },
-    { "0" = "-out", "1" = ["glob:*.pem", "glob:*.crt", "glob:*.der"] }
+args.all_match = [
+    { "0" = "-in", "1" = ["path:*.pem", "path:*.crt", "path:*.key"] },
+    { "0" = "-out", "1" = ["path:*.pem", "path:*.crt", "path:*.der"] }
 ]
 
-# Position enum with multiple positions
-[[rule]]
-command = "docker"
-action = "allow"
+# ============================================================================
+# POSITION ENUM WITH MULTIPLE POSITIONS
+# ============================================================================
+
+# Safe docker inspect commands
+[[allow.docker]]
 message = "Safe docker inspect commands"
-[rule.args]
-position = { "0" = ["ps", "images", "inspect", "logs"], "1" = ["--format", "-f", "--tail", "--help"] }
+args.position = { "0" = ["ps", "images", "inspect", "logs"], "1" = ["--format", "-f", "--tail", "--help"] }
 
-[[rule]]
-command = "docker"
-action = "deny"
+# Dangerous docker commands
+[[deny.docker]]
 message = "Dangerous docker commands"
-[rule.args]
-position = { "0" = ["rm", "rmi", "kill", "stop"] }
+args.position = { "0" = ["rm", "rmi", "kill", "stop"] }
 
-# Sequence with 3+ positions
-[[rule]]
-command = "rsync"
-action = "allow"
+# ============================================================================
+# SEQUENCE WITH 3+ POSITIONS
+# ============================================================================
+
+# rsync with specific flags
+[[allow.rsync]]
 message = "rsync with specific flags"
-[rule.args]
-any_match = [
+args.any_match = [
     { "0" = "-a", "1" = "-v", "2" = "--progress" }
 ]

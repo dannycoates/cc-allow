@@ -1,43 +1,50 @@
 # Permissive ruleset - allows most things, only blocks truly dangerous commands
 
+version = "1.0"
+
 [policy]
 default = "allow"
 dynamic_commands = "ask"
 default_message = "Command not allowed"
 
-[commands.deny]
-names = ["sudo", "su", "dd", "mkfs", "shutdown", "reboot"]
+# ============================================================================
+# DENIED COMMANDS
+# ============================================================================
+
+[deny]
+commands = ["sudo", "su", "dd", "mkfs", "shutdown", "reboot"]
 message = "System-level command denied"
+
+# ============================================================================
+# SHELL CONSTRUCTS
+# ============================================================================
 
 [constructs]
 function_definitions = "allow"
 background = "allow"
 subshells = "allow"
 
-# Block shells from receiving piped input from download commands
+# ============================================================================
+# SPECIFIC RULES - Block shells from receiving piped input from download commands
 # This catches both direct (curl | bash) and indirect (curl | cat | bash) pipes
-[[rule]]
-command = "bash"
-action = "deny"
+# ============================================================================
+
+[[deny.bash]]
 message = "bash cannot receive piped input from download commands"
-[rule.pipe]
-from = ["curl", "wget"]
+pipe.from = ["curl", "wget"]
 
-[[rule]]
-command = "sh"
-action = "deny"
+[[deny.sh]]
 message = "sh cannot receive piped input from download commands"
-[rule.pipe]
-from = ["curl", "wget"]
+pipe.from = ["curl", "wget"]
 
-[[rule]]
-command = "zsh"
-action = "deny"
+[[deny.zsh]]
 message = "zsh cannot receive piped input from download commands"
-[rule.pipe]
-from = ["curl", "wget"]
+pipe.from = ["curl", "wget"]
 
-# Block writes to sensitive paths
+# ============================================================================
+# REDIRECTS - Block writes to sensitive paths
+# ============================================================================
+
 [[redirect]]
 action = "deny"
 message = "Cannot write to system paths"

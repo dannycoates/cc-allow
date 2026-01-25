@@ -508,10 +508,8 @@ func (e *Evaluator) matchTrackedRule(tr TrackedRule, cmd Command) (Result, bool)
 	rule := tr.Rule
 
 	// Check command name match
-	if rule.Command != "*" {
-		if !e.matchRuleCommand(rule.Command, cmd) {
-			return Result{}, false
-		}
+	if !e.matchRuleCommand(rule.Command, cmd) {
+		return Result{}, false
 	}
 
 	// Get arguments (excluding command name)
@@ -562,8 +560,17 @@ func (e *Evaluator) matchTrackedRule(tr TrackedRule, cmd Command) (Result, bool)
 	if len(rule.Pipe.To) > 0 {
 		pipesToRestricted := false
 		for _, pipeDest := range cmd.PipesTo {
-			if ContainsExact([]string{pipeDest}, rule.Pipe.To) {
-				pipesToRestricted = true
+			for _, toPattern := range rule.Pipe.To {
+				p, err := ParsePattern(toPattern)
+				if err != nil {
+					continue
+				}
+				if p.MatchWithContext(pipeDest, e.matchCtx) {
+					pipesToRestricted = true
+					break
+				}
+			}
+			if pipesToRestricted {
 				break
 			}
 		}
@@ -575,16 +582,19 @@ func (e *Evaluator) matchTrackedRule(tr TrackedRule, cmd Command) (Result, bool)
 	// Check pipe.from context
 	if len(rule.Pipe.From) > 0 {
 		receivesFromRestricted := false
-		if ContainsExact([]string{"*"}, rule.Pipe.From) {
-			if len(cmd.PipesFrom) > 0 {
-				receivesFromRestricted = true
-			}
-		} else {
-			for _, pipeSource := range cmd.PipesFrom {
-				if ContainsExact([]string{pipeSource}, rule.Pipe.From) {
+		for _, pipeSource := range cmd.PipesFrom {
+			for _, fromPattern := range rule.Pipe.From {
+				p, err := ParsePattern(fromPattern)
+				if err != nil {
+					continue
+				}
+				if p.MatchWithContext(pipeSource, e.matchCtx) {
 					receivesFromRestricted = true
 					break
 				}
+			}
+			if receivesFromRestricted {
+				break
 			}
 		}
 		if !receivesFromRestricted {
@@ -980,23 +990,34 @@ func (e *Evaluator) matchTrackedHeredocRule(tr TrackedHeredocRule, hdoc Heredoc)
 
 // matchRuleCommand checks if a rule's command pattern matches the command.
 // Supports:
-//   - "*" - matches any command (handled by caller)
-//   - "path:..." - matches against resolved path using path pattern
-//   - exact string - matches against command name
+//   - "path:..." - path pattern matched against resolved path (if path-like) or command name (if glob-like)
+//   - "re:..." - regex matched against command name
+//   - literal string - exact match against command name
 func (e *Evaluator) matchRuleCommand(ruleCommand string, cmd Command) bool {
 	if strings.HasPrefix(ruleCommand, "path:") {
-		// Path pattern - match against resolved path
-		if cmd.ResolvedPath == "" {
-			return false // Can't match path pattern without resolved path
+		// Path pattern - first check if it matches the resolved path
+		if cmd.ResolvedPath != "" {
+			p, err := ParsePattern(ruleCommand)
+			if err != nil {
+				return false
+			}
+			if p.MatchWithContext(cmd.ResolvedPath, e.matchCtx) {
+				return true
+			}
 		}
+		// Also try matching against command name (for glob-like patterns like "path:*")
 		p, err := ParsePattern(ruleCommand)
 		if err != nil {
 			return false
 		}
-		return p.MatchWithContext(cmd.ResolvedPath, e.matchCtx)
+		return p.MatchWithContext(cmd.Name, e.matchCtx)
 	}
-	// Exact match against command name
-	return ruleCommand == cmd.Name
+	// Parse and match against command name
+	p, err := ParsePattern(ruleCommand)
+	if err != nil {
+		return false
+	}
+	return p.MatchWithContext(cmd.Name, e.matchCtx)
 }
 
 // mergedConfigUsesHome checks if any pattern in the merged config uses $HOME.

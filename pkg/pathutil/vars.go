@@ -56,3 +56,10 @@ func (v *PathVars) ExpandPattern(pattern string) string {
 
 	return result
 }
+
+// HasPathVars returns true if the pattern contains any path variables.
+func HasPathVars(pattern string) bool {
+	return strings.Contains(pattern, "$PROJECT_ROOT") ||
+		strings.Contains(pattern, "$CLAUDE_PLUGIN_ROOT") ||
+		strings.Contains(pattern, "$HOME")
+}

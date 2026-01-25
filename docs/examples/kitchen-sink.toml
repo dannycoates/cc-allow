@@ -2,6 +2,8 @@
 # This example demonstrates ALL configuration features documented in docs/config.md
 # Use this as a reference — don't use it directly as it's intentionally comprehensive
 
+version = "1.0"
+
 # =============================================================================
 # POLICY
 # =============================================================================
@@ -15,11 +17,11 @@ respect_file_rules = true          # check file rules for command arguments (def
 # allowed_paths = ["/usr/bin", "/bin", "/usr/local/bin"]  # optional: restrict command search
 
 # =============================================================================
-# QUICK ALLOW/DENY LISTS
+# ALLOW/DENY COMMAND LISTS
 # =============================================================================
 
-[commands.allow]
-names = [
+[allow]
+commands = [
     # Simple command names
     "ls", "cat", "head", "tail", "grep", "find", "wc", "echo", "pwd", "date",
     "git", "go", "npm", "cargo",
@@ -30,8 +32,8 @@ names = [
     "path:/usr/local/bin/*",           # user-installed tools
 ]
 
-[commands.deny]
-names = [
+[deny]
+commands = [
     # Dangerous system commands
     "sudo", "su", "doas",
     "dd", "mkfs", "fdisk", "parted",
@@ -58,80 +60,66 @@ heredocs = "allow"                 # <<EOF ... EOF — allow heredocs (checked b
 # =============================================================================
 
 # --- contains: all listed strings must be present ---
-[[rule]]
-command = "rm"
-action = "deny"
+[[deny.rm]]
 message = "{{.ArgsStr}} — recursive force deletion blocked"
-[rule.args]
-contains = ["-rf"]                 # must have exactly "-rf"
+args.contains = ["-rf"]                 # must have exactly "-rf"
 
 # --- any_match: at least one pattern must match ---
-[[rule]]
-command = "chmod"
-action = "deny"
+[[deny.chmod]]
 message = "Cannot set world-writable permissions"
-[rule.args]
-any_match = ["777", "666", "re:[0-7][67][67]"]
+args.any_match = ["777", "666", "re:[0-7][67][67]"]
 
 # --- all_match: every argument must match one of these ---
-[[rule]]
-command = "touch"
-action = "allow"
-[rule.args]
-all_match = ["path:$PROJECT_ROOT/**"]  # only allow touching project files
+[[allow.touch]]
+args.all_match = ["path:$PROJECT_ROOT/**"]  # only allow touching project files
 
 # --- position: specific argument positions must match ---
-[[rule]]
-command = "mv"
-action = "deny"
+[[deny.mv]]
 message = "Cannot move files to system directories"
-[rule.args]
-position = { "1" = "path:/etc/**" }    # destination is /etc
+args.position = { "1" = "path:/etc/**" }    # destination is /etc
 
 # =============================================================================
 # RULES — Extended Argument Matching
 # =============================================================================
 
 # --- Position with enum values (OR semantics) ---
-[[rule]]
-command = "git"
-action = "allow"
-message = "Safe read-only git operation"
-[rule.args]
-position = { "0" = ["status", "diff", "log", "branch", "show", "blame", "stash list"] }
+# Using positional nesting for common git subcommands
+[[allow.git.status]]
+[[allow.git.diff]]
+[[allow.git.log]]
+[[allow.git.branch]]
+[[allow.git.show]]
+[[allow.git.blame]]
 
-[[rule]]
-command = "git"
-action = "deny"
+# Deny network git operations
+[[deny.git.push]]
 message = "{{.Arg 0}} — network git operations require approval"
-[rule.args]
-position = { "0" = ["push", "pull", "fetch", "clone", "remote"] }
 
-[[rule]]
-command = "docker"
-action = "allow"
+[[deny.git.pull]]
+message = "{{.Arg 0}} — network git operations require approval"
+
+[[deny.git.fetch]]
+message = "{{.Arg 0}} — network git operations require approval"
+
+[[deny.git.clone]]
+message = "{{.Arg 0}} — network git operations require approval"
+
+[[allow.docker]]
 message = "Safe docker inspection"
-[rule.args]
 # Multi-position enum: subcommand AND flag must both match
-position = {
+args.position = {
     "0" = ["ps", "images", "inspect", "logs", "stats"],
     "1" = ["--format", "-f", "--filter", "--tail", "--help", "-h"]
 }
 
-[[rule]]
-command = "docker"
-action = "deny"
+[[deny.docker]]
 message = "Destructive docker operations blocked"
-[rule.args]
-position = { "0" = ["rm", "rmi", "kill", "stop", "prune", "system prune"] }
+args.position = { "0" = ["rm", "rmi", "kill", "stop", "prune", "system prune"] }
 
 # --- any_match with sequence objects (adjacent argument matching) ---
-[[rule]]
-command = "ffmpeg"
-action = "allow"
+[[allow.ffmpeg]]
 message = "ffmpeg with safe input source"
-[rule.args]
-any_match = [
+args.any_match = [
     # Sequence: -i followed by $HOME path
     { "0" = "-i", "1" = "path:$HOME/**" },
     # Sequence: -i followed by project path
@@ -140,37 +128,28 @@ any_match = [
     "re:^-(-help|h)$"
 ]
 
-[[rule]]
-command = "ffmpeg"
-action = "deny"
+[[deny.ffmpeg]]
 message = "ffmpeg cannot read from system directories"
-[rule.args]
-any_match = [
+args.any_match = [
     { "0" = "-i", "1" = "path:/etc/**" },
     { "0" = "-i", "1" = "path:/sys/**" },
     { "0" = "-i", "1" = "path:/proc/**" }
 ]
 
 # --- all_match with sequences (multiple required pairs) ---
-[[rule]]
-command = "openssl"
-action = "allow"
+[[allow.openssl]]
 message = "openssl with proper certificate handling"
-[rule.args]
-all_match = [
+args.all_match = [
     # Must have -in with cert file
-    { "0" = "-in", "1" = ["glob:*.pem", "glob:*.crt", "glob:*.key", "glob:*.der"] },
+    { "0" = "-in", "1" = ["path:*.pem", "path:*.crt", "path:*.key", "path:*.der"] },
     # AND must have -out with cert file
-    { "0" = "-out", "1" = ["glob:*.pem", "glob:*.crt", "glob:*.der"] }
+    { "0" = "-out", "1" = ["path:*.pem", "path:*.crt", "path:*.der"] }
 ]
 
 # --- 3-position sequence ---
-[[rule]]
-command = "rsync"
-action = "allow"
+[[allow.rsync]]
 message = "rsync with safe flags"
-[rule.args]
-any_match = [
+args.any_match = [
     { "0" = "-a", "1" = "-v", "2" = "--progress" },
     { "0" = "-avz", "1" = "--progress" }
 ]
@@ -180,114 +159,75 @@ any_match = [
 # =============================================================================
 
 # Block shells receiving piped input from download commands
-[[rule]]
-command = "bash"
-action = "deny"
+[[deny.bash]]
 message = "{{.Command}} receiving from {{index .PipesFrom 0}} — piping to shell blocked"
-[rule.pipe]
-from = ["curl", "wget", "nc", "netcat"]
+pipe.from = ["curl", "wget", "nc", "netcat"]
 
-[[rule]]
-command = "sh"
-action = "deny"
+[[deny.sh]]
 message = "sh cannot receive piped input from network tools"
-[rule.pipe]
-from = ["curl", "wget", "nc", "netcat"]
+pipe.from = ["curl", "wget", "nc", "netcat"]
 
 # Block eval from receiving ANY piped input
-[[rule]]
-command = "eval"
-action = "deny"
+[[deny.eval]]
 message = "eval cannot receive piped input"
-[rule.pipe]
-from = ["*"]
+pipe.from = ["path:*"]
 
 # Block curl from piping to dangerous sinks
-[[rule]]
-command = "curl"
-action = "deny"
+[[deny.curl]]
 message = "curl cannot pipe to shell or eval"
-[rule.pipe]
-to = ["bash", "sh", "zsh", "eval", "source"]
+pipe.to = ["bash", "sh", "zsh", "eval", "source"]
 
 # =============================================================================
 # RULES — Pattern Types
 # =============================================================================
 
-# --- glob: patterns ---
-[[rule]]
-command = "cat"
-action = "deny"
+# --- path: patterns ---
+[[deny.cat]]
 message = "Cannot read key files"
-[rule.args]
-any_match = ["glob:**/*.key", "glob:**/*.pem", "glob:**/.env*"]
+args.any_match = ["path:**/*.key", "path:**/*.pem", "path:**/.env*"]
 
 # --- re: regex patterns ---
-[[rule]]
-command = "grep"
-action = "deny"
+[[deny.grep]]
 message = "Cannot search for sensitive patterns"
-[rule.args]
-any_match = ["re:(?i)(password|secret|token|api.?key)"]
+args.any_match = ["re:(?i)(password|secret|token|api.?key)"]
 
 # --- path: patterns with variable expansion ---
-[[rule]]
-command = "rm"
-action = "allow"
+[[allow.rm]]
 message = "rm allowed in project directory"
-[rule.args]
-any_match = ["path:$PROJECT_ROOT/**"]
+args.any_match = ["path:$PROJECT_ROOT/**"]
 
-[[rule]]
-command = "rm"
-action = "deny"
+[[deny.rm]]
 message = "Cannot delete files outside project — {{.ArgsStr}}"
 
 # --- flags: patterns ---
-[[rule]]
-command = "tar"
-action = "deny"
+[[deny.tar]]
 message = "tar extract blocked (use explicit extraction)"
-[rule.args]
-any_match = ["flags:x", "flags:xf", "flags:xzf", "flags:xjf"]
+args.any_match = ["flags:x", "flags:xf", "flags:xzf", "flags:xjf"]
 
-[[rule]]
-command = "tar"
-action = "allow"
+[[allow.tar]]
 message = "tar create/list allowed"
-[rule.args]
-any_match = ["flags:c", "flags:t", "flags:cf", "flags:tf"]
+args.any_match = ["flags:c", "flags:t", "flags:cf", "flags:tf"]
 
-[[rule]]
-command = "chmod"
-action = "deny"
+[[deny.chmod]]
 message = "Cannot add execute permission"
-[rule.args]
-any_match = ["flags[+]:x"]          # matches +x, +rx, +rwx
+args.any_match = ["flags[+]:x"]          # matches +x, +rx, +rwx
 
 # --- Negation ---
-[[rule]]
-command = "find"
-action = "allow"
-[rule.args]
+[[allow.find]]
 # Allow find only in project root (negated: NOT outside project)
-any_match = ["path:$PROJECT_ROOT/**"]
-# Alternative with negation: any_match = ["!path:/etc/**", "!path:/usr/**"]
+args.any_match = ["path:$PROJECT_ROOT/**"]
+# Alternative with negation: args.any_match = ["!path:/etc/**", "!path:/usr/**"]
 
 # =============================================================================
 # RULES — Per-Rule File Configuration
 # =============================================================================
 
 # Disable file rule checking for tar (complex argument patterns)
-[[rule]]
-command = "tar"
-action = "allow"
+[[allow.tar]]
 respect_file_rules = false
 
 # Force specific access type for custom command
-[[rule]]
-command = "mybackup"
-action = "allow"
+[[allow.mybackup]]
 file_access_type = "Read"          # check all file args against Read rules
 
 # =============================================================================
@@ -295,25 +235,16 @@ file_access_type = "Read"          # check all file args against Read rules
 # =============================================================================
 
 # cp: source is Read, destination is Write
-[[rule]]
-command = "cp"
-action = "allow"
-[rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+[[allow.cp]]
+args.position = { "0" = "rule:read", "1" = "rule:write" }
 
 # mv: same pattern as cp
-[[rule]]
-command = "mv"
-action = "allow"
-[rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+[[allow.mv]]
+args.position = { "0" = "rule:read", "1" = "rule:write" }
 
 # install: source is Read, destination is Write
-[[rule]]
-command = "install"
-action = "allow"
-[rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+[[allow.install]]
+args.position = { "0" = "rule:read", "1" = "rule:write" }
 
 # =============================================================================
 # REDIRECTS
@@ -347,7 +278,7 @@ message = "Cannot append to shell config: {{.TargetFileName}}"
 append = true                      # only match >> (append mode)
 [redirect.to]
 exact = [".bashrc", ".zshrc", ".profile", ".bash_profile"]
-pattern = ["glob:*/.bashrc", "glob:*/.zshrc", "glob:*/.profile"]
+pattern = ["path:*/.bashrc", "path:*/.zshrc", "path:*/.profile"]
 
 # =============================================================================
 # HEREDOCS
@@ -387,8 +318,8 @@ allow = [
     "path:$HOME/Documents/**",
     "path:$HOME/code/**",
     "path:/tmp/**",
-    "glob:**/*.md",                # markdown anywhere
-    "glob:**/*.txt",               # text files anywhere
+    "path:**/*.md",                # markdown anywhere
+    "path:**/*.txt",               # text files anywhere
 ]
 deny = [
     # Sensitive directories
@@ -400,11 +331,11 @@ deny = [
     "/secrets/**",
 
     # Sensitive file patterns
-    "glob:**/*.key",
-    "glob:**/*.pem",
-    "glob:**/.env*",
-    "glob:**/*credentials*",
-    "glob:**/*password*",
+    "path:**/*.key",
+    "path:**/*.pem",
+    "path:**/.env*",
+    "path:**/*credentials*",
+    "path:**/*password*",
     "re:.*\\.(key|pem|p12|pfx)$",
 ]
 deny_message = "Cannot read {{.FilePath}} — sensitive file"
@@ -415,8 +346,8 @@ allow = [
 ]
 deny = [
     "path:$HOME/.*",               # dotfiles
-    "glob:**/.env*",
-    "glob:**/*.key",
+    "path:**/.env*",
+    "path:**/*.key",
 ]
 deny_message = "Cannot edit {{.FileName}} in {{.FileDir}}"
 
@@ -440,8 +371,8 @@ deny = [
     "path:$HOME/.*",               # dotfiles
 
     # Sensitive patterns
-    "glob:**/*.key",
-    "glob:**/*.pem",
+    "path:**/*.key",
+    "path:**/*.pem",
 ]
 deny_message = "Cannot write to {{.FilePath}} — {{.FileDir}} is protected"
 

@@ -2,6 +2,8 @@
 # Tests that bash commands respect file rules based on their arguments
 # This tests the new respect_file_rules feature
 
+version = "1.0"
+
 [policy]
 default = "allow"
 respect_file_rules = true  # Enable checking file rules for command arguments
@@ -9,78 +11,81 @@ respect_file_rules = true  # Enable checking file rules for command arguments
 [redirects]
 respect_file_rules = true  # Enable checking file rules for redirect targets
 
-[commands.allow]
-names = ["cat", "head", "tail", "less", "grep", "wc", "rm", "touch", "cp", "mv", "echo"]
+# ============================================================================
+# ALLOWED COMMANDS
+# ============================================================================
 
-[commands.deny]
-names = ["sudo"]
+[allow]
+commands = ["cat", "head", "tail", "less", "grep", "wc", "rm", "touch", "cp", "mv", "echo"]
 
-# File rules that will be applied to command arguments
+# ============================================================================
+# DENIED COMMANDS
+# ============================================================================
+
+[deny]
+commands = ["sudo"]
+
+# ============================================================================
+# FILE RULES - Applied to command arguments
+# ============================================================================
+
 [files]
 default = "allow"
 
 [files.read]
 allow = [
-    "/project/**",
-    "/home/user/**",
-    "/tmp/**",
+    "path:/project/**",
+    "path:/home/user/**",
+    "path:/tmp/**",
 ]
 deny = [
-    "glob:**/.ssh/**",
-    "glob:**/*.key",
-    "glob:**/*.pem",
-    "glob:**/.env*",
-    "/etc/**",
-    "/secrets/**",
+    "path:**/.ssh/**",
+    "path:**/*.key",
+    "path:**/*.pem",
+    "path:**/.env*",
+    "path:/etc/**",
+    "path:/secrets/**",
 ]
 
 [files.write]
 allow = [
-    "/project/**",
-    "/tmp/**",
+    "path:/project/**",
+    "path:/tmp/**",
 ]
 deny = [
-    "/etc/**",
-    "/usr/**",
-    "/bin/**",
-    "/protected/**",
-    "glob:**/.ssh/**",
-    "glob:**/*.key",
+    "path:/etc/**",
+    "path:/usr/**",
+    "path:/bin/**",
+    "path:/protected/**",
+    "path:**/.ssh/**",
+    "path:**/*.key",
 ]
 
 [files.edit]
 allow = [
-    "/project/**",
+    "path:/project/**",
 ]
 deny = [
-    "/etc/**",
-    "glob:**/.env*",
+    "path:/etc/**",
+    "path:**/.env*",
 ]
 
-# --- Rules with explicit file rule checking ---
+# ============================================================================
+# SPECIFIC RULES
+# ============================================================================
 
 # cp: position 0 = source (read), position 1 = dest (write)
-[[rule]]
-command = "cp"
-action = "allow"
-[rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+[[allow.cp]]
+args.position = { "0" = "rule:read", "1" = "rule:write" }
 
 # mv: position 0 = source (read), position 1 = dest (write)
-[[rule]]
-command = "mv"
-action = "allow"
-[rule.args]
-position = { "0" = "rule:read", "1" = "rule:write" }
+[[allow.mv]]
+args.position = { "0" = "rule:read", "1" = "rule:write" }
 
 # tar: disable file rule checking for complex command
-[[rule]]
-command = "tar"
-action = "allow"
+[[allow.tar]]
 respect_file_rules = false
 
 # Custom command with Write access type override
-[[rule]]
-command = "mywrite"
-action = "allow"
+[[allow.mywrite]]
 file_access_type = "Write"

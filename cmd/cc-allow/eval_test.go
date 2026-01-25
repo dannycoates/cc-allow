@@ -265,7 +265,7 @@ func TestEvalRedirects(t *testing.T) {
 			{
 				Action:  "deny",
 				Message: "No system redirects",
-				To:      RedirectTarget{Pattern: []string{"glob:/etc/*"}},
+				To:      RedirectTarget{Pattern: []string{"path:/etc/*"}},
 			},
 		},
 	}
@@ -353,7 +353,7 @@ func TestEvalWildcardRule(t *testing.T) {
 		},
 		Rules: []Rule{
 			{
-				Command: "*",
+				Command: "path:*",
 				Action:  "deny",
 				Message: "No piping to eval",
 				Pipe:    PipeContext{To: []string{"eval"}},
@@ -709,7 +709,7 @@ func TestCalculateSpecificity(t *testing.T) {
 	}{
 		{
 			name:     "wildcard command only",
-			rule:     Rule{Command: "*", Action: "allow"},
+			rule:     Rule{Command: "path:*", Action: "allow"},
 			expected: 0,
 		},
 		{
@@ -739,7 +739,7 @@ func TestCalculateSpecificity(t *testing.T) {
 		},
 		{
 			name:     "command + pipe.from wildcard",
-			rule:     Rule{Command: "bash", Action: "deny", Pipe: PipeContext{From: []string{"*"}}},
+			rule:     Rule{Command: "bash", Action: "deny", Pipe: PipeContext{From: []string{"path:*"}}},
 			expected: 105, // 100 + 5
 		},
 		{
@@ -763,7 +763,7 @@ func TestCalculateSpecificity(t *testing.T) {
 		{
 			name: "wildcard with multiple conditions",
 			rule: Rule{
-				Command: "*",
+				Command: "path:*",
 				Action:  "deny",
 				Pipe:    PipeContext{To: []string{"eval", "bash"}},
 			},
@@ -896,7 +896,7 @@ func TestSpecificityWildcardVsNamed(t *testing.T) {
 	cfg := &Config{
 		Policy: PolicyConfig{Default: "ask"},
 		Rules: []Rule{
-			{Command: "*", Action: "deny", Args: ArgsMatch{Contains: []string{"--force"}}}, // specificity 10
+			{Command: "path:*", Action: "deny", Args: ArgsMatch{Contains: []string{"--force"}}}, // specificity 10
 			{Command: "git", Action: "allow", Args: ArgsMatch{Contains: []string{"--force"}}}, // specificity 110
 		},
 	}
@@ -1531,11 +1531,11 @@ func TestFileRuleIntegrationWithBashCommands(t *testing.T) {
 		Files: FilesConfig{
 			Default: "ask",
 			Read: FileToolConfig{
-				Allow: []string{"glob:" + tmpDir + "/**"},
-				Deny:  []string{"glob:**/*.key"},
+				Allow: []string{"path:" + tmpDir + "/**"},
+				Deny:  []string{"path:**/*.key"},
 			},
 			Write: FileToolConfig{
-				Deny: []string{"glob:**/protected/**"},
+				Deny: []string{"path:**/protected/**"},
 			},
 		},
 	}
@@ -1629,10 +1629,10 @@ func TestFileRulePositionalPatterns(t *testing.T) {
 		Files: FilesConfig{
 			Default: "allow",
 			Read: FileToolConfig{
-				Deny: []string{"glob:**/*.key"},
+				Deny: []string{"path:**/*.key"},
 			},
 			Write: FileToolConfig{
-				Deny: []string{"glob:**/protected/**"},
+				Deny: []string{"path:**/protected/**"},
 			},
 		},
 	}
@@ -1730,10 +1730,10 @@ func TestRedirectFileRules(t *testing.T) {
 		Files: FilesConfig{
 			Default: "allow",
 			Write: FileToolConfig{
-				Deny: []string{"glob:**/protected/**"},
+				Deny: []string{"path:**/protected/**"},
 			},
 			Read: FileToolConfig{
-				Deny: []string{"glob:**/*.key"},
+				Deny: []string{"path:**/*.key"},
 			},
 		},
 	}
@@ -1847,7 +1847,7 @@ func TestRespectFileRulesDisabled(t *testing.T) {
 		Files: FilesConfig{
 			Default: "ask",
 			Read: FileToolConfig{
-				Deny: []string{"glob:**/*.key"},
+				Deny: []string{"path:**/*.key"},
 			},
 		},
 	}
@@ -1997,14 +1997,14 @@ func TestAllMatchSequence(t *testing.T) {
 							IsSequence: true,
 							Sequence: map[string]FlexiblePattern{
 								"0": {Patterns: []string{"-in"}},
-								"1": {Patterns: []string{"glob:*.pem"}},
+								"1": {Patterns: []string{"path:*.pem"}},
 							},
 						},
 						{
 							IsSequence: true,
 							Sequence: map[string]FlexiblePattern{
 								"0": {Patterns: []string{"-out"}},
-								"1": {Patterns: []string{"glob:*.der", "glob:*.pem"}}, // enum in sequence
+								"1": {Patterns: []string{"path:*.der", "path:*.pem"}}, // enum in sequence
 							},
 						},
 					},
