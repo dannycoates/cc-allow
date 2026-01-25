@@ -28,8 +28,8 @@ type HarnessCommand struct {
 }
 
 // UnmarshalTOML implements custom unmarshaling to capture ruleset expectations
-func (h *HarnessCommand) UnmarshalTOML(data interface{}) error {
-	d, ok := data.(map[string]interface{})
+func (h *HarnessCommand) UnmarshalTOML(data any) error {
+	d, ok := data.(map[string]any)
 	if !ok {
 		return fmt.Errorf("expected map, got %T", data)
 	}
@@ -82,8 +82,8 @@ type HarnessFile struct {
 }
 
 // UnmarshalTOML implements custom unmarshaling to capture ruleset expectations
-func (h *HarnessFile) UnmarshalTOML(data interface{}) error {
-	d, ok := data.(map[string]interface{})
+func (h *HarnessFile) UnmarshalTOML(data any) error {
+	d, ok := data.(map[string]any)
 	if !ok {
 		return fmt.Errorf("expected map, got %T", data)
 	}

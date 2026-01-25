@@ -75,7 +75,7 @@ func ParseConfigWithDefaults(data string) (*Config, error) {
 // parseConfigInternal parses TOML and extracts nested command rules.
 func parseConfigInternal(data string) (*Config, error) {
 	// Decode once into raw map
-	var raw map[string]interface{}
+	var raw map[string]any
 	if _, err := toml.Decode(data, &raw); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrConfigParse, err)
 	}
@@ -101,14 +101,14 @@ func parseConfigInternal(data string) (*Config, error) {
 }
 
 // configFromRaw builds a Config from a raw TOML map.
-func configFromRaw(raw map[string]interface{}) (*Config, error) {
+func configFromRaw(raw map[string]any) (*Config, error) {
 	cfg := &Config{}
 
 	// Extract version
 	cfg.Version, _ = raw["version"].(string)
 
 	// Extract aliases
-	if aliasesRaw, ok := raw["aliases"].(map[string]interface{}); ok {
+	if aliasesRaw, ok := raw["aliases"].(map[string]any); ok {
 		aliases, err := parseAliasesFromRaw(aliasesRaw)
 		if err != nil {
 			return nil, fmt.Errorf("aliases: %w", err)
@@ -117,7 +117,7 @@ func configFromRaw(raw map[string]interface{}) (*Config, error) {
 	}
 
 	// Extract bash config
-	if bashRaw, ok := raw["bash"].(map[string]interface{}); ok {
+	if bashRaw, ok := raw["bash"].(map[string]any); ok {
 		bashCfg, err := parseBashConfigFromRaw(bashRaw, cfg.Aliases)
 		if err != nil {
 			return nil, fmt.Errorf("bash: %w", err)
@@ -129,18 +129,18 @@ func configFromRaw(raw map[string]interface{}) (*Config, error) {
 	}
 
 	// Extract file tool configs
-	if readRaw, ok := raw["read"].(map[string]interface{}); ok {
+	if readRaw, ok := raw["read"].(map[string]any); ok {
 		cfg.Read = parseFileToolConfigFromRaw(readRaw)
 	}
-	if writeRaw, ok := raw["write"].(map[string]interface{}); ok {
+	if writeRaw, ok := raw["write"].(map[string]any); ok {
 		cfg.Write = parseFileToolConfigFromRaw(writeRaw)
 	}
-	if editRaw, ok := raw["edit"].(map[string]interface{}); ok {
+	if editRaw, ok := raw["edit"].(map[string]any); ok {
 		cfg.Edit = parseFileToolConfigFromRaw(editRaw)
 	}
 
 	// Extract debug config
-	if debugRaw, ok := raw["debug"].(map[string]interface{}); ok {
+	if debugRaw, ok := raw["debug"].(map[string]any); ok {
 		cfg.Debug.LogFile, _ = debugRaw["log_file"].(string)
 	}
 
@@ -148,7 +148,7 @@ func configFromRaw(raw map[string]interface{}) (*Config, error) {
 }
 
 // parseAliasesFromRaw parses the aliases section.
-func parseAliasesFromRaw(raw map[string]interface{}) (map[string]Alias, error) {
+func parseAliasesFromRaw(raw map[string]any) (map[string]Alias, error) {
 	aliases := make(map[string]Alias)
 	for name, val := range raw {
 		var alias Alias
@@ -169,7 +169,7 @@ type bashConfigResult struct {
 }
 
 // parseBashConfigFromRaw parses the bash section.
-func parseBashConfigFromRaw(raw map[string]interface{}, aliases map[string]Alias) (*bashConfigResult, error) {
+func parseBashConfigFromRaw(raw map[string]any, aliases map[string]Alias) (*bashConfigResult, error) {
 	result := &bashConfigResult{}
 
 	// Extract scalar fields
@@ -184,7 +184,7 @@ func parseBashConfigFromRaw(raw map[string]interface{}, aliases map[string]Alias
 	}
 
 	// Extract constructs
-	if constructsRaw, ok := raw["constructs"].(map[string]interface{}); ok {
+	if constructsRaw, ok := raw["constructs"].(map[string]any); ok {
 		result.config.Constructs.Subshells, _ = constructsRaw["subshells"].(string)
 		result.config.Constructs.Background, _ = constructsRaw["background"].(string)
 		result.config.Constructs.FunctionDefinitions, _ = constructsRaw["function_definitions"].(string)
@@ -192,12 +192,12 @@ func parseBashConfigFromRaw(raw map[string]interface{}, aliases map[string]Alias
 	}
 
 	// Extract allow section
-	if allowRaw, ok := raw["allow"].(map[string]interface{}); ok {
+	if allowRaw, ok := raw["allow"].(map[string]any); ok {
 		result.config.Allow = parseBashAllowDenyFromRaw(allowRaw)
 	}
 
 	// Extract deny section
-	if denyRaw, ok := raw["deny"].(map[string]interface{}); ok {
+	if denyRaw, ok := raw["deny"].(map[string]any); ok {
 		result.config.Deny = parseBashAllowDenyFromRaw(denyRaw)
 	}
 
@@ -209,7 +209,7 @@ func parseBashConfigFromRaw(raw map[string]interface{}, aliases map[string]Alias
 	result.rules = rules
 
 	// Extract redirects section
-	if redirectsRaw, ok := raw["redirects"].(map[string]interface{}); ok {
+	if redirectsRaw, ok := raw["redirects"].(map[string]any); ok {
 		// Extract respect_file_rules for redirects
 		if rfr, ok := redirectsRaw["respect_file_rules"].(bool); ok {
 			result.config.Redirects.RespectFileRules = &rfr
@@ -224,7 +224,7 @@ func parseBashConfigFromRaw(raw map[string]interface{}, aliases map[string]Alias
 	}
 
 	// Extract heredocs section
-	if heredocsRaw, ok := raw["heredocs"].(map[string]interface{}); ok {
+	if heredocsRaw, ok := raw["heredocs"].(map[string]any); ok {
 		heredocRules, err := parseHeredocRules(heredocsRaw)
 		if err != nil {
 			return nil, fmt.Errorf("heredocs: %w", err)
@@ -236,11 +236,11 @@ func parseBashConfigFromRaw(raw map[string]interface{}, aliases map[string]Alias
 }
 
 // parseBashAllowDenyFromRaw parses a bash.allow or bash.deny section.
-func parseBashAllowDenyFromRaw(raw map[string]interface{}) BashAllowDeny {
+func parseBashAllowDenyFromRaw(raw map[string]any) BashAllowDeny {
 	var result BashAllowDeny
 
 	// Extract commands array
-	if cmds, ok := raw["commands"].([]interface{}); ok {
+	if cmds, ok := raw["commands"].([]any); ok {
 		for _, cmd := range cmds {
 			if s, ok := cmd.(string); ok {
 				result.Commands = append(result.Commands, s)
@@ -255,16 +255,16 @@ func parseBashAllowDenyFromRaw(raw map[string]interface{}) BashAllowDeny {
 }
 
 // parseFileToolConfigFromRaw parses a read/write/edit section.
-func parseFileToolConfigFromRaw(raw map[string]interface{}) FileToolConfig {
+func parseFileToolConfigFromRaw(raw map[string]any) FileToolConfig {
 	var cfg FileToolConfig
 
 	cfg.Default, _ = raw["default"].(string)
 
-	if allowRaw, ok := raw["allow"].(map[string]interface{}); ok {
+	if allowRaw, ok := raw["allow"].(map[string]any); ok {
 		cfg.Allow = parseFileAllowDenyFromRaw(allowRaw)
 	}
 
-	if denyRaw, ok := raw["deny"].(map[string]interface{}); ok {
+	if denyRaw, ok := raw["deny"].(map[string]any); ok {
 		cfg.Deny = parseFileAllowDenyFromRaw(denyRaw)
 	}
 
@@ -272,10 +272,10 @@ func parseFileToolConfigFromRaw(raw map[string]interface{}) FileToolConfig {
 }
 
 // parseFileAllowDenyFromRaw parses a file tool allow/deny section.
-func parseFileAllowDenyFromRaw(raw map[string]interface{}) FileAllowDeny {
+func parseFileAllowDenyFromRaw(raw map[string]any) FileAllowDeny {
 	var result FileAllowDeny
 
-	if paths, ok := raw["paths"].([]interface{}); ok {
+	if paths, ok := raw["paths"].([]any); ok {
 		for _, p := range paths {
 			if s, ok := p.(string); ok {
 				result.Paths = append(result.Paths, s)
@@ -289,7 +289,7 @@ func parseFileAllowDenyFromRaw(raw map[string]interface{}) FileAllowDeny {
 }
 
 // validateConfigVersion checks the version and detects legacy format.
-func validateConfigVersion(version string, raw map[string]interface{}) error {
+func validateConfigVersion(version string, raw map[string]any) error {
 	// Check for legacy v1 format
 	if isLegacyV1Config(raw) {
 		return LegacyConfigError{Path: "(inline)"}
@@ -333,11 +333,11 @@ func validateConfigVersion(version string, raw map[string]interface{}) error {
 }
 
 // parseBashRules extracts rules from [bash.allow.X] and [bash.deny.X] tables.
-func parseBashRules(bashRaw map[string]interface{}, aliases map[string]Alias) ([]BashRule, error) {
+func parseBashRules(bashRaw map[string]any, aliases map[string]Alias) ([]BashRule, error) {
 	var rules []BashRule
 
 	// Parse [bash.allow] section
-	if allowRaw, ok := bashRaw["allow"].(map[string]interface{}); ok {
+	if allowRaw, ok := bashRaw["allow"].(map[string]any); ok {
 		allowRules, err := parseActionSection(allowRaw, "allow", []string{})
 		if err != nil {
 			return nil, fmt.Errorf("allow: %w", err)
@@ -346,7 +346,7 @@ func parseBashRules(bashRaw map[string]interface{}, aliases map[string]Alias) ([
 	}
 
 	// Parse [bash.deny] section
-	if denyRaw, ok := bashRaw["deny"].(map[string]interface{}); ok {
+	if denyRaw, ok := bashRaw["deny"].(map[string]any); ok {
 		denyRules, err := parseActionSection(denyRaw, "deny", []string{})
 		if err != nil {
 			return nil, fmt.Errorf("deny: %w", err)
@@ -358,7 +358,7 @@ func parseBashRules(bashRaw map[string]interface{}, aliases map[string]Alias) ([
 }
 
 // parseActionSection recursively walks an action section to find command rules.
-func parseActionSection(node map[string]interface{}, action string, path []string) ([]BashRule, error) {
+func parseActionSection(node map[string]any, action string, path []string) ([]BashRule, error) {
 	var rules []BashRule
 
 	for key, value := range node {
@@ -368,7 +368,7 @@ func parseActionSection(node map[string]interface{}, action string, path []strin
 		}
 
 		switch v := value.(type) {
-		case []map[string]interface{}:
+		case []map[string]any:
 			// Array of tables: [[bash.allow.rm]] or [[bash.deny.git.push]]
 			// TOML decodes these as []map[string]interface{}
 			for i, table := range v {
@@ -378,10 +378,10 @@ func parseActionSection(node map[string]interface{}, action string, path []strin
 				}
 				rules = append(rules, rule)
 			}
-		case []interface{}:
+		case []any:
 			// Fallback for arrays (shouldn't normally happen for rule tables)
 			for i, item := range v {
-				table, ok := item.(map[string]interface{})
+				table, ok := item.(map[string]any)
 				if !ok {
 					continue
 				}
@@ -391,7 +391,7 @@ func parseActionSection(node map[string]interface{}, action string, path []strin
 				}
 				rules = append(rules, rule)
 			}
-		case map[string]interface{}:
+		case map[string]any:
 			// Could be a single rule table or nested path
 			if looksLikeRuleTable(v) && len(path) > 0 {
 				// Single rule table
@@ -436,7 +436,7 @@ func isReservedRuleKey(key string) bool {
 }
 
 // looksLikeRuleTable checks if a map contains rule-specific fields.
-func looksLikeRuleTable(m map[string]interface{}) bool {
+func looksLikeRuleTable(m map[string]any) bool {
 	for key := range m {
 		if isReservedRuleKey(key) {
 			return true
@@ -447,7 +447,7 @@ func looksLikeRuleTable(m map[string]interface{}) bool {
 }
 
 // parseRuleFromTable converts a TOML table to a BashRule.
-func parseRuleFromTable(action string, path []string, table map[string]interface{}) (BashRule, error) {
+func parseRuleFromTable(action string, path []string, table map[string]any) (BashRule, error) {
 	if len(path) == 0 {
 		return BashRule{}, fmt.Errorf("empty command path")
 	}
@@ -464,7 +464,7 @@ func parseRuleFromTable(action string, path []string, table map[string]interface
 	}
 
 	// Extract args
-	if argsRaw, ok := table["args"].(map[string]interface{}); ok {
+	if argsRaw, ok := table["args"].(map[string]any); ok {
 		args, err := parseArgsMatch(argsRaw)
 		if err != nil {
 			return BashRule{}, fmt.Errorf("args: %w", err)
@@ -473,7 +473,7 @@ func parseRuleFromTable(action string, path []string, table map[string]interface
 	}
 
 	// Extract pipe
-	if pipeRaw, ok := table["pipe"].(map[string]interface{}); ok {
+	if pipeRaw, ok := table["pipe"].(map[string]any); ok {
 		pipe, err := parsePipeContext(pipeRaw)
 		if err != nil {
 			return BashRule{}, fmt.Errorf("pipe: %w", err)
@@ -495,7 +495,7 @@ func parseRuleFromTable(action string, path []string, table map[string]interface
 }
 
 // parseArgsMatch parses an args table.
-func parseArgsMatch(raw map[string]interface{}) (ArgsMatch, error) {
+func parseArgsMatch(raw map[string]any) (ArgsMatch, error) {
 	var args ArgsMatch
 
 	// Parse any - uses OR semantics
@@ -535,7 +535,7 @@ func parseArgsMatch(raw map[string]interface{}) (ArgsMatch, error) {
 	}
 
 	// Parse position
-	if posRaw, ok := raw["position"].(map[string]interface{}); ok {
+	if posRaw, ok := raw["position"].(map[string]any); ok {
 		args.Position = make(map[string]FlexiblePattern)
 		for key, val := range posRaw {
 			fp, err := parseFlexiblePatternRaw(val)
@@ -550,7 +550,7 @@ func parseArgsMatch(raw map[string]interface{}) (ArgsMatch, error) {
 }
 
 // parsePipeContext parses a pipe table.
-func parsePipeContext(raw map[string]interface{}) (PipeContext, error) {
+func parsePipeContext(raw map[string]any) (PipeContext, error) {
 	var pipe PipeContext
 
 	if toRaw, ok := raw["to"]; ok {
@@ -573,11 +573,11 @@ func parsePipeContext(raw map[string]interface{}) (PipeContext, error) {
 }
 
 // parseStringOrArray parses a value that can be either a string or array of strings.
-func parseStringOrArray(val interface{}) ([]string, error) {
+func parseStringOrArray(val any) ([]string, error) {
 	switch v := val.(type) {
 	case string:
 		return []string{v}, nil
-	case []interface{}:
+	case []any:
 		var result []string
 		for _, item := range v {
 			if s, ok := item.(string); ok {
@@ -595,19 +595,19 @@ func parseStringOrArray(val interface{}) ([]string, error) {
 // toTableSlice normalizes TOML array-of-tables to []map[string]interface{}.
 // TOML libraries may decode [[section]] as either []map[string]interface{}
 // or []interface{} depending on the content. This helper handles both.
-func toTableSlice(raw interface{}) []map[string]interface{} {
+func toTableSlice(raw any) []map[string]any {
 	if raw == nil {
 		return nil
 	}
 	// Try direct type first (more efficient)
-	if tables, ok := raw.([]map[string]interface{}); ok {
+	if tables, ok := raw.([]map[string]any); ok {
 		return tables
 	}
 	// Fall back to []interface{} and convert
-	if items, ok := raw.([]interface{}); ok {
-		tables := make([]map[string]interface{}, 0, len(items))
+	if items, ok := raw.([]any); ok {
+		tables := make([]map[string]any, 0, len(items))
 		for _, item := range items {
-			if table, ok := item.(map[string]interface{}); ok {
+			if table, ok := item.(map[string]any); ok {
 				tables = append(tables, table)
 			}
 		}
@@ -617,7 +617,7 @@ func toTableSlice(raw interface{}) []map[string]interface{} {
 }
 
 // parseRedirectRules parses redirect rules from [bash.redirects].
-func parseRedirectRules(raw map[string]interface{}) ([]RedirectRule, error) {
+func parseRedirectRules(raw map[string]any) ([]RedirectRule, error) {
 	var rules []RedirectRule
 
 	// Parse [[bash.redirects.allow]]
@@ -642,14 +642,14 @@ func parseRedirectRules(raw map[string]interface{}) ([]RedirectRule, error) {
 }
 
 // parseRedirectRule parses a single redirect rule.
-func parseRedirectRule(action string, table map[string]interface{}) (RedirectRule, error) {
+func parseRedirectRule(action string, table map[string]any) (RedirectRule, error) {
 	rule := RedirectRule{Action: action}
 
 	if msg, ok := table["message"].(string); ok {
 		rule.Message = msg
 	}
 
-	if paths, ok := table["paths"].([]interface{}); ok {
+	if paths, ok := table["paths"].([]any); ok {
 		for _, p := range paths {
 			if s, ok := p.(string); ok {
 				rule.Paths = append(rule.Paths, s)
@@ -665,7 +665,7 @@ func parseRedirectRule(action string, table map[string]interface{}) (RedirectRul
 }
 
 // parseHeredocRules parses heredoc rules from [bash.heredocs].
-func parseHeredocRules(raw map[string]interface{}) ([]HeredocRule, error) {
+func parseHeredocRules(raw map[string]any) ([]HeredocRule, error) {
 	var rules []HeredocRule
 
 	// Parse [[bash.heredocs.allow]]
@@ -690,7 +690,7 @@ func parseHeredocRules(raw map[string]interface{}) ([]HeredocRule, error) {
 }
 
 // parseHeredocRule parses a single heredoc rule.
-func parseHeredocRule(action string, table map[string]interface{}) (HeredocRule, error) {
+func parseHeredocRule(action string, table map[string]any) (HeredocRule, error) {
 	rule := HeredocRule{Action: action}
 
 	if msg, ok := table["message"].(string); ok {

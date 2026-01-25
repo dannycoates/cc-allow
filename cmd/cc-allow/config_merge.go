@@ -3,6 +3,8 @@ package main
 // Config merging logic for cc-allow v2 format.
 // Handles merging multiple configs with stricter-wins semantics.
 
+import "maps"
+
 // actionStrictness returns the strictness level of an action.
 // Higher values are stricter: deny(2) > ask(1) > allow(0).
 func actionStrictness(action string) int {
@@ -125,9 +127,7 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	mergeFileToolConfig(&merged.Files, "Edit", &cfg.Edit, source)
 
 	// Merge aliases (later configs can add or override)
-	for name, alias := range cfg.Aliases {
-		merged.Aliases[name] = alias
-	}
+	maps.Copy(merged.Aliases, cfg.Aliases)
 
 	// Debug config
 	if cfg.Debug.LogFile != "" {

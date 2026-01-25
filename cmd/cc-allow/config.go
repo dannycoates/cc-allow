@@ -51,11 +51,11 @@ type Alias struct {
 }
 
 // UnmarshalTOML implements custom TOML unmarshaling for Alias.
-func (a *Alias) UnmarshalTOML(data interface{}) error {
+func (a *Alias) UnmarshalTOML(data any) error {
 	switch v := data.(type) {
 	case string:
 		a.Patterns = []string{v}
-	case []interface{}:
+	case []any:
 		for _, item := range v {
 			if s, ok := item.(string); ok {
 				a.Patterns = append(a.Patterns, s)
@@ -138,18 +138,18 @@ type BoolExpr struct {
 }
 
 // UnmarshalTOML implements custom TOML unmarshaling for BoolExpr.
-func (b *BoolExpr) UnmarshalTOML(data interface{}) error {
+func (b *BoolExpr) UnmarshalTOML(data any) error {
 	return b.unmarshalWithSemantics(data, false)
 }
 
 // unmarshalWithSemantics parses BoolExpr data with semantics context.
 // If useAll is true, nested array items go into .All instead of .Any.
-func (b *BoolExpr) unmarshalWithSemantics(data interface{}, useAll bool) error {
+func (b *BoolExpr) unmarshalWithSemantics(data any, useAll bool) error {
 	switch v := data.(type) {
 	case string:
 		// Simple string pattern
 		b.Patterns = []string{v}
-	case []interface{}:
+	case []any:
 		// Array - could be patterns or nested expressions
 		for _, item := range v {
 			child, err := parseBoolExprItemWithSemantics(item, useAll)
@@ -168,7 +168,7 @@ func (b *BoolExpr) unmarshalWithSemantics(data interface{}, useAll bool) error {
 				}
 			}
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		// Could be operators (any/all/not/xor) or a sequence object
 		return b.parseMapWithSemantics(v, useAll)
 	default:
@@ -183,12 +183,12 @@ func (b *BoolExpr) hasOperators() bool {
 }
 
 // parseMap parses a map as either operators or a sequence object.
-func (b *BoolExpr) parseMap(m map[string]interface{}) error {
+func (b *BoolExpr) parseMap(m map[string]any) error {
 	return b.parseMapWithSemantics(m, false)
 }
 
 // parseMapWithSemantics parses a map with semantics context.
-func (b *BoolExpr) parseMapWithSemantics(m map[string]interface{}, useAll bool) error {
+func (b *BoolExpr) parseMapWithSemantics(m map[string]any, useAll bool) error {
 	// Check for boolean operators - these define their own semantics
 	if anyVal, ok := m["any"]; ok {
 		exprs, err := parseBoolExprArrayWithSemantics(anyVal, false) // any uses OR
@@ -265,13 +265,13 @@ func isNumericKey(s string) bool {
 }
 
 // parseBoolExprItem parses a single item into a BoolExpr.
-func parseBoolExprItem(data interface{}) (*BoolExpr, error) {
+func parseBoolExprItem(data any) (*BoolExpr, error) {
 	return parseBoolExprItemWithSemantics(data, false)
 }
 
 // parseBoolExprItemWithSemantics parses a BoolExpr item with semantics context.
 // If useAll is true, nested array items go into .All instead of .Any.
-func parseBoolExprItemWithSemantics(data interface{}, useAll bool) (*BoolExpr, error) {
+func parseBoolExprItemWithSemantics(data any, useAll bool) (*BoolExpr, error) {
 	b := &BoolExpr{}
 	if err := b.unmarshalWithSemantics(data, useAll); err != nil {
 		return nil, err
@@ -280,13 +280,13 @@ func parseBoolExprItemWithSemantics(data interface{}, useAll bool) (*BoolExpr, e
 }
 
 // parseBoolExprArray parses an array of items into BoolExpr slice.
-func parseBoolExprArray(data interface{}) ([]*BoolExpr, error) {
+func parseBoolExprArray(data any) ([]*BoolExpr, error) {
 	return parseBoolExprArrayWithSemantics(data, false)
 }
 
 // parseBoolExprArrayWithSemantics parses an array with semantics context.
-func parseBoolExprArrayWithSemantics(data interface{}, useAll bool) ([]*BoolExpr, error) {
-	arr, ok := data.([]interface{})
+func parseBoolExprArrayWithSemantics(data any, useAll bool) ([]*BoolExpr, error) {
+	arr, ok := data.([]any)
 	if !ok {
 		// Single item, wrap in array
 		child, err := parseBoolExprItemWithSemantics(data, useAll)
@@ -313,11 +313,11 @@ type FlexiblePattern struct {
 }
 
 // UnmarshalTOML implements custom TOML unmarshaling for FlexiblePattern.
-func (fp *FlexiblePattern) UnmarshalTOML(data interface{}) error {
+func (fp *FlexiblePattern) UnmarshalTOML(data any) error {
 	switch v := data.(type) {
 	case string:
 		fp.Patterns = []string{v}
-	case []interface{}:
+	case []any:
 		for _, item := range v {
 			if s, ok := item.(string); ok {
 				fp.Patterns = append(fp.Patterns, s)
@@ -332,7 +332,7 @@ func (fp *FlexiblePattern) UnmarshalTOML(data interface{}) error {
 }
 
 // parseFlexiblePatternRaw parses a FlexiblePattern from raw TOML (string or array).
-func parseFlexiblePatternRaw(raw interface{}) (FlexiblePattern, error) {
+func parseFlexiblePatternRaw(raw any) (FlexiblePattern, error) {
 	var fp FlexiblePattern
 	if err := fp.UnmarshalTOML(raw); err != nil {
 		return fp, err
@@ -369,7 +369,7 @@ type HeredocsConfig struct {
 
 // HeredocRule controls heredoc (<<EOF) handling.
 type HeredocRule struct {
-	Action  string    `toml:"-"`      // "allow" or "deny" (derived from section)
+	Action  string    `toml:"-"` // "allow" or "deny" (derived from section)
 	Message string    `toml:"message"`
 	Content *BoolExpr `toml:"content"` // content matching using boolean expressions
 }
@@ -497,21 +497,21 @@ type ConfigChain struct {
 
 // Legacy config markers for v1 detection
 var legacyV1Keys = []string{
-	"policy",    // v1 had [policy], v2 has [bash] with these fields
-	"commands",  // v1 had [commands], v2 has [bash.allow/deny]
-	"files",     // v1 had [files], v2 has [read], [write], [edit]
-	"rule",      // v1 had [[rule]], v2 has [[bash.allow.X]]
-	"redirect",  // v1 had [[redirect]], v2 has [[bash.redirects.allow/deny]]
-	"heredoc",   // v1 had [[heredoc]], v2 has [[bash.heredocs.allow/deny]]
-	"allow",     // v1 had top-level [allow], v2 has [bash.allow]
-	"deny",      // v1 had top-level [deny], v2 has [bash.deny]
-	"ask",       // v1 had [ask], v2 removed
+	"policy",     // v1 had [policy], v2 has [bash] with these fields
+	"commands",   // v1 had [commands], v2 has [bash.allow/deny]
+	"files",      // v1 had [files], v2 has [read], [write], [edit]
+	"rule",       // v1 had [[rule]], v2 has [[bash.allow.X]]
+	"redirect",   // v1 had [[redirect]], v2 has [[bash.redirects.allow/deny]]
+	"heredoc",    // v1 had [[heredoc]], v2 has [[bash.heredocs.allow/deny]]
+	"allow",      // v1 had top-level [allow], v2 has [bash.allow]
+	"deny",       // v1 had top-level [deny], v2 has [bash.deny]
+	"ask",        // v1 had [ask], v2 removed
 	"constructs", // v1 had [constructs], v2 has [bash.constructs]
-	"redirects", // v1 had [redirects] at top level, v2 has [bash.redirects]
+	"redirects",  // v1 had [redirects] at top level, v2 has [bash.redirects]
 }
 
 // isLegacyV1Config checks if the raw TOML contains v1-style keys.
-func isLegacyV1Config(raw map[string]interface{}) bool {
+func isLegacyV1Config(raw map[string]any) bool {
 	for _, key := range legacyV1Keys {
 		if _, exists := raw[key]; exists {
 			return true

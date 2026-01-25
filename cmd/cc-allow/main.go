@@ -46,7 +46,7 @@ type HookSpecificOutput struct {
 // Exit codes per Claude Code hooks documentation
 const (
 	ExitAllow = 0 // Success, command explicitly allowed
-	ExitAsk = 1 // Non-blocking, ask user via Claude Code's default behavior
+	ExitAsk   = 1 // Non-blocking, ask user via Claude Code's default behavior
 	ExitDeny  = 2 // Blocking error, command explicitly denied
 	ExitError = 3 // Processing error (parse failure, config error, etc.)
 )
@@ -330,7 +330,7 @@ func getDebugLogPath(chain *ConfigChain) string {
 	return filepath.Join(os.TempDir(), "cc-allow.log")
 }
 
-func logDebug(format string, args ...interface{}) {
+func logDebug(format string, args ...any) {
 	if debugLog != nil {
 		debugLog.Printf(format, args...)
 	}

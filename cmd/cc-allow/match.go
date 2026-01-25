@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -18,9 +19,9 @@ type PatternType int
 const (
 	PatternRegex PatternType = iota
 	PatternLiteral
-	PatternPath     // path pattern with variable expansion and symlink resolution (also used for glob-like matching)
-	PatternFlag     // flag pattern matching characters in flags (e.g., flags:rf matches -rf, -fr)
-	PatternRef      // reference to another config value (e.g., ref:read.allow.paths)
+	PatternPath // path pattern with variable expansion and symlink resolution (also used for glob-like matching)
+	PatternFlag // flag pattern matching characters in flags (e.g., flags:rf matches -rf, -fr)
+	PatternRef  // reference to another config value (e.g., ref:read.allow.paths)
 )
 
 // MatchContext provides context needed for path pattern matching and ref resolution.
@@ -126,8 +127,8 @@ func parseFlagPattern(s string) (string, string, error) {
 	}
 
 	// Handle "flags:chars" format (default delimiter is "-")
-	if strings.HasPrefix(s, "flags:") {
-		chars := strings.TrimPrefix(s, "flags:")
+	if after, ok := strings.CutPrefix(s, "flags:"); ok {
+		chars := after
 		if chars == "" {
 			return "", "", fmt.Errorf("flag pattern requires at least one character")
 		}
@@ -228,8 +229,8 @@ func resolveFileToolRef(parts []string, merged *MergedConfig) []string {
 	}
 
 	toolName := titleCaser.String(parts[0]) // "read" -> "Read"
-	action := parts[1]                    // "allow" or "deny"
-	field := parts[2]                     // "paths"
+	action := parts[1]                      // "allow" or "deny"
+	field := parts[2]                       // "paths"
 
 	if field != "paths" {
 		return nil
@@ -438,10 +439,8 @@ func Contains(ss []string, substrings []string) bool {
 // ContainsExact checks if any string exactly equals any of the targets.
 func ContainsExact(ss []string, targets []string) bool {
 	for _, s := range ss {
-		for _, t := range targets {
-			if s == t {
-				return true
-			}
+		if slices.Contains(targets, s) {
+			return true
 		}
 	}
 	return false
