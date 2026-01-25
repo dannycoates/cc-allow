@@ -58,7 +58,7 @@ safe-write = ["path:$PROJECT_ROOT/**", "path:/tmp/**"]
 sensitive = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
 ```
 
-Reference with `alias:` prefix:
+Reference with `alias:` prefix (aliases cannot reference other aliases):
 
 ```toml
 [read.allow]
@@ -136,7 +136,6 @@ args.any = ["-r", "-rf"]              # at least one must match (OR)
 args.all = ["path:*.txt"]             # all args must match (AND)
 args.not = { any = ["--dry-run"] }    # negate the result
 args.position = { "0" = "/etc/*" }    # absolute positional match
-args.contains = ["--force"]           # must contain all (exact match)
 ```
 
 #### Position with Enum Values
@@ -336,7 +335,7 @@ message = "Cannot write to {{.FilePath}} - system directory"
 
 **Block a command**: Add to `[bash.deny].commands` or create `[[bash.deny.X]]`
 
-**Block with specific args**: Use `[[bash.deny.X]]` with `args.any` or `args.contains`
+**Block with specific args**: Use `[[bash.deny.X]]` with `args.any` or `args.all`
 
 **Block subcommand**: Use nested path like `[[bash.deny.git.push]]`
 

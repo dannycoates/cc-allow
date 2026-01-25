@@ -700,7 +700,7 @@ func (e *Evaluator) shouldRespectFileRules(rule *TrackedRule) bool {
 		}
 		return false
 	}
-	if e.merged.Policy.RespectFileRules.Value == "true" {
+	if e.merged.Policy.RespectFileRules.Value {
 		return e.hasFileRulesConfigured()
 	}
 	return false
@@ -827,7 +827,7 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 	}
 
 	// Check file rules if enabled
-	if e.merged.RedirectsPolicy.RespectFileRules.Value == "true" && e.hasFileRulesConfigured() {
+	if e.merged.RedirectsPolicy.RespectFileRules.Value && e.hasFileRulesConfigured() {
 		accessType := "Write"
 		if redir.IsInput {
 			accessType = "Read"

@@ -128,7 +128,7 @@ func TestHarness(t *testing.T) {
 	rulesets := make(map[string]*Config)
 	for name, path := range harness.Rulesets {
 		fullPath := filepath.Join("testdata", path)
-		cfg, err := LoadConfig(fullPath)
+		cfg, err := LoadConfigWithDefaults(fullPath)
 		if err != nil {
 			t.Fatalf("Failed to load ruleset %q from %s: %v", name, fullPath, err)
 		}
@@ -240,7 +240,7 @@ func TestHarnessRulesetLoading(t *testing.T) {
 	for name, path := range harness.Rulesets {
 		fullPath := filepath.Join("testdata", path)
 		t.Run(name, func(t *testing.T) {
-			cfg, err := LoadConfig(fullPath)
+			cfg, err := LoadConfigWithDefaults(fullPath)
 			if err != nil {
 				t.Fatalf("Failed to load: %v", err)
 			}

@@ -182,6 +182,7 @@ commands = [
     "lspci",                        # PCI devices
     "lsof",                         # open files
     "dmesg",                        # kernel messages
+    "journalctl",                   # systemd journal
 
     # -------------------------------------------------------------------------
     # Process Inspection (Read-Only)
@@ -209,6 +210,14 @@ commands = [
     "tcpdump",                      # packet capture
 
     # -------------------------------------------------------------------------
+    # HTTP Clients (piping to shell is blocked below)
+    # -------------------------------------------------------------------------
+    "curl",                         # HTTP client
+    "wget",                         # HTTP client
+    "http", "https",                # HTTPie
+    "aria2c",                       # download utility
+
+    # -------------------------------------------------------------------------
     # Shell Builtins & Utilities
     # -------------------------------------------------------------------------
     "test", "[", "[[",              # conditionals
@@ -226,6 +235,70 @@ commands = [
     "fossil",                       # fossil
 
     # -------------------------------------------------------------------------
+    # Build Systems & Task Runners
+    # -------------------------------------------------------------------------
+    "just",                         # just command runner
+    "make",                         # GNU make
+    "cmake",                        # CMake
+    "ninja",                        # Ninja build
+    "meson",                        # Meson build
+    "bazel",                        # Bazel build
+
+    # -------------------------------------------------------------------------
+    # Go
+    # -------------------------------------------------------------------------
+    "go",                           # Go toolchain
+    "gofmt", "goimports",           # Go formatters
+    "golint", "golangci-lint",      # Go linters
+    "goreleaser",                   # Go release automation
+
+    # -------------------------------------------------------------------------
+    # Node.js / JavaScript / TypeScript
+    # -------------------------------------------------------------------------
+    "node",                         # Node.js runtime
+    "npm",                          # Node package manager
+    "npx",                          # npm package runner
+    "pnpm",                         # fast Node package manager
+    "yarn",                         # Yarn package manager
+    "bun",                          # Bun runtime/package manager
+    "deno",                         # Deno runtime
+    "tsc",                          # TypeScript compiler
+    "eslint",                       # JavaScript linter
+    "prettier",                     # Code formatter
+    "vitest", "jest", "mocha",      # Test runners
+
+    # -------------------------------------------------------------------------
+    # Python
+    # -------------------------------------------------------------------------
+    "python", "python3",            # Python interpreters
+    "pip", "pip3",                  # Python package installers
+    "uv",                           # fast Python package installer
+    "poetry",                       # Python dependency management
+    "pipenv",                       # Python env manager
+    "pytest",                       # Python test runner
+    "ruff",                         # Python linter
+    "black", "isort",               # Python formatters
+    "mypy", "pyright",              # Python type checkers
+
+    # -------------------------------------------------------------------------
+    # Rust
+    # -------------------------------------------------------------------------
+    "cargo",                        # Rust package manager
+    "rustc",                        # Rust compiler
+    "rustup",                       # Rust toolchain manager
+    "rustfmt",                      # Rust formatter
+    "clippy",                       # Rust linter
+
+    # -------------------------------------------------------------------------
+    # Data Processing
+    # -------------------------------------------------------------------------
+    "jq",                           # JSON processor
+    "yq",                           # YAML/JSON processor
+    "sqlite3",                      # SQLite CLI
+    "csvtool", "csvkit",            # CSV tools
+    "xsv",                          # fast CSV toolkit
+
+    # -------------------------------------------------------------------------
     # Misc Utilities
     # -------------------------------------------------------------------------
     "man", "info", "help",          # documentation
@@ -236,7 +309,7 @@ commands = [
     "strace", "ltrace",             # syscall/library tracing
     "md5sum", "sha1sum", "sha256sum", "sha512sum",  # checksums
     "base64",                       # base64 encoding
-    "nix", "nix-env", "nix-shell",  # Nix
+    "nix", "nix-env", "nix-shell", "nix-build",  # Nix
 ]
 
 # ============================================================================
@@ -370,6 +443,26 @@ args.any = ["--privileged"]
 [[bash.deny.ssh]]
 message = "{{.ArgsStr}} - ssh with custom options requires review"
 args.any = ["flags:o"]
+
+# --- npm: Block global installs ---
+[[bash.deny.npm]]
+message = "{{.ArgsStr}} - global npm install requires review"
+args.all = [
+    { any = ["i", "install"] },
+    { any = ["flags:g", "--global"] }
+]
+
+# --- pip: Block system-wide installs (no --user or venv) ---
+[[bash.deny.pip]]
+message = "{{.ArgsStr}} - system pip install requires review (use --user or venv)"
+args.not = { any = ["--user", "-e", "flags:e", "--editable"] }
+
+[[bash.deny.pip3.install]]
+message = "{{.ArgsStr}} - system pip install requires review (use --user or venv)"
+args.not = { any = ["--user", "-e", "flags:e", "--editable"] }
+
+# --- kill: Allow (single process) ---
+[[bash.allow.kill]]
 
 # ============================================================================
 # FILE TOOL PERMISSIONS (Read, Edit, Write)

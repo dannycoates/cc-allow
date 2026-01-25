@@ -45,6 +45,7 @@ subshells = "ask"
 commands = [
     # Plugin/Skill Binaries
     "alias:plugin",
+    "path:$HOME/**/cc-query",
 
     # File & Directory Navigation
     "ls", "dir", "vdir", "pwd", "tree", "file", "stat",

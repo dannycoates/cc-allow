@@ -56,10 +56,10 @@ Bash Input → [main.go] Parse → [walk.go] AST Extraction → [eval.go] Rule E
 
 1. **Specificity-based matching** - More specific rules win (CSS-like scoring):
    - Exact command (no prefix): +100
+   - Each subcommand level: +50
    - Each `args.position` entry: +20
-   - Each `args.contains` entry: +10
-   - Each `args.any_match`/`args.all_match`: +5
-   - Each `pipe.to`/`pipe.from` entry: +10
+   - Each `args.any`/`args.all`/`args.not`/`args.xor` item: +5
+   - Each exact `pipe.to`/`pipe.from` entry: +10
 
 2. **Tie-breaking**: deny > ask > allow (most restrictive wins)
 

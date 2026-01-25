@@ -69,10 +69,10 @@ message = "Dangerous or untrusted command blocked"
 # RULES — Basic Argument Matching
 # =============================================================================
 
-# --- contains: all listed strings must be present ---
+# --- any: at least one pattern must match (OR semantics) ---
 [[bash.deny.rm]]
 message = "{{.ArgsStr}} — recursive force deletion blocked"
-args.contains = ["-rf"]                 # must have exactly "-rf"
+args.any = ["-rf", "flags:r"]           # match -rf or any flag with 'r'
 
 # --- any: at least one pattern must match (OR semantics) ---
 [[bash.deny.chmod]]

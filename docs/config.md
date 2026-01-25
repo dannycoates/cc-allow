@@ -234,15 +234,6 @@ args.all = [
 - `args.position` = **absolute** positions (arg[0] must be X, arg[1] must be Y)
 - Objects in `args.any`/`args.all` = **relative** positions (sliding window match anywhere)
 
-### Contains Matching
-
-Match exact substrings in arguments:
-
-```toml
-[[bash.deny.git.reset]]
-args.contains = ["--hard"]
-```
-
 ---
 
 ## Pipe Context
@@ -438,6 +429,8 @@ args.any = ["alias:project"]
 Aliases can be:
 - **String**: Single pattern (expands in place)
 - **Array**: Multiple patterns (expands inline)
+
+**Note:** Aliases cannot reference other aliases. Each alias must contain only direct patterns.
 
 ---
 

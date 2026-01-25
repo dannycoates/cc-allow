@@ -141,9 +141,9 @@ paths = ["re:.*\\.(key|pem|p12)$"]
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := ParseConfig(tt.config)
+			cfg, err := ParseConfigWithDefaults(tt.config)
 			if err != nil {
-				t.Fatalf("ParseConfig failed: %v", err)
+				t.Fatalf("ParseConfigWithDefaults failed: %v", err)
 			}
 
 			chain := &ConfigChain{
@@ -176,15 +176,15 @@ version = "2.0"
 paths = ["path:/secrets/**"]
 `
 
-	global, err := parseConfigRaw(globalConfig)
+	global, err := parseConfig(globalConfig)
 	if err != nil {
-		t.Fatalf("parseConfigRaw(global) failed: %v", err)
+		t.Fatalf("parseConfig(global) failed: %v", err)
 	}
 	global.Path = "global"
 
-	project, err := parseConfigRaw(projectConfig)
+	project, err := parseConfig(projectConfig)
 	if err != nil {
-		t.Fatalf("parseConfigRaw(project) failed: %v", err)
+		t.Fatalf("parseConfig(project) failed: %v", err)
 	}
 	project.Path = "project"
 
@@ -231,9 +231,9 @@ version = "2.0"
 paths = ["path:/etc/**"]
 message = "Cannot write to system files"
 `
-	cfg, err := ParseConfig(config)
+	cfg, err := ParseConfigWithDefaults(config)
 	if err != nil {
-		t.Fatalf("ParseConfig failed: %v", err)
+		t.Fatalf("ParseConfigWithDefaults failed: %v", err)
 	}
 
 	chain := &ConfigChain{
@@ -296,9 +296,9 @@ paths = ["path:$PROJECT_ROOT/**"]
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseConfig(tt.config)
+			_, err := ParseConfigWithDefaults(tt.config)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ParseConfig() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("ParseConfigWithDefaults() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

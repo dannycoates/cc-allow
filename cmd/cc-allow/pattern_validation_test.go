@@ -15,7 +15,7 @@ version = "2.0"
 message = "Should deny rm with recursive flag"
 args.any = ["re:[invalid"]
 `
-	_, err := ParseConfig(config)
+	_, err := ParseConfigWithDefaults(config)
 	if err == nil {
 		t.Errorf("Expected parse error for invalid regex in args.any")
 	}
@@ -28,7 +28,7 @@ version = "2.0"
 message = "Should deny rm"
 args.all = ["-r", "re:(unclosed"]
 `
-	_, err := ParseConfig(config)
+	_, err := ParseConfigWithDefaults(config)
 	if err == nil {
 		t.Errorf("Expected parse error for invalid regex in args.all")
 	}
@@ -41,7 +41,7 @@ version = "2.0"
 message = "Should deny chmod 777"
 args.position = { "0" = "re:777[" }
 `
-	_, err := ParseConfig(config)
+	_, err := ParseConfigWithDefaults(config)
 	if err == nil {
 		t.Errorf("Expected parse error for invalid regex in args.position")
 	}
@@ -54,7 +54,7 @@ version = "2.0"
 message = "Should deny redirects to /etc"
 paths = ["re:/etc/["]
 `
-	_, err := ParseConfig(config)
+	_, err := ParseConfigWithDefaults(config)
 	if err == nil {
 		t.Errorf("Expected parse error for invalid regex in redirect paths")
 	}
@@ -70,7 +70,7 @@ heredocs = "allow"
 message = "Should deny heredocs with DROP TABLE"
 content.any = ["re:DROP TABLE["]
 `
-	_, err := ParseConfig(config)
+	_, err := ParseConfigWithDefaults(config)
 	if err == nil {
 		t.Errorf("Expected parse error for invalid regex in heredoc content")
 	}
@@ -82,7 +82,7 @@ version = "2.0"
 [bash.allow]
 commands = ["path:/valid/**", "re:[invalid"]
 `
-	_, err := ParseConfig(config)
+	_, err := ParseConfigWithDefaults(config)
 	if err == nil {
 		t.Errorf("Validate() should catch invalid patterns in bash.allow.commands")
 	}
@@ -97,7 +97,7 @@ version = "2.0"
 [bash.deny]
 commands = ["re:[invalid"]
 `
-	_, err := ParseConfig(config)
+	_, err := ParseConfigWithDefaults(config)
 	if err == nil {
 		t.Errorf("Validate() should catch invalid patterns in bash.deny.commands")
 	}
@@ -131,7 +131,7 @@ content.any = ["re:DROP\\s+TABLE", "re:DELETE\\s+FROM"]
 [read.deny]
 paths = ["path:**/*.key", "re:.*\\.pem$"]
 `
-	_, err := ParseConfig(config)
+	_, err := ParseConfigWithDefaults(config)
 	if err != nil {
 		t.Errorf("Valid patterns should parse without error: %v", err)
 	}

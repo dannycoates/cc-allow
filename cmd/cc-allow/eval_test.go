@@ -39,9 +39,9 @@ func parseAndEvalChain(t *testing.T, configs []*Config, input string) Result {
 
 func configFromTOML(t *testing.T, toml string) *Config {
 	t.Helper()
-	cfg, err := ParseConfig(toml)
+	cfg, err := ParseConfigWithDefaults(toml)
 	if err != nil {
-		t.Fatalf("ParseConfig error: %v", err)
+		t.Fatalf("ParseConfigWithDefaults error: %v", err)
 	}
 	return cfg
 }

@@ -10,8 +10,8 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// LoadConfig reads and parses a TOML configuration file.
-func LoadConfig(path string) (*Config, error) {
+// loadConfig reads and parses a TOML configuration file without applying defaults.
+func loadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -19,7 +19,7 @@ func LoadConfig(path string) (*Config, error) {
 		}
 		return nil, fmt.Errorf("%w: %s: %w", ErrConfigRead, path, err)
 	}
-	cfg, err := ParseConfig(string(data))
+	cfg, err := parseConfig(string(data))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
@@ -27,11 +27,43 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// ParseConfig parses a TOML configuration string.
-func ParseConfig(data string) (*Config, error) {
+// parseConfig parses a TOML configuration string without applying defaults.
+func parseConfig(data string) (*Config, error) {
 	cfg, err := parseConfigInternal(data)
 	if err != nil {
 		return nil, err
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// LoadConfigWithDefaults reads and parses a TOML configuration file with defaults applied.
+func LoadConfigWithDefaults(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %s", ErrConfigNotFound, path)
+		}
+		return nil, fmt.Errorf("%w: %s: %w", ErrConfigRead, path, err)
+	}
+	cfg, err := ParseConfigWithDefaults(string(data))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	cfg.Path = path
+	return cfg, nil
+}
+
+// ParseConfigWithDefaults parses a TOML configuration string with defaults applied.
+func ParseConfigWithDefaults(data string) (*Config, error) {
+	cfg, err := parseConfigInternal(data)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Path == "" {
+		cfg.Path = "(inline)"
 	}
 	applyDefaults(cfg)
 	if err := cfg.Validate(); err != nil {
@@ -40,38 +72,9 @@ func ParseConfig(data string) (*Config, error) {
 	return cfg, nil
 }
 
-// parseConfigRaw parses without applying defaults (for config chain merging).
-func parseConfigRaw(data string) (*Config, error) {
-	cfg, err := parseConfigInternal(data)
-	if err != nil {
-		return nil, err
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
-// loadConfigRaw reads and parses without applying defaults.
-func loadConfigRaw(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("%w: %s", ErrConfigNotFound, path)
-		}
-		return nil, fmt.Errorf("%w: %s: %w", ErrConfigRead, path, err)
-	}
-	cfg, err := parseConfigRaw(string(data))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	cfg.Path = path
-	return cfg, nil
-}
-
 // parseConfigInternal parses TOML and extracts nested command rules.
 func parseConfigInternal(data string) (*Config, error) {
-	// First decode into raw map to check for legacy format
+	// Decode once into raw map
 	var raw map[string]interface{}
 	if _, err := toml.Decode(data, &raw); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrConfigParse, err)
@@ -83,45 +86,206 @@ func parseConfigInternal(data string) (*Config, error) {
 		return nil, err
 	}
 
-	// Decode standard fields
-	var cfg Config
-	if _, err := toml.Decode(data, &cfg); err != nil {
+	// Build config from raw map
+	cfg, err := configFromRaw(raw)
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrConfigParse, err)
-	}
-
-	// Parse nested command rules from [bash.allow.X] and [bash.deny.X]
-	if bashRaw, ok := raw["bash"].(map[string]interface{}); ok {
-		rules, err := parseBashRules(bashRaw, cfg.Aliases)
-		if err != nil {
-			return nil, fmt.Errorf("%w: bash: %w", ErrConfigParse, err)
-		}
-		cfg.parsedRules = rules
-
-		// Parse redirect rules
-		if redirectsRaw, ok := bashRaw["redirects"].(map[string]interface{}); ok {
-			redirectRules, err := parseRedirectRules(redirectsRaw)
-			if err != nil {
-				return nil, fmt.Errorf("%w: bash.redirects: %w", ErrConfigParse, err)
-			}
-			cfg.parsedRedirects = redirectRules
-		}
-
-		// Parse heredoc rules
-		if heredocsRaw, ok := bashRaw["heredocs"].(map[string]interface{}); ok {
-			heredocRules, err := parseHeredocRules(heredocsRaw)
-			if err != nil {
-				return nil, fmt.Errorf("%w: bash.heredocs: %w", ErrConfigParse, err)
-			}
-			cfg.parsedHeredocs = heredocRules
-		}
 	}
 
 	// Resolve aliases in all patterns
-	if err := resolveAliasesInConfig(&cfg); err != nil {
+	if err := resolveAliasesInConfig(cfg); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrConfigParse, err)
 	}
 
-	return &cfg, nil
+	return cfg, nil
+}
+
+// configFromRaw builds a Config from a raw TOML map.
+func configFromRaw(raw map[string]interface{}) (*Config, error) {
+	cfg := &Config{}
+
+	// Extract version
+	cfg.Version, _ = raw["version"].(string)
+
+	// Extract aliases
+	if aliasesRaw, ok := raw["aliases"].(map[string]interface{}); ok {
+		aliases, err := parseAliasesFromRaw(aliasesRaw)
+		if err != nil {
+			return nil, fmt.Errorf("aliases: %w", err)
+		}
+		cfg.Aliases = aliases
+	}
+
+	// Extract bash config
+	if bashRaw, ok := raw["bash"].(map[string]interface{}); ok {
+		bashCfg, err := parseBashConfigFromRaw(bashRaw, cfg.Aliases)
+		if err != nil {
+			return nil, fmt.Errorf("bash: %w", err)
+		}
+		cfg.Bash = bashCfg.config
+		cfg.parsedRules = bashCfg.rules
+		cfg.parsedRedirects = bashCfg.redirects
+		cfg.parsedHeredocs = bashCfg.heredocs
+	}
+
+	// Extract file tool configs
+	if readRaw, ok := raw["read"].(map[string]interface{}); ok {
+		cfg.Read = parseFileToolConfigFromRaw(readRaw)
+	}
+	if writeRaw, ok := raw["write"].(map[string]interface{}); ok {
+		cfg.Write = parseFileToolConfigFromRaw(writeRaw)
+	}
+	if editRaw, ok := raw["edit"].(map[string]interface{}); ok {
+		cfg.Edit = parseFileToolConfigFromRaw(editRaw)
+	}
+
+	// Extract debug config
+	if debugRaw, ok := raw["debug"].(map[string]interface{}); ok {
+		cfg.Debug.LogFile, _ = debugRaw["log_file"].(string)
+	}
+
+	return cfg, nil
+}
+
+// parseAliasesFromRaw parses the aliases section.
+func parseAliasesFromRaw(raw map[string]interface{}) (map[string]Alias, error) {
+	aliases := make(map[string]Alias)
+	for name, val := range raw {
+		var alias Alias
+		if err := alias.UnmarshalTOML(val); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
+		}
+		aliases[name] = alias
+	}
+	return aliases, nil
+}
+
+// bashConfigResult holds the parsed bash config and nested rules.
+type bashConfigResult struct {
+	config    BashConfig
+	rules     []BashRule
+	redirects []RedirectRule
+	heredocs  []HeredocRule
+}
+
+// parseBashConfigFromRaw parses the bash section.
+func parseBashConfigFromRaw(raw map[string]interface{}, aliases map[string]Alias) (*bashConfigResult, error) {
+	result := &bashConfigResult{}
+
+	// Extract scalar fields
+	result.config.Default, _ = raw["default"].(string)
+	result.config.DynamicCommands, _ = raw["dynamic_commands"].(string)
+	result.config.UnresolvedCommands, _ = raw["unresolved_commands"].(string)
+	result.config.DefaultMessage, _ = raw["default_message"].(string)
+
+	// Extract respect_file_rules
+	if rfr, ok := raw["respect_file_rules"].(bool); ok {
+		result.config.RespectFileRules = &rfr
+	}
+
+	// Extract constructs
+	if constructsRaw, ok := raw["constructs"].(map[string]interface{}); ok {
+		result.config.Constructs.Subshells, _ = constructsRaw["subshells"].(string)
+		result.config.Constructs.Background, _ = constructsRaw["background"].(string)
+		result.config.Constructs.FunctionDefinitions, _ = constructsRaw["function_definitions"].(string)
+		result.config.Constructs.Heredocs, _ = constructsRaw["heredocs"].(string)
+	}
+
+	// Extract allow section
+	if allowRaw, ok := raw["allow"].(map[string]interface{}); ok {
+		result.config.Allow = parseBashAllowDenyFromRaw(allowRaw)
+	}
+
+	// Extract deny section
+	if denyRaw, ok := raw["deny"].(map[string]interface{}); ok {
+		result.config.Deny = parseBashAllowDenyFromRaw(denyRaw)
+	}
+
+	// Parse nested command rules
+	rules, err := parseBashRules(raw, aliases)
+	if err != nil {
+		return nil, err
+	}
+	result.rules = rules
+
+	// Extract redirects section
+	if redirectsRaw, ok := raw["redirects"].(map[string]interface{}); ok {
+		// Extract respect_file_rules for redirects
+		if rfr, ok := redirectsRaw["respect_file_rules"].(bool); ok {
+			result.config.Redirects.RespectFileRules = &rfr
+		}
+
+		// Parse redirect rules
+		redirectRules, err := parseRedirectRules(redirectsRaw)
+		if err != nil {
+			return nil, fmt.Errorf("redirects: %w", err)
+		}
+		result.redirects = redirectRules
+	}
+
+	// Extract heredocs section
+	if heredocsRaw, ok := raw["heredocs"].(map[string]interface{}); ok {
+		heredocRules, err := parseHeredocRules(heredocsRaw)
+		if err != nil {
+			return nil, fmt.Errorf("heredocs: %w", err)
+		}
+		result.heredocs = heredocRules
+	}
+
+	return result, nil
+}
+
+// parseBashAllowDenyFromRaw parses a bash.allow or bash.deny section.
+func parseBashAllowDenyFromRaw(raw map[string]interface{}) BashAllowDeny {
+	var result BashAllowDeny
+
+	// Extract commands array
+	if cmds, ok := raw["commands"].([]interface{}); ok {
+		for _, cmd := range cmds {
+			if s, ok := cmd.(string); ok {
+				result.Commands = append(result.Commands, s)
+			}
+		}
+	}
+
+	// Extract message
+	result.Message, _ = raw["message"].(string)
+
+	return result
+}
+
+// parseFileToolConfigFromRaw parses a read/write/edit section.
+func parseFileToolConfigFromRaw(raw map[string]interface{}) FileToolConfig {
+	var cfg FileToolConfig
+
+	cfg.Default, _ = raw["default"].(string)
+
+	if allowRaw, ok := raw["allow"].(map[string]interface{}); ok {
+		cfg.Allow = parseFileAllowDenyFromRaw(allowRaw)
+	}
+
+	if denyRaw, ok := raw["deny"].(map[string]interface{}); ok {
+		cfg.Deny = parseFileAllowDenyFromRaw(denyRaw)
+	}
+
+	return cfg
+}
+
+// parseFileAllowDenyFromRaw parses a file tool allow/deny section.
+func parseFileAllowDenyFromRaw(raw map[string]interface{}) FileAllowDeny {
+	var result FileAllowDeny
+
+	if paths, ok := raw["paths"].([]interface{}); ok {
+		for _, p := range paths {
+			if s, ok := p.(string); ok {
+				result.Paths = append(result.Paths, s)
+			}
+		}
+	}
+
+	result.Message, _ = raw["message"].(string)
+
+	return result
 }
 
 // validateConfigVersion checks the version and detects legacy format.
@@ -389,23 +553,67 @@ func parseArgsMatch(raw map[string]interface{}) (ArgsMatch, error) {
 func parsePipeContext(raw map[string]interface{}) (PipeContext, error) {
 	var pipe PipeContext
 
-	if toRaw, ok := raw["to"].([]interface{}); ok {
-		for _, item := range toRaw {
-			if s, ok := item.(string); ok {
-				pipe.To = append(pipe.To, s)
-			}
+	if toRaw, ok := raw["to"]; ok {
+		to, err := parseStringOrArray(toRaw)
+		if err != nil {
+			return PipeContext{}, fmt.Errorf("to: %w", err)
 		}
+		pipe.To = to
 	}
 
-	if fromRaw, ok := raw["from"].([]interface{}); ok {
-		for _, item := range fromRaw {
-			if s, ok := item.(string); ok {
-				pipe.From = append(pipe.From, s)
-			}
+	if fromRaw, ok := raw["from"]; ok {
+		from, err := parseStringOrArray(fromRaw)
+		if err != nil {
+			return PipeContext{}, fmt.Errorf("from: %w", err)
 		}
+		pipe.From = from
 	}
 
 	return pipe, nil
+}
+
+// parseStringOrArray parses a value that can be either a string or array of strings.
+func parseStringOrArray(val interface{}) ([]string, error) {
+	switch v := val.(type) {
+	case string:
+		return []string{v}, nil
+	case []interface{}:
+		var result []string
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			} else {
+				return nil, fmt.Errorf("array elements must be strings")
+			}
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("expected string or array, got %T", val)
+	}
+}
+
+// toTableSlice normalizes TOML array-of-tables to []map[string]interface{}.
+// TOML libraries may decode [[section]] as either []map[string]interface{}
+// or []interface{} depending on the content. This helper handles both.
+func toTableSlice(raw interface{}) []map[string]interface{} {
+	if raw == nil {
+		return nil
+	}
+	// Try direct type first (more efficient)
+	if tables, ok := raw.([]map[string]interface{}); ok {
+		return tables
+	}
+	// Fall back to []interface{} and convert
+	if items, ok := raw.([]interface{}); ok {
+		tables := make([]map[string]interface{}, 0, len(items))
+		for _, item := range items {
+			if table, ok := item.(map[string]interface{}); ok {
+				tables = append(tables, table)
+			}
+		}
+		return tables
+	}
+	return nil
 }
 
 // parseRedirectRules parses redirect rules from [bash.redirects].
@@ -413,49 +621,21 @@ func parseRedirectRules(raw map[string]interface{}) ([]RedirectRule, error) {
 	var rules []RedirectRule
 
 	// Parse [[bash.redirects.allow]]
-	if allowRaw, ok := raw["allow"].([]map[string]interface{}); ok {
-		for i, table := range allowRaw {
-			rule, err := parseRedirectRule("allow", table)
-			if err != nil {
-				return nil, fmt.Errorf("allow[%d]: %w", i, err)
-			}
-			rules = append(rules, rule)
+	for i, table := range toTableSlice(raw["allow"]) {
+		rule, err := parseRedirectRule("allow", table)
+		if err != nil {
+			return nil, fmt.Errorf("allow[%d]: %w", i, err)
 		}
-	} else if allowRaw, ok := raw["allow"].([]interface{}); ok {
-		for i, item := range allowRaw {
-			table, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			rule, err := parseRedirectRule("allow", table)
-			if err != nil {
-				return nil, fmt.Errorf("allow[%d]: %w", i, err)
-			}
-			rules = append(rules, rule)
-		}
+		rules = append(rules, rule)
 	}
 
 	// Parse [[bash.redirects.deny]]
-	if denyRaw, ok := raw["deny"].([]map[string]interface{}); ok {
-		for i, table := range denyRaw {
-			rule, err := parseRedirectRule("deny", table)
-			if err != nil {
-				return nil, fmt.Errorf("deny[%d]: %w", i, err)
-			}
-			rules = append(rules, rule)
+	for i, table := range toTableSlice(raw["deny"]) {
+		rule, err := parseRedirectRule("deny", table)
+		if err != nil {
+			return nil, fmt.Errorf("deny[%d]: %w", i, err)
 		}
-	} else if denyRaw, ok := raw["deny"].([]interface{}); ok {
-		for i, item := range denyRaw {
-			table, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			rule, err := parseRedirectRule("deny", table)
-			if err != nil {
-				return nil, fmt.Errorf("deny[%d]: %w", i, err)
-			}
-			rules = append(rules, rule)
-		}
+		rules = append(rules, rule)
 	}
 
 	return rules, nil
@@ -489,49 +669,21 @@ func parseHeredocRules(raw map[string]interface{}) ([]HeredocRule, error) {
 	var rules []HeredocRule
 
 	// Parse [[bash.heredocs.allow]]
-	if allowRaw, ok := raw["allow"].([]map[string]interface{}); ok {
-		for i, table := range allowRaw {
-			rule, err := parseHeredocRule("allow", table)
-			if err != nil {
-				return nil, fmt.Errorf("allow[%d]: %w", i, err)
-			}
-			rules = append(rules, rule)
+	for i, table := range toTableSlice(raw["allow"]) {
+		rule, err := parseHeredocRule("allow", table)
+		if err != nil {
+			return nil, fmt.Errorf("allow[%d]: %w", i, err)
 		}
-	} else if allowRaw, ok := raw["allow"].([]interface{}); ok {
-		for i, item := range allowRaw {
-			table, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			rule, err := parseHeredocRule("allow", table)
-			if err != nil {
-				return nil, fmt.Errorf("allow[%d]: %w", i, err)
-			}
-			rules = append(rules, rule)
-		}
+		rules = append(rules, rule)
 	}
 
 	// Parse [[bash.heredocs.deny]]
-	if denyRaw, ok := raw["deny"].([]map[string]interface{}); ok {
-		for i, table := range denyRaw {
-			rule, err := parseHeredocRule("deny", table)
-			if err != nil {
-				return nil, fmt.Errorf("deny[%d]: %w", i, err)
-			}
-			rules = append(rules, rule)
+	for i, table := range toTableSlice(raw["deny"]) {
+		rule, err := parseHeredocRule("deny", table)
+		if err != nil {
+			return nil, fmt.Errorf("deny[%d]: %w", i, err)
 		}
-	} else if denyRaw, ok := raw["deny"].([]interface{}); ok {
-		for i, item := range denyRaw {
-			table, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			rule, err := parseHeredocRule("deny", table)
-			if err != nil {
-				return nil, fmt.Errorf("deny[%d]: %w", i, err)
-			}
-			rules = append(rules, rule)
-		}
+		rules = append(rules, rule)
 	}
 
 	return rules, nil
@@ -593,14 +745,69 @@ func applyDefaults(cfg *Config) {
 	}
 }
 
+// isValidAction checks if a string is a valid action value.
+func isValidAction(action string) bool {
+	switch action {
+	case "allow", "deny", "ask", "":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateAction checks that an action value is valid, returning an error if not.
+func validateAction(action, field string) error {
+	if !isValidAction(action) {
+		return fmt.Errorf("%w: %s: invalid action %q (must be \"allow\", \"deny\", or \"ask\")", ErrInvalidConfig, field, action)
+	}
+	return nil
+}
+
 // Validate checks that all patterns in the config are valid.
 func (cfg *Config) Validate() error {
+	// Validate action values
+	if err := validateAction(cfg.Bash.Default, "bash.default"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Bash.DynamicCommands, "bash.dynamic_commands"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Bash.UnresolvedCommands, "bash.unresolved_commands"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Bash.Constructs.Subshells, "bash.constructs.subshells"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Bash.Constructs.Background, "bash.constructs.background"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Bash.Constructs.FunctionDefinitions, "bash.constructs.function_definitions"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Bash.Constructs.Heredocs, "bash.constructs.heredocs"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Read.Default, "read.default"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Write.Default, "write.default"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Edit.Default, "edit.default"); err != nil {
+		return err
+	}
 	// Validate aliases
-	for name := range cfg.Aliases {
+	for name, alias := range cfg.Aliases {
 		if strings.HasPrefix(name, "path:") || strings.HasPrefix(name, "re:") ||
 			strings.HasPrefix(name, "flags:") || strings.HasPrefix(name, "alias:") ||
 			strings.HasPrefix(name, "ref:") {
 			return fmt.Errorf("%w: aliases: name %q cannot start with a reserved prefix", ErrInvalidConfig, name)
+		}
+		// Aliases cannot reference other aliases (prevents circular references)
+		for i, pattern := range alias.Patterns {
+			if strings.HasPrefix(pattern, "alias:") {
+				return fmt.Errorf("%w: aliases[%s][%d]: aliases cannot reference other aliases", ErrInvalidConfig, name, i)
+			}
 		}
 	}
 
@@ -913,6 +1120,8 @@ func expandPatternsSlice(patterns []string, aliases map[string]Alias) ([]string,
 }
 
 // expandAlias expands a single pattern if it's an alias reference.
+// Aliases cannot reference other aliases (validated at parse time),
+// so this is a simple one-level expansion.
 func expandAlias(pattern string, aliases map[string]Alias) ([]string, error) {
 	if !strings.HasPrefix(pattern, "alias:") {
 		return []string{pattern}, nil
@@ -924,17 +1133,7 @@ func expandAlias(pattern string, aliases map[string]Alias) ([]string, error) {
 		return nil, fmt.Errorf("undefined alias: %s", aliasName)
 	}
 
-	// Recursively expand
-	var result []string
-	for _, p := range alias.Patterns {
-		expanded, err := expandAlias(p, aliases)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, expanded...)
-	}
-
-	return result, nil
+	return alias.Patterns, nil
 }
 
 // DefaultConfig returns a minimal default configuration.
@@ -966,7 +1165,7 @@ func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
 
 	// 1. Load global config
 	if globalPath := findGlobalConfig(); globalPath != "" {
-		cfg, err := loadConfigRaw(globalPath)
+		cfg, err := loadConfig(globalPath)
 		if err != nil {
 			return nil, err
 		}
@@ -976,14 +1175,14 @@ func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
 	// 2. Load project configs
 	projectPath, localPath := findProjectConfigs()
 	if projectPath != "" {
-		cfg, err := loadConfigRaw(projectPath)
+		cfg, err := loadConfig(projectPath)
 		if err != nil {
 			return nil, err
 		}
 		chain.Configs = append(chain.Configs, cfg)
 	}
 	if localPath != "" {
-		cfg, err := loadConfigRaw(localPath)
+		cfg, err := loadConfig(localPath)
 		if err != nil {
 			return nil, err
 		}
@@ -992,7 +1191,7 @@ func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
 
 	// 3. Load explicit config
 	if explicitPath != "" {
-		cfg, err := loadConfigRaw(explicitPath)
+		cfg, err := loadConfig(explicitPath)
 		if err != nil {
 			return nil, err
 		}

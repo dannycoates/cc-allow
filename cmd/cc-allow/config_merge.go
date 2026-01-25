@@ -23,38 +23,34 @@ func isStricter(newVal, currentVal string) bool {
 	return actionStrictness(newVal) > actionStrictness(currentVal)
 }
 
-// mergeTrackedValue merges a policy field, keeping the stricter value.
-func mergeTrackedValue(current TrackedValue, newVal, newSource string) TrackedValue {
+// mergeTrackedAction merges an action field, keeping the stricter value.
+func mergeTrackedAction(current Tracked[string], newVal, newSource string) Tracked[string] {
 	if newVal == "" {
 		return current
 	}
-	if current.Value == "" {
-		return TrackedValue{Value: newVal, Source: newSource}
+	if !current.IsSet() {
+		return Tracked[string]{Value: newVal, Source: newSource}
 	}
 	if isStricter(newVal, current.Value) {
-		return TrackedValue{Value: newVal, Source: newSource}
+		return Tracked[string]{Value: newVal, Source: newSource}
 	}
 	return current
 }
 
-// mergeTrackedMessage merges a message field (later non-empty values win).
-func mergeTrackedMessage(current TrackedValue, newVal, newSource string) TrackedValue {
+// mergeTrackedString merges a string field (later non-empty values win).
+func mergeTrackedString(current Tracked[string], newVal, newSource string) Tracked[string] {
 	if newVal == "" {
 		return current
 	}
-	return TrackedValue{Value: newVal, Source: newSource}
+	return Tracked[string]{Value: newVal, Source: newSource}
 }
 
-// mergeBoolPointerToTracked converts a *bool to TrackedValue.
-func mergeBoolPointerToTracked(current TrackedValue, newVal *bool, newSource string) TrackedValue {
+// mergeTrackedBool merges a *bool into a Tracked[bool] (later values win).
+func mergeTrackedBool(current Tracked[bool], newVal *bool, newSource string) Tracked[bool] {
 	if newVal == nil {
 		return current
 	}
-	val := "false"
-	if *newVal {
-		val = "true"
-	}
-	return TrackedValue{Value: val, Source: newSource}
+	return Tracked[bool]{Value: *newVal, Source: newSource}
 }
 
 // newEmptyMergedConfig creates a MergedConfig with all fields unset.
@@ -80,17 +76,17 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	merged.Sources = append(merged.Sources, source)
 
 	// Merge bash policy fields
-	merged.Policy.Default = mergeTrackedValue(merged.Policy.Default, cfg.Bash.Default, source)
-	merged.Policy.DynamicCommands = mergeTrackedValue(merged.Policy.DynamicCommands, cfg.Bash.DynamicCommands, source)
-	merged.Policy.UnresolvedCommands = mergeTrackedValue(merged.Policy.UnresolvedCommands, cfg.Bash.UnresolvedCommands, source)
-	merged.Policy.DefaultMessage = mergeTrackedMessage(merged.Policy.DefaultMessage, cfg.Bash.DefaultMessage, source)
-	merged.Policy.RespectFileRules = mergeBoolPointerToTracked(merged.Policy.RespectFileRules, cfg.Bash.RespectFileRules, source)
+	merged.Policy.Default = mergeTrackedAction(merged.Policy.Default, cfg.Bash.Default, source)
+	merged.Policy.DynamicCommands = mergeTrackedAction(merged.Policy.DynamicCommands, cfg.Bash.DynamicCommands, source)
+	merged.Policy.UnresolvedCommands = mergeTrackedAction(merged.Policy.UnresolvedCommands, cfg.Bash.UnresolvedCommands, source)
+	merged.Policy.DefaultMessage = mergeTrackedString(merged.Policy.DefaultMessage, cfg.Bash.DefaultMessage, source)
+	merged.Policy.RespectFileRules = mergeTrackedBool(merged.Policy.RespectFileRules, cfg.Bash.RespectFileRules, source)
 
 	// Merge constructs
-	merged.Constructs.Subshells = mergeTrackedValue(merged.Constructs.Subshells, cfg.Bash.Constructs.Subshells, source)
-	merged.Constructs.FunctionDefinitions = mergeTrackedValue(merged.Constructs.FunctionDefinitions, cfg.Bash.Constructs.FunctionDefinitions, source)
-	merged.Constructs.Background = mergeTrackedValue(merged.Constructs.Background, cfg.Bash.Constructs.Background, source)
-	merged.Constructs.Heredocs = mergeTrackedValue(merged.Constructs.Heredocs, cfg.Bash.Constructs.Heredocs, source)
+	merged.Constructs.Subshells = mergeTrackedAction(merged.Constructs.Subshells, cfg.Bash.Constructs.Subshells, source)
+	merged.Constructs.FunctionDefinitions = mergeTrackedAction(merged.Constructs.FunctionDefinitions, cfg.Bash.Constructs.FunctionDefinitions, source)
+	merged.Constructs.Background = mergeTrackedAction(merged.Constructs.Background, cfg.Bash.Constructs.Background, source)
+	merged.Constructs.Heredocs = mergeTrackedAction(merged.Constructs.Heredocs, cfg.Bash.Constructs.Heredocs, source)
 
 	// Merge bash.deny.commands (union)
 	for _, cmd := range cfg.Bash.Deny.Commands {
@@ -114,7 +110,7 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	merged.Rules = mergeRules(merged.Rules, cfg.getParsedRules(), source)
 
 	// Merge redirect policy
-	merged.RedirectsPolicy.RespectFileRules = mergeBoolPointerToTracked(
+	merged.RedirectsPolicy.RespectFileRules = mergeTrackedBool(
 		merged.RedirectsPolicy.RespectFileRules, cfg.Bash.Redirects.RespectFileRules, source)
 
 	// Merge redirect rules
@@ -142,7 +138,7 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 // mergeFileToolConfig merges a file tool config into the merged files config.
 func mergeFileToolConfig(merged *MergedFilesConfig, toolName string, cfg *FileToolConfig, source string) {
 	// Merge default (stricter wins)
-	merged.Default = mergeTrackedValue(merged.Default, cfg.Default, source)
+	merged.Default = mergeTrackedAction(merged.Default, cfg.Default, source)
 
 	// Merge deny patterns (union)
 	for _, path := range cfg.Deny.Paths {
@@ -164,38 +160,38 @@ func mergeFileToolConfig(merged *MergedFilesConfig, toolName string, cfg *FileTo
 
 // applyMergedDefaults fills in system defaults for unset fields.
 func applyMergedDefaults(merged *MergedConfig) {
-	if merged.Policy.Default.Value == "" {
-		merged.Policy.Default = TrackedValue{Value: "ask", Source: "(default)"}
+	if !merged.Policy.Default.IsSet() {
+		merged.Policy.Default = Tracked[string]{Value: "ask", Source: "(default)"}
 	}
-	if merged.Policy.DynamicCommands.Value == "" {
-		merged.Policy.DynamicCommands = TrackedValue{Value: "ask", Source: "(default)"}
+	if !merged.Policy.DynamicCommands.IsSet() {
+		merged.Policy.DynamicCommands = Tracked[string]{Value: "ask", Source: "(default)"}
 	}
-	if merged.Policy.UnresolvedCommands.Value == "" {
-		merged.Policy.UnresolvedCommands = TrackedValue{Value: "ask", Source: "(default)"}
+	if !merged.Policy.UnresolvedCommands.IsSet() {
+		merged.Policy.UnresolvedCommands = Tracked[string]{Value: "ask", Source: "(default)"}
 	}
-	if merged.Policy.DefaultMessage.Value == "" {
-		merged.Policy.DefaultMessage = TrackedValue{Value: "Command not allowed", Source: "(default)"}
+	if !merged.Policy.DefaultMessage.IsSet() {
+		merged.Policy.DefaultMessage = Tracked[string]{Value: "Command not allowed", Source: "(default)"}
 	}
-	if merged.Policy.RespectFileRules.Value == "" {
-		merged.Policy.RespectFileRules = TrackedValue{Value: "true", Source: "(default)"}
+	if !merged.Policy.RespectFileRules.IsSet() {
+		merged.Policy.RespectFileRules = Tracked[bool]{Value: true, Source: "(default)"}
 	}
-	if merged.Constructs.Subshells.Value == "" {
-		merged.Constructs.Subshells = TrackedValue{Value: "ask", Source: "(default)"}
+	if !merged.Constructs.Subshells.IsSet() {
+		merged.Constructs.Subshells = Tracked[string]{Value: "ask", Source: "(default)"}
 	}
-	if merged.Constructs.FunctionDefinitions.Value == "" {
-		merged.Constructs.FunctionDefinitions = TrackedValue{Value: "ask", Source: "(default)"}
+	if !merged.Constructs.FunctionDefinitions.IsSet() {
+		merged.Constructs.FunctionDefinitions = Tracked[string]{Value: "ask", Source: "(default)"}
 	}
-	if merged.Constructs.Background.Value == "" {
-		merged.Constructs.Background = TrackedValue{Value: "ask", Source: "(default)"}
+	if !merged.Constructs.Background.IsSet() {
+		merged.Constructs.Background = Tracked[string]{Value: "ask", Source: "(default)"}
 	}
-	if merged.Constructs.Heredocs.Value == "" {
-		merged.Constructs.Heredocs = TrackedValue{Value: "allow", Source: "(default)"}
+	if !merged.Constructs.Heredocs.IsSet() {
+		merged.Constructs.Heredocs = Tracked[string]{Value: "allow", Source: "(default)"}
 	}
-	if merged.Files.Default.Value == "" {
-		merged.Files.Default = TrackedValue{Value: "ask", Source: "(default)"}
+	if !merged.Files.Default.IsSet() {
+		merged.Files.Default = Tracked[string]{Value: "ask", Source: "(default)"}
 	}
-	if merged.RedirectsPolicy.RespectFileRules.Value == "" {
-		merged.RedirectsPolicy.RespectFileRules = TrackedValue{Value: "false", Source: "(default)"}
+	if !merged.RedirectsPolicy.RespectFileRules.IsSet() {
+		merged.RedirectsPolicy.RespectFileRules = Tracked[bool]{Value: false, Source: "(default)"}
 	}
 }
 

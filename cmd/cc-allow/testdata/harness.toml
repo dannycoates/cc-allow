@@ -752,17 +752,17 @@ name = "spec: tie-break deny beats ask and allow"
 bash = "test3 arg"
 specificity = "deny"  # all spec=100, deny wins
 
-# --- TEST 4: args.contains (10 each) beats args.any_match (5 each) ---
+# --- TEST 4: args.all vs args.any (same specificity, deny wins tie) ---
 
 [[command]]
-name = "spec: contains beats any_match"
+name = "spec: all vs any tie - deny wins"
 bash = "test4 -f -r file.txt file.log"
-specificity = "deny"  # contains x2 (120) beats any_match x2 (110)
+specificity = "deny"  # both 110, deny wins tie-break
 
 [[command]]
-name = "spec: any_match wins when contains doesn't match"
+name = "spec: any wins when all doesn't match"
 bash = "test4 file.txt file.log"
-specificity = "allow"  # contains doesn't match, any_match (110) wins
+specificity = "allow"  # all doesn't match, any (110) wins
 
 # --- TEST 5: Equal specificity with position vs any_match ---
 

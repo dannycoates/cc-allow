@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestParseConfig(t *testing.T) {
+func TestParseConfigWithDefaults(t *testing.T) {
 	toml := `
 version = "2.0"
 
@@ -32,9 +32,9 @@ pipe.to = ["bash", "sh"]
 [[bash.allow.curl]]
 `
 
-	cfg, err := ParseConfig(toml)
+	cfg, err := ParseConfigWithDefaults(toml)
 	if err != nil {
-		t.Fatalf("ParseConfig error: %v", err)
+		t.Fatalf("ParseConfigWithDefaults error: %v", err)
 	}
 
 	// Check policy
@@ -70,6 +70,71 @@ pipe.to = ["bash", "sh"]
 	}
 }
 
+func TestParsePipeContextStringFormat(t *testing.T) {
+	// Test that pipe.to and pipe.from accept both string and array formats
+	tests := []struct {
+		name     string
+		config   string
+		wantTo   []string
+		wantFrom []string
+	}{
+		{
+			name: "pipe.to as string",
+			config: `
+[[bash.deny.curl]]
+pipe.to = "bash"
+`,
+			wantTo: []string{"bash"},
+		},
+		{
+			name: "pipe.to as array",
+			config: `
+[[bash.deny.curl]]
+pipe.to = ["bash", "sh"]
+`,
+			wantTo: []string{"bash", "sh"},
+		},
+		{
+			name: "pipe.from as string",
+			config: `
+[[bash.deny.bash]]
+pipe.from = "curl"
+`,
+			wantFrom: []string{"curl"},
+		},
+		{
+			name: "both as strings",
+			config: `
+[[bash.deny.cat]]
+pipe.to = "bash"
+pipe.from = "curl"
+`,
+			wantTo:   []string{"bash"},
+			wantFrom: []string{"curl"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ParseConfigWithDefaults(tt.config)
+			if err != nil {
+				t.Fatalf("ParseConfigWithDefaults error: %v", err)
+			}
+			rules := cfg.getParsedRules()
+			if len(rules) != 1 {
+				t.Fatalf("expected 1 rule, got %d", len(rules))
+			}
+			rule := rules[0]
+			if !slicesEqual(rule.Pipe.To, tt.wantTo) {
+				t.Errorf("pipe.to = %v, want %v", rule.Pipe.To, tt.wantTo)
+			}
+			if !slicesEqual(rule.Pipe.From, tt.wantFrom) {
+				t.Errorf("pipe.from = %v, want %v", rule.Pipe.From, tt.wantFrom)
+			}
+		})
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
@@ -84,11 +149,11 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
-func TestParseConfigDefaults(t *testing.T) {
+func TestParseConfigWithDefaultsDefaults(t *testing.T) {
 	// Minimal config
-	cfg, err := ParseConfig("")
+	cfg, err := ParseConfigWithDefaults("")
 	if err != nil {
-		t.Fatalf("ParseConfig error: %v", err)
+		t.Fatalf("ParseConfigWithDefaults error: %v", err)
 	}
 
 	if cfg.Bash.Default != "ask" {
@@ -99,7 +164,7 @@ func TestParseConfigDefaults(t *testing.T) {
 	}
 }
 
-func TestParseConfigInvalidPatterns(t *testing.T) {
+func TestParseConfigWithDefaultsInvalidPatterns(t *testing.T) {
 	tests := []struct {
 		name           string
 		config         string
@@ -168,7 +233,7 @@ args.position = { "0" = "re:^[0-7]{3,4}$", "1" = "path:*.txt" }
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseConfig(tt.config)
+			_, err := ParseConfigWithDefaults(tt.config)
 			if tt.wantErr == "" {
 				if err != nil {
 					t.Errorf("expected no error, got: %v", err)
@@ -246,7 +311,7 @@ args.any = [
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := ParseConfig(tt.config)
+			cfg, err := ParseConfigWithDefaults(tt.config)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.wantErr)
@@ -374,7 +439,7 @@ version = "2.0"
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := ParseConfig(tt.config)
+			cfg, err := ParseConfigWithDefaults(tt.config)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.wantErr)
@@ -463,6 +528,26 @@ version = "2.0"
 			wantErr: "cannot start with a reserved prefix",
 		},
 		{
+			name: "alias referencing another alias",
+			config: `
+version = "2.0"
+[aliases]
+base = "path:$PROJECT_ROOT/**"
+extended = "alias:base"
+`,
+			wantErr: "aliases cannot reference other aliases",
+		},
+		{
+			name: "alias array referencing another alias",
+			config: `
+version = "2.0"
+[aliases]
+base = "path:$PROJECT_ROOT/**"
+extended = ["path:/tmp/**", "alias:base"]
+`,
+			wantErr: "aliases cannot reference other aliases",
+		},
+		{
 			name: "alias in bash.allow.commands",
 			config: `
 version = "2.0"
@@ -510,7 +595,7 @@ commands = ["alias:dangerous"]
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := ParseConfig(tt.config)
+			cfg, err := ParseConfigWithDefaults(tt.config)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.wantErr)
@@ -605,7 +690,7 @@ version = "2.b"
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseConfig(tt.config)
+			_, err := ParseConfigWithDefaults(tt.config)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Errorf("expected error containing %q, got nil", tt.wantErr)
@@ -618,6 +703,160 @@ version = "2.b"
 			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestInvalidActionValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name: "invalid bash.default",
+			config: `
+version = "2.0"
+[bash]
+default = "maybe"
+`,
+			wantErr: "bash.default: invalid action",
+		},
+		{
+			name: "invalid bash.dynamic_commands",
+			config: `
+version = "2.0"
+[bash]
+dynamic_commands = "sometimes"
+`,
+			wantErr: "bash.dynamic_commands: invalid action",
+		},
+		{
+			name: "invalid bash.unresolved_commands",
+			config: `
+version = "2.0"
+[bash]
+unresolved_commands = "block"
+`,
+			wantErr: "bash.unresolved_commands: invalid action",
+		},
+		{
+			name: "invalid bash.constructs.subshells",
+			config: `
+version = "2.0"
+[bash.constructs]
+subshells = "permitted"
+`,
+			wantErr: "bash.constructs.subshells: invalid action",
+		},
+		{
+			name: "invalid bash.constructs.background",
+			config: `
+version = "2.0"
+[bash.constructs]
+background = "no"
+`,
+			wantErr: "bash.constructs.background: invalid action",
+		},
+		{
+			name: "invalid bash.constructs.function_definitions",
+			config: `
+version = "2.0"
+[bash.constructs]
+function_definitions = "yes"
+`,
+			wantErr: "bash.constructs.function_definitions: invalid action",
+		},
+		{
+			name: "invalid bash.constructs.heredocs",
+			config: `
+version = "2.0"
+[bash.constructs]
+heredocs = "blocked"
+`,
+			wantErr: "bash.constructs.heredocs: invalid action",
+		},
+		{
+			name: "invalid read.default",
+			config: `
+version = "2.0"
+[read]
+default = "permitted"
+`,
+			wantErr: "read.default: invalid action",
+		},
+		{
+			name: "invalid write.default",
+			config: `
+version = "2.0"
+[write]
+default = "reject"
+`,
+			wantErr: "write.default: invalid action",
+		},
+		{
+			name: "invalid edit.default",
+			config: `
+version = "2.0"
+[edit]
+default = "true"
+`,
+			wantErr: "edit.default: invalid action",
+		},
+		{
+			name: "valid actions should pass",
+			config: `
+version = "2.0"
+[bash]
+default = "deny"
+dynamic_commands = "ask"
+unresolved_commands = "allow"
+
+[bash.constructs]
+subshells = "deny"
+background = "ask"
+function_definitions = "allow"
+heredocs = "allow"
+
+[read]
+default = "allow"
+
+[write]
+default = "deny"
+
+[edit]
+default = "ask"
+`,
+			wantErr: "",
+		},
+		{
+			name: "empty values are valid (use defaults)",
+			config: `
+version = "2.0"
+`,
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseConfigWithDefaults(tt.config)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("expected no error, got: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Errorf("expected error containing %q, got nil", tt.wantErr)
+				return
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("expected error containing %q, got: %v", tt.wantErr, err)
+			}
+			if !errors.Is(err, ErrInvalidConfig) {
+				t.Errorf("expected errors.Is(err, ErrInvalidConfig) to be true")
 			}
 		})
 	}

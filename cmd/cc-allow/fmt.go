@@ -57,7 +57,7 @@ func runFmt(configPath string) {
 	fmt.Println("============")
 
 	for i, path := range paths {
-		cfg, err := LoadConfig(path)
+		cfg, err := LoadConfigWithDefaults(path)
 		if err != nil {
 			fmt.Printf("\n[%d] %s\n", i+1, path)
 			fmt.Printf("    ERROR: %v\n", err)

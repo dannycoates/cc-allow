@@ -141,7 +141,7 @@ Note:
 
 ### 5. Subcommand Rules
 
-v1 used `args.position` or `args.contains` to match subcommands. v2 supports nested command paths for cleaner subcommand rules.
+v1 used `args.position` or `args.contains` to match subcommands. v2 removes `args.contains` and supports nested command paths for cleaner subcommand rules.
 
 **v1:**
 ```toml

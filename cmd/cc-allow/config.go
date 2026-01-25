@@ -392,10 +392,16 @@ type DebugConfig struct {
 	LogFile string `toml:"log_file"` // path to debug log file
 }
 
-// TrackedValue holds a string value and the config file path that set it.
-type TrackedValue struct {
-	Value  string
+// Tracked holds a value of any type along with the config file path that set it.
+// The zero value represents "unset" - use IsSet() to check.
+type Tracked[T any] struct {
+	Value  T
 	Source string
+}
+
+// IsSet returns true if this tracked value was explicitly set.
+func (t Tracked[T]) IsSet() bool {
+	return t.Source != ""
 }
 
 // TrackedRule wraps a BashRule with source tracking and shadowing info.
@@ -438,33 +444,33 @@ type TrackedFilePatternEntry struct {
 
 // MergedFilesConfig holds merged file tool settings with source tracking.
 type MergedFilesConfig struct {
-	Default TrackedValue
+	Default Tracked[string]
 	Allow   map[string][]TrackedFilePatternEntry // keys are "Read", "Edit", "Write"
 	Deny    map[string][]TrackedFilePatternEntry
 }
 
 // MergedPolicy holds policy settings with source tracking.
 type MergedPolicy struct {
-	Default             TrackedValue
-	DynamicCommands     TrackedValue
-	DefaultMessage      TrackedValue
-	UnresolvedCommands  TrackedValue
-	RespectFileRules    TrackedValue
+	Default             Tracked[string]
+	DynamicCommands     Tracked[string]
+	DefaultMessage      Tracked[string]
+	UnresolvedCommands  Tracked[string]
+	RespectFileRules    Tracked[bool]
 	AllowedPaths        []string
 	AllowedPathsSources []string
 }
 
 // MergedRedirectsConfig holds merged redirect policy settings.
 type MergedRedirectsConfig struct {
-	RespectFileRules TrackedValue
+	RespectFileRules Tracked[bool]
 }
 
 // MergedConstructs holds constructs settings with source tracking.
 type MergedConstructs struct {
-	Subshells           TrackedValue
-	FunctionDefinitions TrackedValue
-	Background          TrackedValue
-	Heredocs            TrackedValue
+	Subshells           Tracked[string]
+	FunctionDefinitions Tracked[string]
+	Background          Tracked[string]
+	Heredocs            Tracked[string]
 }
 
 // MergedConfig represents the result of merging all configs in the chain.

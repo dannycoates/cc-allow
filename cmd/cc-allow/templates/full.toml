@@ -329,7 +329,7 @@ args.any = ["--force", "flags:f", "--force-with-lease"]
 # --- git: Block hard reset ---
 [[bash.deny.git.reset]]
 message = "{{.ArgsStr}} - hard reset may lose work"
-args.contains = ["--hard"]
+args.any = ["--hard"]
 
 # --- git: Block clean -f (force delete untracked files) ---
 [[bash.deny.git.clean]]
