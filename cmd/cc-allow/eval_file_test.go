@@ -15,8 +15,9 @@ func TestEvalFileTool(t *testing.T) {
 		{
 			name: "allow read in project root",
 			config: `
-[files.read]
-allow = ["path:/project/**"]
+version = "2.0"
+[read.allow]
+paths = ["path:/project/**"]
 `,
 			tool:       "Read",
 			filePath:   "/project/src/main.go",
@@ -25,9 +26,12 @@ allow = ["path:/project/**"]
 		{
 			name: "deny read outside project",
 			config: `
-[files.read]
-allow = ["path:/project/**"]
-deny = ["path:/etc/**"]
+version = "2.0"
+[read.allow]
+paths = ["path:/project/**"]
+
+[read.deny]
+paths = ["path:/etc/**"]
 `,
 			tool:       "Read",
 			filePath:   "/etc/passwd",
@@ -36,9 +40,12 @@ deny = ["path:/etc/**"]
 		{
 			name: "deny wins over allow",
 			config: `
-[files.read]
-allow = ["path:/**"]
-deny = ["path:/secret/**"]
+version = "2.0"
+[read.allow]
+paths = ["path:/**"]
+
+[read.deny]
+paths = ["path:/secret/**"]
 `,
 			tool:       "Read",
 			filePath:   "/secret/key.pem",
@@ -47,10 +54,12 @@ deny = ["path:/secret/**"]
 		{
 			name: "default ask when no match",
 			config: `
-[files]
+version = "2.0"
+[read]
 default = "ask"
-[files.read]
-allow = ["path:/allowed/**"]
+
+[read.allow]
+paths = ["path:/allowed/**"]
 `,
 			tool:       "Read",
 			filePath:   "/other/file.txt",
@@ -59,10 +68,12 @@ allow = ["path:/allowed/**"]
 		{
 			name: "default deny when configured",
 			config: `
-[files]
+version = "2.0"
+[read]
 default = "deny"
-[files.read]
-allow = ["path:/allowed/**"]
+
+[read.allow]
+paths = ["path:/allowed/**"]
 `,
 			tool:       "Read",
 			filePath:   "/other/file.txt",
@@ -71,10 +82,12 @@ allow = ["path:/allowed/**"]
 		{
 			name: "write tool separate from read",
 			config: `
-[files.read]
-allow = ["path:/**"]
-[files.write]
-deny = ["path:/**"]
+version = "2.0"
+[read.allow]
+paths = ["path:/**"]
+
+[write.deny]
+paths = ["path:/**"]
 `,
 			tool:       "Write",
 			filePath:   "/project/file.txt",
@@ -83,8 +96,9 @@ deny = ["path:/**"]
 		{
 			name: "edit tool allow",
 			config: `
-[files.edit]
-allow = ["path:/project/**"]
+version = "2.0"
+[edit.allow]
+paths = ["path:/project/**"]
 `,
 			tool:       "Edit",
 			filePath:   "/project/src/main.go",
@@ -93,8 +107,9 @@ allow = ["path:/project/**"]
 		{
 			name: "glob pattern .env files",
 			config: `
-[files.read]
-deny = ["path:**/.env*"]
+version = "2.0"
+[read.deny]
+paths = ["path:**/.env*"]
 `,
 			tool:       "Read",
 			filePath:   "/project/.env",
@@ -103,8 +118,9 @@ deny = ["path:**/.env*"]
 		{
 			name: "glob pattern nested .env",
 			config: `
-[files.read]
-deny = ["path:**/.env*"]
+version = "2.0"
+[read.deny]
+paths = ["path:**/.env*"]
 `,
 			tool:       "Read",
 			filePath:   "/project/config/.env.local",
@@ -113,8 +129,9 @@ deny = ["path:**/.env*"]
 		{
 			name: "regex pattern for extensions",
 			config: `
-[files.read]
-deny = ["re:.*\\.(key|pem|p12)$"]
+version = "2.0"
+[read.deny]
+paths = ["re:.*\\.(key|pem|p12)$"]
 `,
 			tool:       "Read",
 			filePath:   "/home/user/.ssh/id_rsa.pem",
@@ -146,14 +163,17 @@ deny = ["re:.*\\.(key|pem|p12)$"]
 func TestEvalFileToolConfigMerge(t *testing.T) {
 	// Test that config merging works correctly for file tools
 	globalConfig := `
-[files]
+version = "2.0"
+[read]
 default = "ask"
-[files.read]
-allow = ["path:/**"]
+
+[read.allow]
+paths = ["path:/**"]
 `
 	projectConfig := `
-[files.read]
-deny = ["path:/secrets/**"]
+version = "2.0"
+[read.deny]
+paths = ["path:/secrets/**"]
 `
 
 	global, err := parseConfigRaw(globalConfig)
@@ -206,8 +226,9 @@ deny = ["path:/secrets/**"]
 
 func TestEvalFileToolMessage(t *testing.T) {
 	config := `
-[files.write]
-deny = ["path:/etc/**"]
+version = "2.0"
+[write.deny]
+paths = ["path:/etc/**"]
 message = "Cannot write to system files"
 `
 	cfg, err := ParseConfig(config)
@@ -238,32 +259,36 @@ func TestFilePatternValidation(t *testing.T) {
 		{
 			name: "valid glob pattern",
 			config: `
-[files.read]
-allow = ["path:**/*.go"]
+version = "2.0"
+[read.allow]
+paths = ["path:**/*.go"]
 `,
 			wantErr: false,
 		},
 		{
 			name: "valid regex pattern",
 			config: `
-[files.read]
-deny = ["re:.*\\.env$"]
+version = "2.0"
+[read.deny]
+paths = ["re:.*\\.env$"]
 `,
 			wantErr: false,
 		},
 		{
 			name: "invalid regex pattern",
 			config: `
-[files.read]
-deny = ["re:[invalid"]
+version = "2.0"
+[read.deny]
+paths = ["re:[invalid"]
 `,
 			wantErr: true,
 		},
 		{
 			name: "valid path pattern",
 			config: `
-[files.write]
-allow = ["path:$PROJECT_ROOT/**"]
+version = "2.0"
+[write.allow]
+paths = ["path:$PROJECT_ROOT/**"]
 `,
 			wantErr: false,
 		},

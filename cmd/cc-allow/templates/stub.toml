@@ -2,28 +2,27 @@
 # Global config (~/.config/cc-allow.toml) provides base rules.
 # Add project-specific overrides below.
 #
-# See: https://github.com/dackerman/cc-allow
+# See: https://github.com/dannycoates/cc-allow
 
-version = "1.0"
+version = "2.0"
 
-[policy]
+# [bash]
 # default = "ask"
 # dynamic_commands = "ask"
 
-# [commands.allow]
-# names = []
+# [bash.allow]
+# commands = []
 
-# [commands.deny]
-# names = []
+# [bash.deny]
+# commands = []
 
-# [[rule]]
-# command = "example"
-# action = "deny"
+# [[bash.allow.example]]
+# # Allow example command
+
+# [[bash.deny.example]]
 # message = "Example rule"
+# args.any = ["--dangerous"]
 
 # Path patterns: use path:$PROJECT_ROOT/** or path:$HOME/** to match paths
-# [[rule]]
-# command = "rm"
-# action = "allow"
-# [rule.args]
-# any_match = ["path:$PROJECT_ROOT/**"]
+# [[bash.allow.rm]]
+# args.any = ["path:$PROJECT_ROOT/**"]

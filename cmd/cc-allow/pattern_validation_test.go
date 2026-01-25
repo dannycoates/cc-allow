@@ -5,279 +5,134 @@ import (
 	"testing"
 )
 
-// These tests verify that invalid patterns are properly detected and reported,
-// rather than being silently ignored (which could cause security rules to be bypassed).
+// These tests verify that invalid patterns are properly detected and reported.
 
-// ============================================================================
-// Tests for fail-safe behavior: invalid configs cause "ask", not silent bypass
-// ============================================================================
-
-func TestInvalidRegexInAnyMatchCausesAsk(t *testing.T) {
-	// Config with invalid regex - evaluator should validate and ask (defer to Claude Code)
-	cfg := &Config{
-		Policy: PolicyConfig{
-			Default:         "allow",
-			DynamicCommands: "ask",
-		},
-		Rules: []Rule{
-			{
-				Command: "rm",
-				Action:  "deny",
-				Message: "Should deny rm with recursive flag",
-				Args:    ArgsMatch{AnyMatch: []MatchElement{{Pattern: "re:[invalid"}}}, // Invalid regex!
-			},
-		},
-	}
-
-	// With fail-safe behavior, invalid config should result in "ask"
-	r := parseAndEval(t, cfg, "rm -rf /")
-	if r.Action != "ask" {
-		t.Errorf("Expected ask due to invalid config, got %s", r.Action)
-	}
-	if !strings.Contains(r.Message, "Config validation error") {
-		t.Errorf("Expected config validation error message, got: %s", r.Message)
-	}
-}
-
-func TestInvalidRegexInAllMatchCausesAsk(t *testing.T) {
-	cfg := &Config{
-		Policy: PolicyConfig{
-			Default:         "allow",
-			DynamicCommands: "ask",
-		},
-		Rules: []Rule{
-			{
-				Command: "rm",
-				Action:  "deny",
-				Message: "Should deny rm with both -r and -f",
-				Args:    ArgsMatch{AllMatch: []MatchElement{{Pattern: "-r"}, {Pattern: "re:(unclosed"}}}, // Second pattern invalid
-			},
-		},
-	}
-
-	r := parseAndEval(t, cfg, "rm -r -f /")
-	if r.Action != "ask" {
-		t.Errorf("Expected ask due to invalid config, got %s", r.Action)
-	}
-}
-
-func TestInvalidRegexInPositionCausesAsk(t *testing.T) {
-	cfg := &Config{
-		Policy: PolicyConfig{
-			Default:         "allow",
-			DynamicCommands: "ask",
-		},
-		Rules: []Rule{
-			{
-				Command: "chmod",
-				Action:  "deny",
-				Message: "Should deny chmod 777",
-				Args:    ArgsMatch{Position: map[string]FlexiblePattern{"0": {Patterns: []string{"re:777["}}}}, // Invalid regex
-			},
-		},
-	}
-
-	r := parseAndEval(t, cfg, "chmod 777 /etc/passwd")
-	if r.Action != "ask" {
-		t.Errorf("Expected ask due to invalid config, got %s", r.Action)
-	}
-}
-
-func TestInvalidRegexInRedirectPatternCausesAsk(t *testing.T) {
-	cfg := &Config{
-		Policy: PolicyConfig{
-			Default:         "allow",
-			DynamicCommands: "ask",
-		},
-		Commands: CommandsConfig{
-			Allow: CommandList{Names: []string{"echo"}},
-		},
-		Redirects: []RedirectRule{
-			{
-				Action:  "deny",
-				Message: "Should deny redirects to /etc",
-				To:      RedirectTarget{Pattern: []string{"re:/etc/["}}, // Invalid regex
-			},
-		},
-	}
-
-	r := parseAndEval(t, cfg, "echo test > /etc/passwd")
-	if r.Action != "ask" {
-		t.Errorf("Expected ask due to invalid config, got %s", r.Action)
-	}
-}
-
-func TestInvalidRegexInHeredocContentMatchCausesAsk(t *testing.T) {
-	cfg := &Config{
-		Policy: PolicyConfig{
-			Default:         "allow",
-			DynamicCommands: "ask",
-		},
-		Commands: CommandsConfig{
-			Allow: CommandList{Names: []string{"cat"}},
-		},
-		Constructs: ConstructsConfig{
-			Heredocs: "allow",
-		},
-		Heredocs: []HeredocRule{
-			{
-				Action:       "deny",
-				Message:      "Should deny heredocs with DROP TABLE",
-				ContentMatch: []string{"re:DROP TABLE["}, // Invalid regex
-			},
-		},
-	}
-
-	r := parseAndEval(t, cfg, "cat <<EOF\nDROP TABLE users;\nEOF")
-	if r.Action != "ask" {
-		t.Errorf("Expected ask due to invalid config, got %s", r.Action)
-	}
-}
-
-// ============================================================================
-// Tests for Config.Validate() checking all pattern locations
-// ============================================================================
-
-func TestValidateChecksCommandsAllowNames(t *testing.T) {
-	// commands.allow.names can have patterns that should be validated
-	cfg := &Config{
-		Commands: CommandsConfig{
-			Allow: CommandList{Names: []string{"path:/valid/**", "re:[invalid"}},
-		},
-	}
-
-	err := cfg.Validate()
+func TestInvalidRegexInArgsAnyCausesParseError(t *testing.T) {
+	// Config with invalid regex should fail to parse
+	config := `
+version = "2.0"
+[[bash.deny.rm]]
+message = "Should deny rm with recursive flag"
+args.any = ["re:[invalid"]
+`
+	_, err := ParseConfig(config)
 	if err == nil {
-		t.Errorf("Validate() should catch invalid patterns in commands.allow.names")
-	}
-	if err != nil && !strings.Contains(err.Error(), "commands.allow.names") {
-		t.Errorf("Error should mention commands.allow.names, got: %v", err)
+		t.Errorf("Expected parse error for invalid regex in args.any")
 	}
 }
 
-func TestValidateChecksCommandsDenyNames(t *testing.T) {
-	// commands.deny.names can have patterns that should be validated
-	cfg := &Config{
-		Commands: CommandsConfig{
-			Deny: CommandList{Names: []string{"re:[invalid"}},
-		},
-	}
-
-	err := cfg.Validate()
+func TestInvalidRegexInArgsAllCausesParseError(t *testing.T) {
+	config := `
+version = "2.0"
+[[bash.deny.rm]]
+message = "Should deny rm"
+args.all = ["-r", "re:(unclosed"]
+`
+	_, err := ParseConfig(config)
 	if err == nil {
-		t.Errorf("Validate() should catch invalid patterns in commands.deny.names")
-	}
-	if err != nil && !strings.Contains(err.Error(), "commands.deny.names") {
-		t.Errorf("Error should mention commands.deny.names, got: %v", err)
+		t.Errorf("Expected parse error for invalid regex in args.all")
 	}
 }
 
-func TestValidateChecksRuleCommand(t *testing.T) {
-	// rule.command can have patterns that should be validated
-	cfg := &Config{
-		Rules: []Rule{
-			{
-				Command: "re:[invalid", // Invalid regex pattern
-				Action:  "deny",
-			},
-		},
-	}
-
-	err := cfg.Validate()
+func TestInvalidRegexInPositionCausesParseError(t *testing.T) {
+	config := `
+version = "2.0"
+[[bash.deny.chmod]]
+message = "Should deny chmod 777"
+args.position = { "0" = "re:777[" }
+`
+	_, err := ParseConfig(config)
 	if err == nil {
-		t.Errorf("Validate() should catch invalid patterns in rule.command")
-	}
-	if err != nil && !strings.Contains(err.Error(), "command") {
-		t.Errorf("Error should mention command, got: %v", err)
+		t.Errorf("Expected parse error for invalid regex in args.position")
 	}
 }
 
-// ============================================================================
-// Positive tests: Validate() DOES catch these (existing correct behavior)
-// ============================================================================
-
-func TestValidateCatchesInvalidArgsAnyMatch(t *testing.T) {
-	cfg := &Config{
-		Rules: []Rule{
-			{
-				Command: "test",
-				Action:  "deny",
-				Args:    ArgsMatch{AnyMatch: []MatchElement{{Pattern: "re:[invalid"}}},
-			},
-		},
-	}
-
-	err := cfg.Validate()
+func TestInvalidRegexInRedirectPathsCausesParseError(t *testing.T) {
+	config := `
+version = "2.0"
+[[bash.redirects.deny]]
+message = "Should deny redirects to /etc"
+paths = ["re:/etc/["]
+`
+	_, err := ParseConfig(config)
 	if err == nil {
-		t.Errorf("Validate() should catch invalid regex in args.any_match")
-	}
-	if err != nil && !strings.Contains(err.Error(), "any_match") {
-		t.Errorf("Error should mention any_match, got: %v", err)
+		t.Errorf("Expected parse error for invalid regex in redirect paths")
 	}
 }
 
-func TestValidateCatchesInvalidArgsAllMatch(t *testing.T) {
-	cfg := &Config{
-		Rules: []Rule{
-			{
-				Command: "test",
-				Action:  "deny",
-				Args:    ArgsMatch{AllMatch: []MatchElement{{Pattern: "re:(unclosed"}}},
-			},
-		},
-	}
+func TestInvalidRegexInHeredocContentCausesParseError(t *testing.T) {
+	config := `
+version = "2.0"
+[bash.constructs]
+heredocs = "allow"
 
-	err := cfg.Validate()
+[[bash.heredocs.deny]]
+message = "Should deny heredocs with DROP TABLE"
+content.any = ["re:DROP TABLE["]
+`
+	_, err := ParseConfig(config)
 	if err == nil {
-		t.Errorf("Validate() should catch invalid regex in args.all_match")
+		t.Errorf("Expected parse error for invalid regex in heredoc content")
 	}
 }
 
-func TestValidateCatchesInvalidArgsPosition(t *testing.T) {
-	cfg := &Config{
-		Rules: []Rule{
-			{
-				Command: "test",
-				Action:  "deny",
-				Args:    ArgsMatch{Position: map[string]FlexiblePattern{"0": {Patterns: []string{"re:[bad"}}}},
-			},
-		},
-	}
-
-	err := cfg.Validate()
+func TestValidateChecksAllowCommands(t *testing.T) {
+	config := `
+version = "2.0"
+[bash.allow]
+commands = ["path:/valid/**", "re:[invalid"]
+`
+	_, err := ParseConfig(config)
 	if err == nil {
-		t.Errorf("Validate() should catch invalid regex in args.position")
+		t.Errorf("Validate() should catch invalid patterns in bash.allow.commands")
+	}
+	if err != nil && !strings.Contains(err.Error(), "bash.allow.commands") {
+		t.Errorf("Error should mention bash.allow.commands, got: %v", err)
 	}
 }
 
-func TestValidateCatchesInvalidRedirectPattern(t *testing.T) {
-	cfg := &Config{
-		Redirects: []RedirectRule{
-			{
-				Action: "deny",
-				To:     RedirectTarget{Pattern: []string{"re:[bad"}},
-			},
-		},
-	}
-
-	err := cfg.Validate()
+func TestValidateChecksDenyCommands(t *testing.T) {
+	config := `
+version = "2.0"
+[bash.deny]
+commands = ["re:[invalid"]
+`
+	_, err := ParseConfig(config)
 	if err == nil {
-		t.Errorf("Validate() should catch invalid regex in redirect.to.pattern")
+		t.Errorf("Validate() should catch invalid patterns in bash.deny.commands")
+	}
+	if err != nil && !strings.Contains(err.Error(), "bash.deny.commands") {
+		t.Errorf("Error should mention bash.deny.commands, got: %v", err)
 	}
 }
 
-func TestValidateCatchesInvalidHeredocContentMatch(t *testing.T) {
-	cfg := &Config{
-		Heredocs: []HeredocRule{
-			{
-				Action:       "deny",
-				ContentMatch: []string{"re:[bad"},
-			},
-		},
-	}
+func TestValidPatternsPass(t *testing.T) {
+	config := `
+version = "2.0"
+[bash]
+default = "ask"
 
-	err := cfg.Validate()
-	if err == nil {
-		t.Errorf("Validate() should catch invalid regex in heredoc.content_match")
+[bash.allow]
+commands = ["ls", "cat", "path:/usr/bin/*", "re:^echo$"]
+
+[bash.deny]
+commands = ["sudo"]
+
+[[bash.deny.rm]]
+message = "Recursive rm denied"
+args.any = ["flags:r", "-rf", "--recursive"]
+
+[[bash.redirects.deny]]
+paths = ["path:/etc/**", "re:.*\\.conf$"]
+
+[[bash.heredocs.deny]]
+content.any = ["re:DROP\\s+TABLE", "re:DELETE\\s+FROM"]
+
+[read.deny]
+paths = ["path:**/*.key", "re:.*\\.pem$"]
+`
+	_, err := ParseConfig(config)
+	if err != nil {
+		t.Errorf("Valid patterns should parse without error: %v", err)
 	}
 }

@@ -1,26 +1,46 @@
-# cc-allow Kitchen Sink Configuration
+# cc-allow Kitchen Sink Configuration (v2)
 # This example demonstrates ALL configuration features documented in docs/config.md
 # Use this as a reference — don't use it directly as it's intentionally comprehensive
 
-version = "1.0"
+version = "2.0"
 
 # =============================================================================
-# POLICY
+# ALIASES
+# =============================================================================
+# Define reusable pattern aliases to reduce repetition
+
+[aliases]
+project = "path:$PROJECT_ROOT/**"
+plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
+sensitive = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
+system = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**"]
+
+# =============================================================================
+# BASH TOOL CONFIGURATION
 # =============================================================================
 
-[policy]
+[bash]
 default = "ask"                    # "allow", "deny", or "ask" for unmatched commands
 dynamic_commands = "deny"          # action for $VAR or $(cmd) as command name
 default_message = "Command requires approval"
 unresolved_commands = "ask"        # "ask" or "deny" for commands not found in PATH
 respect_file_rules = true          # check file rules for command arguments (default: true)
-# allowed_paths = ["/usr/bin", "/bin", "/usr/local/bin"]  # optional: restrict command search
+
+# =============================================================================
+# SHELL CONSTRUCTS
+# =============================================================================
+
+[bash.constructs]
+function_definitions = "deny"      # foo() { ... } — prevent function definitions
+background = "deny"                # command & — prevent backgrounding
+subshells = "ask"                  # (command) — ask for subshells
+heredocs = "allow"                 # <<EOF ... EOF — allow heredocs (checked by heredoc rules)
 
 # =============================================================================
 # ALLOW/DENY COMMAND LISTS
 # =============================================================================
 
-[allow]
+[bash.allow]
 commands = [
     # Simple command names
     "ls", "cat", "head", "tail", "grep", "find", "wc", "echo", "pwd", "date",
@@ -32,7 +52,7 @@ commands = [
     "path:/usr/local/bin/*",           # user-installed tools
 ]
 
-[deny]
+[bash.deny]
 commands = [
     # Dangerous system commands
     "sudo", "su", "doas",
@@ -46,35 +66,25 @@ commands = [
 message = "Dangerous or untrusted command blocked"
 
 # =============================================================================
-# CONSTRUCTS
-# =============================================================================
-
-[constructs]
-function_definitions = "deny"      # foo() { ... } — prevent function definitions
-background = "deny"                # command & — prevent backgrounding
-subshells = "ask"                  # (command) — ask for subshells
-heredocs = "allow"                 # <<EOF ... EOF — allow heredocs (checked by [[heredoc]] rules)
-
-# =============================================================================
 # RULES — Basic Argument Matching
 # =============================================================================
 
 # --- contains: all listed strings must be present ---
-[[deny.rm]]
+[[bash.deny.rm]]
 message = "{{.ArgsStr}} — recursive force deletion blocked"
 args.contains = ["-rf"]                 # must have exactly "-rf"
 
-# --- any_match: at least one pattern must match ---
-[[deny.chmod]]
+# --- any: at least one pattern must match (OR semantics) ---
+[[bash.deny.chmod]]
 message = "Cannot set world-writable permissions"
-args.any_match = ["777", "666", "re:[0-7][67][67]"]
+args.any = ["777", "666", "re:[0-7][67][67]"]
 
-# --- all_match: every argument must match one of these ---
-[[allow.touch]]
-args.all_match = ["path:$PROJECT_ROOT/**"]  # only allow touching project files
+# --- all: every argument must match one of these (AND semantics) ---
+[[bash.allow.touch]]
+args.all = ["path:$PROJECT_ROOT/**"]  # only allow touching project files
 
 # --- position: specific argument positions must match ---
-[[deny.mv]]
+[[bash.deny.mv]]
 message = "Cannot move files to system directories"
 args.position = { "1" = "path:/etc/**" }    # destination is /etc
 
@@ -84,27 +94,27 @@ args.position = { "1" = "path:/etc/**" }    # destination is /etc
 
 # --- Position with enum values (OR semantics) ---
 # Using positional nesting for common git subcommands
-[[allow.git.status]]
-[[allow.git.diff]]
-[[allow.git.log]]
-[[allow.git.branch]]
-[[allow.git.show]]
-[[allow.git.blame]]
+[[bash.allow.git.status]]
+[[bash.allow.git.diff]]
+[[bash.allow.git.log]]
+[[bash.allow.git.branch]]
+[[bash.allow.git.show]]
+[[bash.allow.git.blame]]
 
 # Deny network git operations
-[[deny.git.push]]
+[[bash.deny.git.push]]
 message = "{{.Arg 0}} — network git operations require approval"
 
-[[deny.git.pull]]
+[[bash.deny.git.pull]]
 message = "{{.Arg 0}} — network git operations require approval"
 
-[[deny.git.fetch]]
+[[bash.deny.git.fetch]]
 message = "{{.Arg 0}} — network git operations require approval"
 
-[[deny.git.clone]]
+[[bash.deny.git.clone]]
 message = "{{.Arg 0}} — network git operations require approval"
 
-[[allow.docker]]
+[[bash.allow.docker]]
 message = "Safe docker inspection"
 # Multi-position enum: subcommand AND flag must both match
 args.position = {
@@ -112,14 +122,14 @@ args.position = {
     "1" = ["--format", "-f", "--filter", "--tail", "--help", "-h"]
 }
 
-[[deny.docker]]
+[[bash.deny.docker]]
 message = "Destructive docker operations blocked"
 args.position = { "0" = ["rm", "rmi", "kill", "stop", "prune", "system prune"] }
 
-# --- any_match with sequence objects (adjacent argument matching) ---
-[[allow.ffmpeg]]
+# --- any with sequence objects (adjacent argument matching) ---
+[[bash.allow.ffmpeg]]
 message = "ffmpeg with safe input source"
-args.any_match = [
+args.any = [
     # Sequence: -i followed by $HOME path
     { "0" = "-i", "1" = "path:$HOME/**" },
     # Sequence: -i followed by project path
@@ -128,18 +138,18 @@ args.any_match = [
     "re:^-(-help|h)$"
 ]
 
-[[deny.ffmpeg]]
+[[bash.deny.ffmpeg]]
 message = "ffmpeg cannot read from system directories"
-args.any_match = [
+args.any = [
     { "0" = "-i", "1" = "path:/etc/**" },
     { "0" = "-i", "1" = "path:/sys/**" },
     { "0" = "-i", "1" = "path:/proc/**" }
 ]
 
-# --- all_match with sequences (multiple required pairs) ---
-[[allow.openssl]]
+# --- all with sequences (multiple required pairs) ---
+[[bash.allow.openssl]]
 message = "openssl with proper certificate handling"
-args.all_match = [
+args.all = [
     # Must have -in with cert file
     { "0" = "-in", "1" = ["path:*.pem", "path:*.crt", "path:*.key", "path:*.der"] },
     # AND must have -out with cert file
@@ -147,9 +157,9 @@ args.all_match = [
 ]
 
 # --- 3-position sequence ---
-[[allow.rsync]]
+[[bash.allow.rsync]]
 message = "rsync with safe flags"
-args.any_match = [
+args.any = [
     { "0" = "-a", "1" = "-v", "2" = "--progress" },
     { "0" = "-avz", "1" = "--progress" }
 ]
@@ -159,21 +169,21 @@ args.any_match = [
 # =============================================================================
 
 # Block shells receiving piped input from download commands
-[[deny.bash]]
+[[bash.deny.bash]]
 message = "{{.Command}} receiving from {{index .PipesFrom 0}} — piping to shell blocked"
 pipe.from = ["curl", "wget", "nc", "netcat"]
 
-[[deny.sh]]
+[[bash.deny.sh]]
 message = "sh cannot receive piped input from network tools"
 pipe.from = ["curl", "wget", "nc", "netcat"]
 
 # Block eval from receiving ANY piped input
-[[deny.eval]]
+[[bash.deny.eval]]
 message = "eval cannot receive piped input"
 pipe.from = ["path:*"]
 
 # Block curl from piping to dangerous sinks
-[[deny.curl]]
+[[bash.deny.curl]]
 message = "curl cannot pipe to shell or eval"
 pipe.to = ["bash", "sh", "zsh", "eval", "source"]
 
@@ -182,138 +192,126 @@ pipe.to = ["bash", "sh", "zsh", "eval", "source"]
 # =============================================================================
 
 # --- path: patterns ---
-[[deny.cat]]
+[[bash.deny.cat]]
 message = "Cannot read key files"
-args.any_match = ["path:**/*.key", "path:**/*.pem", "path:**/.env*"]
+args.any = ["path:**/*.key", "path:**/*.pem", "path:**/.env*"]
 
 # --- re: regex patterns ---
-[[deny.grep]]
+[[bash.deny.grep]]
 message = "Cannot search for sensitive patterns"
-args.any_match = ["re:(?i)(password|secret|token|api.?key)"]
+args.any = ["re:(?i)(password|secret|token|api.?key)"]
 
 # --- path: patterns with variable expansion ---
-[[allow.rm]]
+[[bash.allow.rm]]
 message = "rm allowed in project directory"
-args.any_match = ["path:$PROJECT_ROOT/**"]
+args.any = ["path:$PROJECT_ROOT/**"]
 
-[[deny.rm]]
+[[bash.deny.rm]]
 message = "Cannot delete files outside project — {{.ArgsStr}}"
 
 # --- flags: patterns ---
-[[deny.tar]]
+[[bash.deny.tar]]
 message = "tar extract blocked (use explicit extraction)"
-args.any_match = ["flags:x", "flags:xf", "flags:xzf", "flags:xjf"]
+args.any = ["flags:x", "flags:xf", "flags:xzf", "flags:xjf"]
 
-[[allow.tar]]
+[[bash.allow.tar]]
 message = "tar create/list allowed"
-args.any_match = ["flags:c", "flags:t", "flags:cf", "flags:tf"]
+args.any = ["flags:c", "flags:t", "flags:cf", "flags:tf"]
 
-[[deny.chmod]]
+[[bash.deny.chmod]]
 message = "Cannot add execute permission"
-args.any_match = ["flags[+]:x"]          # matches +x, +rx, +rwx
+args.any = ["flags[+]:x"]          # matches +x, +rx, +rwx
 
 # --- Negation ---
-[[allow.find]]
+[[bash.allow.find]]
 # Allow find only in project root (negated: NOT outside project)
-args.any_match = ["path:$PROJECT_ROOT/**"]
-# Alternative with negation: args.any_match = ["!path:/etc/**", "!path:/usr/**"]
+args.any = ["path:$PROJECT_ROOT/**"]
+# Alternative with negation: args.any = ["!path:/etc/**", "!path:/usr/**"]
 
 # =============================================================================
 # RULES — Per-Rule File Configuration
 # =============================================================================
 
 # Disable file rule checking for tar (complex argument patterns)
-[[allow.tar]]
+[[bash.allow.tar]]
 respect_file_rules = false
 
 # Force specific access type for custom command
-[[allow.mybackup]]
+[[bash.allow.mybackup]]
 file_access_type = "Read"          # check all file args against Read rules
 
 # =============================================================================
-# RULES — Positional File Rules
+# RULES — Positional File Rules with ref:
 # =============================================================================
 
 # cp: source is Read, destination is Write
-[[allow.cp]]
-args.position = { "0" = "files:read", "1" = "files:write" }
+[[bash.allow.cp]]
+args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
 
 # mv: same pattern as cp
-[[allow.mv]]
-args.position = { "0" = "files:read", "1" = "files:write" }
+[[bash.allow.mv]]
+args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
 
 # install: source is Read, destination is Write
-[[allow.install]]
-args.position = { "0" = "files:read", "1" = "files:write" }
+[[bash.allow.install]]
+args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
 
 # =============================================================================
 # REDIRECTS
 # =============================================================================
 
-[redirects]
+[bash.redirects]
 respect_file_rules = true          # check file rules for redirect targets
 
 # Allow redirects to safe locations
-[[redirect]]
-action = "allow"
-[redirect.to]
-exact = ["/dev/null", "/dev/stderr", "/dev/stdout"]
+[[bash.redirects.allow]]
+paths = ["/dev/null", "/dev/stderr", "/dev/stdout"]
 
-[[redirect]]
-action = "allow"
-[redirect.to]
-pattern = ["path:$PROJECT_ROOT/**", "path:/tmp/**"]
+[[bash.redirects.allow]]
+paths = ["path:$PROJECT_ROOT/**", "path:/tmp/**"]
 
 # Deny redirects to system directories
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot redirect to {{.Target}} — system directory"
-[redirect.to]
-pattern = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**"]
+paths = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**"]
 
 # Deny appending to shell config files
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot append to shell config: {{.TargetFileName}}"
 append = true                      # only match >> (append mode)
-[redirect.to]
-exact = [".bashrc", ".zshrc", ".profile", ".bash_profile"]
-pattern = ["path:*/.bashrc", "path:*/.zshrc", "path:*/.profile"]
+paths = [".bashrc", ".zshrc", ".profile", ".bash_profile", "path:*/.bashrc", "path:*/.zshrc", "path:*/.profile"]
 
 # =============================================================================
 # HEREDOCS
 # =============================================================================
 
 # Deny heredocs with dangerous content patterns
-[[heredoc]]
-action = "deny"
+[[bash.heredocs.deny]]
 message = "Heredoc contains dangerous SQL"
-content_match = ["re:(?i)DROP\\s+TABLE", "re:(?i)DELETE\\s+FROM", "re:(?i)TRUNCATE"]
+content.any = ["re:(?i)DROP\\s+TABLE", "re:(?i)DELETE\\s+FROM", "re:(?i)TRUNCATE"]
 
-[[heredoc]]
-action = "deny"
+[[bash.heredocs.deny]]
 message = "Heredoc contains shell injection patterns"
-content_match = [
+content.any = [
     "re:\\$\\(.*\\)",              # command substitution
     "re:`.*`",                      # backtick execution
     "re:rm\\s+-rf",                 # recursive delete
     "re:/dev/tcp/",                 # bash network
 ]
 
-[[heredoc]]
-action = "deny"
+[[bash.heredocs.deny]]
 message = "Heredoc contains privilege escalation"
-content_match = ["re:(?m)^\\s*(sudo|su)\\s"]
+content.any = ["re:(?m)^\\s*(sudo|su)\\s"]
 
 # =============================================================================
 # FILE TOOL PERMISSIONS
 # =============================================================================
 
-[files]
+[read]
 default = "ask"                    # when no rules match
 
-[files.read]
-allow = [
+[read.allow]
+paths = [
     "path:$PROJECT_ROOT/**",
     "path:$HOME/Documents/**",
     "path:$HOME/code/**",
@@ -321,7 +319,9 @@ allow = [
     "path:**/*.md",                # markdown anywhere
     "path:**/*.txt",               # text files anywhere
 ]
-deny = [
+
+[read.deny]
+paths = [
     # Sensitive directories
     "path:$HOME/.ssh/**",
     "path:$HOME/.gnupg/**",
@@ -340,23 +340,33 @@ deny = [
 ]
 message = "Cannot read {{.FilePath}} — sensitive file"
 
-[files.edit]
-allow = [
+[edit]
+default = "ask"
+
+[edit.allow]
+paths = [
     "path:$PROJECT_ROOT/**",
 ]
-deny = [
+
+[edit.deny]
+paths = [
     "path:$HOME/.*",               # dotfiles
     "path:**/.env*",
     "path:**/*.key",
 ]
 message = "Cannot edit {{.FileName}} in {{.FileDir}}"
 
-[files.write]
-allow = [
+[write]
+default = "ask"
+
+[write.allow]
+paths = [
     "path:$PROJECT_ROOT/**",
     "path:/tmp/**",
 ]
-deny = [
+
+[write.deny]
+paths = [
     # System directories
     "path:/etc/**",
     "path:/usr/**",

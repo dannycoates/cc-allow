@@ -1,75 +1,65 @@
 # Example cc-allow configuration
 
-version = "1.0"
+version = "2.0"
 
-[policy]
+# ============================================================================
+# BASH TOOL CONFIGURATION
+# ============================================================================
+
+[bash]
 default = "ask"                              # "allow", "deny", or "ask" when no rule matches
 dynamic_commands = "ask"                     # commands with $VAR or $(cmd) as the name
 default_message = "Command not allowed"       # fallback message when rule has no message
 
-# Quick lists for the most common patterns
-[commands.deny]
-names = ["dd", "mkfs", "shutdown", "reboot", "kill", "killall", "sudo"]
-message = "This command is in the deny list"
-
-[commands.allow]
-names = ["ls", "cat", "echo", "grep", "find", "head", "tail", "wc", "sort", "uniq", "pwd", "date"]
-
-# Constructs configuration
-[constructs]
+[bash.constructs]
 subshells = "ask"
 function_definitions = "deny"
 background = "ask"
 
-# Detailed rules (evaluated in order, first match wins)
+# Quick lists for the most common patterns
+[bash.deny]
+commands = ["dd", "mkfs", "shutdown", "reboot", "kill", "killall", "sudo"]
+message = "This command is in the deny list"
+
+[bash.allow]
+commands = ["ls", "cat", "echo", "grep", "find", "head", "tail", "wc", "sort", "uniq", "pwd", "date"]
+
+# ============================================================================
+# DETAILED RULES (evaluated in order, first match wins)
+# ============================================================================
 
 # Deny curl piped to shell
-[[rule]]
-command = "curl"
-action = "deny"
+[[bash.deny.curl]]
 message = "Piping curl output to a shell is not allowed"
-[rule.pipe]
-to = ["bash", "sh", "zsh", "source", "eval"]
+pipe.to = ["bash", "sh", "zsh", "source", "eval"]
 
 # Deny wget piped to shell
-[[rule]]
-command = "wget"
-action = "deny"
+[[bash.deny.wget]]
 message = "Piping wget output to a shell is not allowed"
-[rule.pipe]
-to = ["bash", "sh", "zsh"]
+pipe.to = ["bash", "sh", "zsh"]
 
 # Allow curl for general use
-[[rule]]
-command = "curl"
-action = "allow"
+[[bash.allow.curl]]
 
 # Allow wget for general use
-[[rule]]
-command = "wget"
-action = "allow"
+[[bash.allow.wget]]
 
 # Deny rm with recursive flags
-[[rule]]
-command = "rm"
-action = "deny"
+[[bash.deny.rm]]
 message = "Recursive rm is not allowed"
-[rule.args]
-any_match = ["-r", "-rf", "-fr", "--recursive"]
+args.any = ["-r", "-rf", "-fr", "--recursive"]
 
-# Redirect rules
+# ============================================================================
+# REDIRECT RULES
+# ============================================================================
 
 # Deny redirecting to sensitive paths
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot redirect to system directories"
-[redirect.to]
-pattern = ["path:/etc/*", "path:/var/*", "path:/usr/*"]
+paths = ["path:/etc/*", "path:/var/*", "path:/usr/*"]
 
 # Deny appending to shell configs
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot modify shell configuration files"
 append = true
-[redirect.to]
-exact = [".bashrc", ".zshrc", ".profile", ".bash_profile"]
+paths = [".bashrc", ".zshrc", ".profile", ".bash_profile"]

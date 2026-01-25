@@ -5,12 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // ruleWithScore pairs a rule with its computed specificity score for sorting.
 type ruleWithScore struct {
 	index       int
-	rule        Rule
+	rule        BashRule
 	specificity int
 	source      string
 }
@@ -65,24 +66,25 @@ func runFmt(configPath string) {
 		}
 
 		fmt.Printf("\n[%d] %s\n", i+1, path)
-		fmt.Printf("    policy.default = %q\n", cfg.Policy.Default)
-		fmt.Printf("    policy.dynamic_commands = %q\n", cfg.Policy.DynamicCommands)
-		if cfg.Policy.RespectFileRules != nil {
-			fmt.Printf("    policy.respect_file_rules = %v\n", *cfg.Policy.RespectFileRules)
+		fmt.Printf("    bash.default = %q\n", cfg.Bash.Default)
+		fmt.Printf("    bash.dynamic_commands = %q\n", cfg.Bash.DynamicCommands)
+		if cfg.Bash.RespectFileRules != nil {
+			fmt.Printf("    bash.respect_file_rules = %v\n", *cfg.Bash.RespectFileRules)
 		}
-		if cfg.RedirectsPolicy.RespectFileRules != nil {
-			fmt.Printf("    redirects.respect_file_rules = %v\n", *cfg.RedirectsPolicy.RespectFileRules)
+		if cfg.Bash.Redirects.RespectFileRules != nil {
+			fmt.Printf("    bash.redirects.respect_file_rules = %v\n", *cfg.Bash.Redirects.RespectFileRules)
 		}
 
-		if len(cfg.Commands.Allow.Names) > 0 {
-			fmt.Printf("    commands.allow.names = %d command(s)\n", len(cfg.Commands.Allow.Names))
+		if len(cfg.Bash.Allow.Commands) > 0 {
+			fmt.Printf("    bash.allow.commands = %d command(s)\n", len(cfg.Bash.Allow.Commands))
 		}
-		if len(cfg.Commands.Deny.Names) > 0 {
-			fmt.Printf("    commands.deny.names = %d command(s)\n", len(cfg.Commands.Deny.Names))
+		if len(cfg.Bash.Deny.Commands) > 0 {
+			fmt.Printf("    bash.deny.commands = %d command(s)\n", len(cfg.Bash.Deny.Commands))
 		}
 
 		// Collect rules with scores
-		for j, rule := range cfg.Rules {
+		rules := cfg.getParsedRules()
+		for j, rule := range rules {
 			allRules = append(allRules, ruleWithScore{
 				index:       j,
 				rule:        rule,
@@ -92,7 +94,8 @@ func runFmt(configPath string) {
 		}
 
 		// Collect redirect rules with scores
-		for j, rule := range cfg.Redirects {
+		redirects := cfg.getParsedRedirects()
+		for j, rule := range redirects {
 			allRedirects = append(allRedirects, redirectWithScore{
 				index:       j,
 				rule:        rule,
@@ -102,7 +105,8 @@ func runFmt(configPath string) {
 		}
 
 		// Collect heredoc rules with scores
-		for j, rule := range cfg.Heredocs {
+		heredocs := cfg.getParsedHeredocs()
+		for j, rule := range heredocs {
 			allHeredocs = append(allHeredocs, heredocWithScore{
 				index:       j,
 				rule:        rule,
@@ -111,9 +115,9 @@ func runFmt(configPath string) {
 			})
 		}
 
-		fmt.Printf("    %d rule(s), %d redirect(s), %d heredoc(s)\n", len(cfg.Rules), len(cfg.Redirects), len(cfg.Heredocs))
-		if cfg.Constructs.Heredocs != "" && cfg.Constructs.Heredocs != "allow" {
-			fmt.Printf("    constructs.heredocs = %q\n", cfg.Constructs.Heredocs)
+		fmt.Printf("    %d rule(s), %d redirect(s), %d heredoc(s)\n", len(rules), len(redirects), len(heredocs))
+		if cfg.Bash.Constructs.Heredocs != "" && cfg.Bash.Constructs.Heredocs != "allow" {
+			fmt.Printf("    bash.constructs.heredocs = %q\n", cfg.Bash.Constructs.Heredocs)
 		}
 	}
 
@@ -153,7 +157,7 @@ func runFmt(configPath string) {
 	if len(allHeredocs) > 0 {
 		fmt.Println("\n\nHeredoc Rules (by specificity)")
 		fmt.Println("===============================")
-		fmt.Println("Note: Heredoc rules use first-match. Only checked if constructs.heredocs = \"allow\".")
+		fmt.Println("Note: Heredoc rules use first-match. Only checked if bash.constructs.heredocs = \"allow\".")
 
 		sortHeredocsBySpecificity(allHeredocs)
 
@@ -206,20 +210,23 @@ func sortHeredocsBySpecificity(rules []heredocWithScore) {
 	})
 }
 
-func formatRule(r Rule) string {
+func formatRule(r BashRule) string {
 	result := fmt.Sprintf("command=%q action=%s", r.Command, r.Action)
 
-	if len(r.Args.Contains) > 0 {
-		result += fmt.Sprintf(" args.contains=%v", r.Args.Contains)
+	if len(r.Subcommands) > 0 {
+		result += fmt.Sprintf(" subcommands=%v", r.Subcommands)
 	}
-	if len(r.Args.AnyMatch) > 0 {
-		result += fmt.Sprintf(" args.any_match=%v", r.Args.AnyMatch)
+	if r.Args.Any != nil {
+		result += " args.any=..."
 	}
-	if len(r.Args.AllMatch) > 0 {
-		result += fmt.Sprintf(" args.all_match=%v", r.Args.AllMatch)
+	if r.Args.All != nil {
+		result += " args.all=..."
+	}
+	if r.Args.Not != nil {
+		result += " args.not=..."
 	}
 	if len(r.Args.Position) > 0 {
-		result += fmt.Sprintf(" args.position=%v", r.Args.Position)
+		result += fmt.Sprintf(" args.position=%v", formatPosition(r.Args.Position))
 	}
 	if len(r.Pipe.To) > 0 {
 		result += fmt.Sprintf(" pipe.to=%v", r.Pipe.To)
@@ -237,14 +244,19 @@ func formatRule(r Rule) string {
 	return result
 }
 
+func formatPosition(pos map[string]FlexiblePattern) string {
+	var parts []string
+	for k, v := range pos {
+		parts = append(parts, fmt.Sprintf("%s=%v", k, v.Patterns))
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
+}
+
 func formatRedirectRule(r RedirectRule) string {
 	result := fmt.Sprintf("action=%s", r.Action)
 
-	if len(r.To.Exact) > 0 {
-		result += fmt.Sprintf(" to.exact=%v", r.To.Exact)
-	}
-	if len(r.To.Pattern) > 0 {
-		result += fmt.Sprintf(" to.pattern=%v", r.To.Pattern)
+	if len(r.Paths) > 0 {
+		result += fmt.Sprintf(" paths=%v", r.Paths)
 	}
 	if r.Append != nil {
 		result += fmt.Sprintf(" append=%v", *r.Append)
@@ -256,8 +268,8 @@ func formatRedirectRule(r RedirectRule) string {
 func formatHeredocRule(r HeredocRule) string {
 	result := fmt.Sprintf("action=%s", r.Action)
 
-	if len(r.ContentMatch) > 0 {
-		result += fmt.Sprintf(" content_match=%v", r.ContentMatch)
+	if r.Content != nil {
+		result += " content=..."
 	}
 
 	return result

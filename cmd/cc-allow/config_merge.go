@@ -1,11 +1,10 @@
 package main
 
-// Config merging logic for cc-allow.
-// Handles merging multiple configs with stricter-wins semantics and shadowing detection.
+// Config merging logic for cc-allow v2 format.
+// Handles merging multiple configs with stricter-wins semantics.
 
 // actionStrictness returns the strictness level of an action.
 // Higher values are stricter: deny(2) > ask(1) > allow(0).
-// Empty string (unset) returns -1.
 func actionStrictness(action string) int {
 	switch action {
 	case "deny":
@@ -25,33 +24,37 @@ func isStricter(newVal, currentVal string) bool {
 }
 
 // mergeTrackedValue merges a policy field, keeping the stricter value.
-// If current is unset (empty), any new value is accepted.
-// If new is unset, current is kept.
-// Otherwise, new only wins if it's stricter.
 func mergeTrackedValue(current TrackedValue, newVal, newSource string) TrackedValue {
-	// If new is unset, keep current
 	if newVal == "" {
 		return current
 	}
-	// If current is unset, accept new
 	if current.Value == "" {
 		return TrackedValue{Value: newVal, Source: newSource}
 	}
-	// Both set - new wins only if stricter
 	if isStricter(newVal, current.Value) {
 		return TrackedValue{Value: newVal, Source: newSource}
 	}
 	return current
 }
 
-// mergeTrackedMessage merges a message field.
-// Unlike policy fields, messages don't have strictness - later non-empty values win.
+// mergeTrackedMessage merges a message field (later non-empty values win).
 func mergeTrackedMessage(current TrackedValue, newVal, newSource string) TrackedValue {
 	if newVal == "" {
 		return current
 	}
-	// Non-empty new value overwrites
 	return TrackedValue{Value: newVal, Source: newSource}
+}
+
+// mergeBoolPointerToTracked converts a *bool to TrackedValue.
+func mergeBoolPointerToTracked(current TrackedValue, newVal *bool, newSource string) TrackedValue {
+	if newVal == nil {
+		return current
+	}
+	val := "false"
+	if *newVal {
+		val = "true"
+	}
+	return TrackedValue{Value: val, Source: newSource}
 }
 
 // newEmptyMergedConfig creates a MergedConfig with all fields unset.
@@ -64,130 +67,102 @@ func newEmptyMergedConfig() *MergedConfig {
 			Allow: make(map[string][]TrackedFilePatternEntry),
 			Deny:  make(map[string][]TrackedFilePatternEntry),
 		},
+		Aliases:   make(map[string]Alias),
 		Rules:     []TrackedRule{},
 		Redirects: []TrackedRedirectRule{},
 		Heredocs:  []TrackedHeredocRule{},
 	}
 }
 
-// mergeBoolPointerToTracked converts a *bool to TrackedValue for merging.
-// For respect_file_rules: false is stricter than true (more restrictive = doesn't check file rules by default,
-// but actually we want true to be the secure default, so true = check file rules is stricter/more secure).
-// We use a special merge that allows override rather than strictness-based.
-func mergeBoolPointerToTracked(current TrackedValue, newVal *bool, newSource string) TrackedValue {
-	if newVal == nil {
-		return current
-	}
-	// Any explicit setting overrides - later configs win for boolean settings
-	val := "false"
-	if *newVal {
-		val = "true"
-	}
-	return TrackedValue{Value: val, Source: newSource}
-}
-
-// mergeConfigInto merges a raw config into an existing MergedConfig.
-// The raw config can only make things stricter, not looser.
+// mergeConfigInto merges a config into an existing MergedConfig.
 func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	source := cfg.Path
 	merged.Sources = append(merged.Sources, source)
 
-	// Merge policy fields (stricter wins)
-	merged.Policy.Default = mergeTrackedValue(merged.Policy.Default, cfg.Policy.Default, source)
-	merged.Policy.DynamicCommands = mergeTrackedValue(merged.Policy.DynamicCommands, cfg.Policy.DynamicCommands, source)
-	merged.Policy.UnresolvedCommands = mergeTrackedValue(merged.Policy.UnresolvedCommands, cfg.Policy.UnresolvedCommands, source)
-	merged.Policy.DefaultMessage = mergeTrackedMessage(merged.Policy.DefaultMessage, cfg.Policy.DefaultMessage, source)
-	merged.Policy.RespectFileRules = mergeBoolPointerToTracked(merged.Policy.RespectFileRules, cfg.Policy.RespectFileRules, source)
+	// Merge bash policy fields
+	merged.Policy.Default = mergeTrackedValue(merged.Policy.Default, cfg.Bash.Default, source)
+	merged.Policy.DynamicCommands = mergeTrackedValue(merged.Policy.DynamicCommands, cfg.Bash.DynamicCommands, source)
+	merged.Policy.UnresolvedCommands = mergeTrackedValue(merged.Policy.UnresolvedCommands, cfg.Bash.UnresolvedCommands, source)
+	merged.Policy.DefaultMessage = mergeTrackedMessage(merged.Policy.DefaultMessage, cfg.Bash.DefaultMessage, source)
+	merged.Policy.RespectFileRules = mergeBoolPointerToTracked(merged.Policy.RespectFileRules, cfg.Bash.RespectFileRules, source)
 
-	// Merge allowed_paths (union)
-	for _, p := range cfg.Policy.AllowedPaths {
-		merged.Policy.AllowedPaths = append(merged.Policy.AllowedPaths, p)
-		merged.Policy.AllowedPathsSources = append(merged.Policy.AllowedPathsSources, source)
-	}
+	// Merge constructs
+	merged.Constructs.Subshells = mergeTrackedValue(merged.Constructs.Subshells, cfg.Bash.Constructs.Subshells, source)
+	merged.Constructs.FunctionDefinitions = mergeTrackedValue(merged.Constructs.FunctionDefinitions, cfg.Bash.Constructs.FunctionDefinitions, source)
+	merged.Constructs.Background = mergeTrackedValue(merged.Constructs.Background, cfg.Bash.Constructs.Background, source)
+	merged.Constructs.Heredocs = mergeTrackedValue(merged.Constructs.Heredocs, cfg.Bash.Constructs.Heredocs, source)
 
-	// Merge constructs (stricter wins)
-	merged.Constructs.Subshells = mergeTrackedValue(merged.Constructs.Subshells, cfg.Constructs.Subshells, source)
-	merged.Constructs.FunctionDefinitions = mergeTrackedValue(merged.Constructs.FunctionDefinitions, cfg.Constructs.FunctionDefinitions, source)
-	merged.Constructs.Background = mergeTrackedValue(merged.Constructs.Background, cfg.Constructs.Background, source)
-	merged.Constructs.Heredocs = mergeTrackedValue(merged.Constructs.Heredocs, cfg.Constructs.Heredocs, source)
-
-	// Merge commands.deny list (union - anything denied anywhere stays denied)
-	for _, name := range cfg.Commands.Deny.Names {
+	// Merge bash.deny.commands (union)
+	for _, cmd := range cfg.Bash.Deny.Commands {
 		merged.CommandsDeny = append(merged.CommandsDeny, TrackedCommandEntry{
-			Name:    name,
+			Name:    cmd,
 			Source:  source,
-			Message: cfg.Commands.Deny.Message,
+			Message: cfg.Bash.Deny.Message,
 		})
 	}
 
-	// Merge commands.allow list (union)
-	for _, name := range cfg.Commands.Allow.Names {
+	// Merge bash.allow.commands (union)
+	for _, cmd := range cfg.Bash.Allow.Commands {
 		merged.CommandsAllow = append(merged.CommandsAllow, TrackedCommandEntry{
-			Name:    name,
+			Name:    cmd,
 			Source:  source,
-			Message: cfg.Commands.Allow.Message,
+			Message: cfg.Bash.Allow.Message,
 		})
 	}
 
-	// Merge rules with shadowing detection
-	merged.Rules = mergeRules(merged.Rules, cfg.Rules, source)
+	// Merge bash rules with shadowing detection
+	merged.Rules = mergeRules(merged.Rules, cfg.getParsedRules(), source)
 
-	// Merge redirects policy
+	// Merge redirect policy
 	merged.RedirectsPolicy.RespectFileRules = mergeBoolPointerToTracked(
-		merged.RedirectsPolicy.RespectFileRules, cfg.RedirectsPolicy.RespectFileRules, source)
+		merged.RedirectsPolicy.RespectFileRules, cfg.Bash.Redirects.RespectFileRules, source)
 
-	// Merge redirects with shadowing detection
-	merged.Redirects = mergeRedirectRules(merged.Redirects, cfg.Redirects, source)
+	// Merge redirect rules
+	merged.Redirects = mergeRedirectRules(merged.Redirects, cfg.getParsedRedirects(), source)
 
-	// Merge heredocs with shadowing detection
-	merged.Heredocs = mergeHeredocRules(merged.Heredocs, cfg.Heredocs, source)
+	// Merge heredoc rules
+	merged.Heredocs = mergeHeredocRules(merged.Heredocs, cfg.getParsedHeredocs(), source)
 
-	// Merge file tool config
-	mergeFilesConfig(&merged.Files, &cfg.Files, source)
+	// Merge file tool configs
+	mergeFileToolConfig(&merged.Files, "Read", &cfg.Read, source)
+	mergeFileToolConfig(&merged.Files, "Write", &cfg.Write, source)
+	mergeFileToolConfig(&merged.Files, "Edit", &cfg.Edit, source)
 
-	// Debug config - take non-empty values
+	// Merge aliases (later configs can add or override)
+	for name, alias := range cfg.Aliases {
+		merged.Aliases[name] = alias
+	}
+
+	// Debug config
 	if cfg.Debug.LogFile != "" {
 		merged.Debug.LogFile = cfg.Debug.LogFile
 	}
 }
 
-// mergeFilesConfig merges file tool configuration.
-// Deny lists union across configs, allow lists union, stricter default wins.
-func mergeFilesConfig(merged *MergedFilesConfig, cfg *FilesConfig, source string) {
-	// Merge default policy (stricter wins)
+// mergeFileToolConfig merges a file tool config into the merged files config.
+func mergeFileToolConfig(merged *MergedFilesConfig, toolName string, cfg *FileToolConfig, source string) {
+	// Merge default (stricter wins)
 	merged.Default = mergeTrackedValue(merged.Default, cfg.Default, source)
 
-	// Merge per-tool allow/deny lists
-	tools := []struct {
-		name   string
-		config FileToolConfig
-	}{
-		{"Read", cfg.Read},
-		{"Edit", cfg.Edit},
-		{"Write", cfg.Write},
+	// Merge deny patterns (union)
+	for _, path := range cfg.Deny.Paths {
+		merged.Deny[toolName] = append(merged.Deny[toolName], TrackedFilePatternEntry{
+			Pattern: path,
+			Source:  source,
+			Message: cfg.Deny.Message,
+		})
 	}
 
-	for _, tool := range tools {
-		// Merge deny patterns (union)
-		for _, pattern := range tool.config.Deny {
-			merged.Deny[tool.name] = append(merged.Deny[tool.name], TrackedFilePatternEntry{
-				Pattern: pattern,
-				Source:  source,
-				Message: tool.config.Message,
-			})
-		}
-
-		// Merge allow patterns (union)
-		for _, pattern := range tool.config.Allow {
-			merged.Allow[tool.name] = append(merged.Allow[tool.name], TrackedFilePatternEntry{
-				Pattern: pattern,
-				Source:  source,
-			})
-		}
+	// Merge allow patterns (union)
+	for _, path := range cfg.Allow.Paths {
+		merged.Allow[toolName] = append(merged.Allow[toolName], TrackedFilePatternEntry{
+			Pattern: path,
+			Source:  source,
+		})
 	}
 }
 
-// applyMergedDefaults fills in system defaults for any unset fields in MergedConfig.
+// applyMergedDefaults fills in system defaults for unset fields.
 func applyMergedDefaults(merged *MergedConfig) {
 	if merged.Policy.Default.Value == "" {
 		merged.Policy.Default = TrackedValue{Value: "ask", Source: "(default)"}
@@ -201,7 +176,6 @@ func applyMergedDefaults(merged *MergedConfig) {
 	if merged.Policy.DefaultMessage.Value == "" {
 		merged.Policy.DefaultMessage = TrackedValue{Value: "Command not allowed", Source: "(default)"}
 	}
-	// RespectFileRules defaults to true (secure by default)
 	if merged.Policy.RespectFileRules.Value == "" {
 		merged.Policy.RespectFileRules = TrackedValue{Value: "true", Source: "(default)"}
 	}
@@ -217,18 +191,15 @@ func applyMergedDefaults(merged *MergedConfig) {
 	if merged.Constructs.Heredocs.Value == "" {
 		merged.Constructs.Heredocs = TrackedValue{Value: "allow", Source: "(default)"}
 	}
-	// Files default
 	if merged.Files.Default.Value == "" {
 		merged.Files.Default = TrackedValue{Value: "ask", Source: "(default)"}
 	}
-	// Redirects policy: respect_file_rules defaults to false (backward compatible)
 	if merged.RedirectsPolicy.RespectFileRules.Value == "" {
 		merged.RedirectsPolicy.RespectFileRules = TrackedValue{Value: "false", Source: "(default)"}
 	}
 }
 
-// MergeConfigs merges multiple raw configs into a single MergedConfig.
-// Configs are processed in order; each can only make things stricter.
+// MergeConfigs merges multiple configs into a single MergedConfig.
 func MergeConfigs(configs []*Config) *MergedConfig {
 	merged := newEmptyMergedConfig()
 	for _, cfg := range configs {
@@ -236,6 +207,128 @@ func MergeConfigs(configs []*Config) *MergedConfig {
 	}
 	applyMergedDefaults(merged)
 	return merged
+}
+
+// rulesExactMatch returns true if two rules have identical patterns.
+// Rules with different args or pipe conditions are not considered exact matches.
+func rulesExactMatch(a, b BashRule) bool {
+	if a.Command != b.Command {
+		return false
+	}
+	if !slicesEqual(a.Subcommands, b.Subcommands) {
+		return false
+	}
+	// Check pipe conditions
+	if !slicesEqual(a.Pipe.To, b.Pipe.To) {
+		return false
+	}
+	if !slicesEqual(a.Pipe.From, b.Pipe.From) {
+		return false
+	}
+	// Check if args conditions differ
+	if !argsMatchEqual(a.Args, b.Args) {
+		return false
+	}
+	return true
+}
+
+// argsMatchEqual compares two ArgsMatch for equality.
+func argsMatchEqual(a, b ArgsMatch) bool {
+	// Check if both have or don't have Any/All/Not/Xor
+	if (a.Any == nil) != (b.Any == nil) {
+		return false
+	}
+	if (a.All == nil) != (b.All == nil) {
+		return false
+	}
+	if (a.Not == nil) != (b.Not == nil) {
+		return false
+	}
+	if (a.Xor == nil) != (b.Xor == nil) {
+		return false
+	}
+	// Check position map lengths (quick check)
+	if len(a.Position) != len(b.Position) {
+		return false
+	}
+	// For non-nil boolean expressions, compare patterns
+	if a.Any != nil && !boolExprPatternsEqual(a.Any, b.Any) {
+		return false
+	}
+	if a.All != nil && !boolExprPatternsEqual(a.All, b.All) {
+		return false
+	}
+	if a.Not != nil && !boolExprPatternsEqual(a.Not, b.Not) {
+		return false
+	}
+	if a.Xor != nil && !boolExprPatternsEqual(a.Xor, b.Xor) {
+		return false
+	}
+	// Check position patterns
+	for k, va := range a.Position {
+		vb, ok := b.Position[k]
+		if !ok {
+			return false
+		}
+		if !slicesEqual(va.Patterns, vb.Patterns) {
+			return false
+		}
+	}
+	return true
+}
+
+// boolExprPatternsEqual compares two BoolExpr for equality.
+func boolExprPatternsEqual(a, b *BoolExpr) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	// Compare patterns
+	if !slicesEqual(a.Patterns, b.Patterns) {
+		return false
+	}
+	// Compare isSequence and sequence contents
+	if a.IsSequence != b.IsSequence {
+		return false
+	}
+	if len(a.Sequence) != len(b.Sequence) {
+		return false
+	}
+	for k, va := range a.Sequence {
+		vb, ok := b.Sequence[k]
+		if !ok || !slicesEqual(va.Patterns, vb.Patterns) {
+			return false
+		}
+	}
+	// Compare nested structures lengths
+	if len(a.Any) != len(b.Any) || len(a.All) != len(b.All) || len(a.Xor) != len(b.Xor) {
+		return false
+	}
+	// Recursively compare nested Any/All/Xor
+	for i := range a.Any {
+		if !boolExprPatternsEqual(a.Any[i], b.Any[i]) {
+			return false
+		}
+	}
+	for i := range a.All {
+		if !boolExprPatternsEqual(a.All[i], b.All[i]) {
+			return false
+		}
+	}
+	for i := range a.Xor {
+		if !boolExprPatternsEqual(a.Xor[i], b.Xor[i]) {
+			return false
+		}
+	}
+	if (a.Not == nil) != (b.Not == nil) {
+		return false
+	}
+	if a.Not != nil && !boolExprPatternsEqual(a.Not, b.Not) {
+		return false
+	}
+	return true
 }
 
 // slicesEqual compares two string slices for equality.
@@ -251,92 +344,24 @@ func slicesEqual(a, b []string) bool {
 	return true
 }
 
-// mapsEqual compares two string maps for equality.
-func mapsEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if bv, ok := b[k]; !ok || bv != v {
-			return false
-		}
-	}
-	return true
-}
-
-// rulesExactMatch returns true if two rules have identical command and args patterns.
-// Used for shadowing detection - only exact matches are considered overlapping.
-func rulesExactMatch(a, b Rule) bool {
-	return a.Command == b.Command &&
-		slicesEqual(a.Args.Contains, b.Args.Contains) &&
-		matchElementsEqual(a.Args.AnyMatch, b.Args.AnyMatch) &&
-		matchElementsEqual(a.Args.AllMatch, b.Args.AllMatch) &&
-		flexiblePatternMapsEqual(a.Args.Position, b.Args.Position) &&
-		slicesEqual(a.Pipe.To, b.Pipe.To) &&
-		slicesEqual(a.Pipe.From, b.Pipe.From)
-}
-
-// matchElementsEqual compares two slices of MatchElement for equality.
-func matchElementsEqual(a, b []MatchElement) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if !matchElementEqual(a[i], b[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// matchElementEqual compares two MatchElement for equality.
-func matchElementEqual(a, b MatchElement) bool {
-	if a.IsSequence != b.IsSequence {
-		return false
-	}
-	if a.IsSequence {
-		return flexiblePatternMapsEqual(a.Sequence, b.Sequence)
-	}
-	return a.Pattern == b.Pattern
-}
-
-// flexiblePatternMapsEqual compares two maps of FlexiblePattern for equality.
-func flexiblePatternMapsEqual(a, b map[string]FlexiblePattern) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, av := range a {
-		bv, ok := b[k]
-		if !ok || !slicesEqual(av.Patterns, bv.Patterns) {
-			return false
-		}
-	}
-	return true
-}
-
 // mergeRules merges new rules into existing rules with shadowing detection.
-// If a new rule exactly matches an existing rule:
-// - If new is stricter, new shadows existing (existing.Shadowed = true)
-// - If new is same or looser, new gets shadowed (new.Shadowed = true)
-func mergeRules(merged []TrackedRule, newRules []Rule, newSource string) []TrackedRule {
+func mergeRules(merged []TrackedRule, newRules []BashRule, newSource string) []TrackedRule {
 	for _, newRule := range newRules {
-		tr := TrackedRule{Rule: newRule, Source: newSource}
+		tr := TrackedRule{BashRule: newRule, Source: newSource}
 
-		// Check if this shadows an existing rule (exact same pattern)
+		// Check for shadowing
 		for i, existing := range merged {
 			if existing.Shadowed {
-				continue // already shadowed, skip
+				continue
 			}
-			if rulesExactMatch(existing.Rule, newRule) {
-				if isStricter(newRule.Action, existing.Rule.Action) {
-					// New rule is stricter, it shadows the existing
+			if rulesExactMatch(existing.BashRule, newRule) {
+				if isStricter(newRule.Action, existing.BashRule.Action) {
 					tr.Shadowing = existing.Source
 					merged[i].Shadowed = true
 				} else {
-					// New rule is same or looser, it gets shadowed
 					tr.Shadowed = true
 				}
-				break // only shadow one matching rule
+				break
 			}
 		}
 		merged = append(merged, tr)
@@ -346,14 +371,12 @@ func mergeRules(merged []TrackedRule, newRules []Rule, newSource string) []Track
 
 // redirectRulesExactMatch returns true if two redirect rules have identical patterns.
 func redirectRulesExactMatch(a, b RedirectRule) bool {
-	// Check append mode
 	aAppend := a.Append != nil && *a.Append
 	bAppend := b.Append != nil && *b.Append
 	if aAppend != bAppend {
 		return false
 	}
-	return slicesEqual(a.To.Pattern, b.To.Pattern) &&
-		slicesEqual(a.To.Exact, b.To.Exact)
+	return slicesEqual(a.Paths, b.Paths)
 }
 
 // mergeRedirectRules merges redirect rules with shadowing detection.
@@ -382,28 +405,15 @@ func mergeRedirectRules(merged []TrackedRedirectRule, newRules []RedirectRule, n
 
 // heredocRulesExactMatch returns true if two heredoc rules have identical patterns.
 func heredocRulesExactMatch(a, b HeredocRule) bool {
-	return slicesEqual(a.ContentMatch, b.ContentMatch)
+	// Compare content patterns - simplified for now
+	return false // No exact match detection for heredocs
 }
 
 // mergeHeredocRules merges heredoc rules with shadowing detection.
 func mergeHeredocRules(merged []TrackedHeredocRule, newRules []HeredocRule, newSource string) []TrackedHeredocRule {
 	for _, newRule := range newRules {
 		tr := TrackedHeredocRule{HeredocRule: newRule, Source: newSource}
-
-		for i, existing := range merged {
-			if existing.Shadowed {
-				continue
-			}
-			if heredocRulesExactMatch(existing.HeredocRule, newRule) {
-				if isStricter(newRule.Action, existing.HeredocRule.Action) {
-					tr.Shadowing = existing.Source
-					merged[i].Shadowed = true
-				} else {
-					tr.Shadowed = true
-				}
-				break
-			}
-		}
+		// Heredoc rules don't shadow each other currently
 		merged = append(merged, tr)
 	}
 	return merged

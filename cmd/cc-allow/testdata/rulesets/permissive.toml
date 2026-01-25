@@ -1,43 +1,43 @@
 # Permissive ruleset - allows most things, only blocks truly dangerous commands
 
-version = "1.0"
+version = "2.0"
 
-[policy]
+# ============================================================================
+# BASH TOOL CONFIGURATION
+# ============================================================================
+
+[bash]
 default = "allow"
 dynamic_commands = "ask"
 default_message = "Command not allowed"
+
+[bash.constructs]
+function_definitions = "allow"
+background = "allow"
+subshells = "allow"
 
 # ============================================================================
 # DENIED COMMANDS
 # ============================================================================
 
-[deny]
+[bash.deny]
 commands = ["sudo", "su", "dd", "mkfs", "shutdown", "reboot"]
 message = "System-level command denied"
-
-# ============================================================================
-# SHELL CONSTRUCTS
-# ============================================================================
-
-[constructs]
-function_definitions = "allow"
-background = "allow"
-subshells = "allow"
 
 # ============================================================================
 # SPECIFIC RULES - Block shells from receiving piped input from download commands
 # This catches both direct (curl | bash) and indirect (curl | cat | bash) pipes
 # ============================================================================
 
-[[deny.bash]]
+[[bash.deny.bash]]
 message = "bash cannot receive piped input from download commands"
 pipe.from = ["curl", "wget"]
 
-[[deny.sh]]
+[[bash.deny.sh]]
 message = "sh cannot receive piped input from download commands"
 pipe.from = ["curl", "wget"]
 
-[[deny.zsh]]
+[[bash.deny.zsh]]
 message = "zsh cannot receive piped input from download commands"
 pipe.from = ["curl", "wget"]
 
@@ -45,8 +45,6 @@ pipe.from = ["curl", "wget"]
 # REDIRECTS - Block writes to sensitive paths
 # ============================================================================
 
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot write to system paths"
-[redirect.to]
-pattern = ["re:^/etc/.*", "re:^/usr/.*", "re:^/bin/.*", "re:^/sbin/.*"]
+paths = ["re:^/etc/.*", "re:^/usr/.*", "re:^/bin/.*", "re:^/sbin/.*"]

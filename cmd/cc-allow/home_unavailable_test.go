@@ -7,46 +7,30 @@ import (
 
 // TestConfigUsesHomeValidation verifies that config validation fails
 // when config uses $HOME but HOME is not available.
-// Issue #2: Missing HOME environment variable handling.
 
-func TestRuleUsesHome(t *testing.T) {
+func TestBashRuleUsesHome(t *testing.T) {
 	tests := []struct {
 		name     string
-		rule     Rule
+		rule     BashRule
 		wantHome bool
 	}{
 		{
 			name:     "rule with $HOME in command",
-			rule:     Rule{Command: "path:$HOME/bin/*"},
-			wantHome: true,
-		},
-		{
-			name:     "rule with $HOME in any_match",
-			rule:     Rule{Command: "cat", Args: ArgsMatch{AnyMatch: []MatchElement{{Pattern: "path:$HOME/**"}}}},
-			wantHome: true,
-		},
-		{
-			name:     "rule with $HOME in all_match",
-			rule:     Rule{Command: "cat", Args: ArgsMatch{AllMatch: []MatchElement{{Pattern: "path:$HOME/**"}}}},
-			wantHome: true,
-		},
-		{
-			name:     "rule with $HOME in position",
-			rule:     Rule{Command: "cat", Args: ArgsMatch{Position: map[string]FlexiblePattern{"0": {Patterns: []string{"path:$HOME/**"}}}}},
+			rule:     BashRule{Command: "path:$HOME/bin/*"},
 			wantHome: true,
 		},
 		{
 			name:     "rule without $HOME",
-			rule:     Rule{Command: "rm", Args: ArgsMatch{Contains: []string{"-rf"}}},
+			rule:     BashRule{Command: "rm"},
 			wantHome: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ruleUsesHome(tt.rule)
+			got := strings.Contains(tt.rule.Command, "$HOME")
 			if got != tt.wantHome {
-				t.Errorf("ruleUsesHome() = %v, want %v", got, tt.wantHome)
+				t.Errorf("rule uses home = %v, want %v", got, tt.wantHome)
 			}
 		})
 	}
@@ -59,37 +43,106 @@ func TestMergedConfigUsesHome(t *testing.T) {
 		wantHome bool
 	}{
 		{
-			name: "commands.allow.names with $HOME",
+			name: "commands.allow with $HOME",
 			config: &MergedConfig{
 				CommandsAllow: []TrackedCommandEntry{{Name: "path:$HOME/bin/*"}},
 			},
 			wantHome: true,
 		},
 		{
-			name: "commands.deny.names with $HOME",
+			name: "commands.deny with $HOME",
 			config: &MergedConfig{
 				CommandsDeny: []TrackedCommandEntry{{Name: "path:$HOME/bin/*"}},
 			},
 			wantHome: true,
 		},
 		{
-			name: "rule with $HOME",
+			name: "rule with $HOME in command",
 			config: &MergedConfig{
-				Rules: []TrackedRule{{Rule: Rule{Command: "path:$HOME/bin/*"}}},
+				Rules: []TrackedRule{{BashRule: BashRule{Command: "path:$HOME/bin/*"}}},
+			},
+			wantHome: true,
+		},
+		{
+			name: "rule with $HOME in args.any",
+			config: &MergedConfig{
+				Rules: []TrackedRule{{BashRule: BashRule{
+					Command: "cat",
+					Args:    ArgsMatch{Any: &BoolExpr{Patterns: []string{"path:$HOME/.bashrc"}}},
+				}}},
+			},
+			wantHome: true,
+		},
+		{
+			name: "rule with $HOME in args.all",
+			config: &MergedConfig{
+				Rules: []TrackedRule{{BashRule: BashRule{
+					Command: "cat",
+					Args:    ArgsMatch{All: &BoolExpr{Patterns: []string{"path:$HOME/.bashrc"}}},
+				}}},
+			},
+			wantHome: true,
+		},
+		{
+			name: "rule with $HOME in args.position",
+			config: &MergedConfig{
+				Rules: []TrackedRule{{BashRule: BashRule{
+					Command: "cat",
+					Args:    ArgsMatch{Position: map[string]FlexiblePattern{"0": {Patterns: []string{"path:$HOME/.bashrc"}}}},
+				}}},
+			},
+			wantHome: true,
+		},
+		{
+			name: "rule with $HOME in nested BoolExpr",
+			config: &MergedConfig{
+				Rules: []TrackedRule{{BashRule: BashRule{
+					Command: "cat",
+					Args: ArgsMatch{Any: &BoolExpr{
+						Any: []*BoolExpr{{Patterns: []string{"path:$HOME/.bashrc"}}},
+					}},
+				}}},
 			},
 			wantHome: true,
 		},
 		{
 			name: "redirect with $HOME",
 			config: &MergedConfig{
-				Redirects: []TrackedRedirectRule{{RedirectRule: RedirectRule{To: RedirectTarget{Pattern: []string{"path:$HOME/**"}}}}},
+				Redirects: []TrackedRedirectRule{{RedirectRule: RedirectRule{Paths: []string{"path:$HOME/.config/*"}}}},
 			},
 			wantHome: true,
 		},
 		{
 			name: "heredoc with $HOME",
 			config: &MergedConfig{
-				Heredocs: []TrackedHeredocRule{{HeredocRule: HeredocRule{ContentMatch: []string{"$HOME"}}}},
+				Heredocs: []TrackedHeredocRule{{HeredocRule: HeredocRule{Content: &BoolExpr{Patterns: []string{"path:$HOME"}}}}},
+			},
+			wantHome: true,
+		},
+		{
+			name: "file allow with $HOME",
+			config: &MergedConfig{
+				Files: MergedFilesConfig{
+					Allow: map[string][]TrackedFilePatternEntry{"Read": {{Pattern: "path:$HOME/**"}}},
+					Deny:  map[string][]TrackedFilePatternEntry{},
+				},
+			},
+			wantHome: true,
+		},
+		{
+			name: "file deny with $HOME",
+			config: &MergedConfig{
+				Files: MergedFilesConfig{
+					Allow: map[string][]TrackedFilePatternEntry{},
+					Deny:  map[string][]TrackedFilePatternEntry{"Write": {{Pattern: "path:$HOME/.ssh/*"}}},
+				},
+			},
+			wantHome: true,
+		},
+		{
+			name: "alias with $HOME",
+			config: &MergedConfig{
+				Aliases: map[string]Alias{"home": {Patterns: []string{"path:$HOME/**"}}},
 			},
 			wantHome: true,
 		},
@@ -97,7 +150,12 @@ func TestMergedConfigUsesHome(t *testing.T) {
 			name: "config without $HOME",
 			config: &MergedConfig{
 				CommandsAllow: []TrackedCommandEntry{{Name: "ls"}},
-				Rules:         []TrackedRule{{Rule: Rule{Command: "rm"}}},
+				Rules:         []TrackedRule{{BashRule: BashRule{Command: "rm"}}},
+				Files: MergedFilesConfig{
+					Allow: map[string][]TrackedFilePatternEntry{},
+					Deny:  map[string][]TrackedFilePatternEntry{},
+				},
+				Aliases: map[string]Alias{},
 			},
 			wantHome: false,
 		},

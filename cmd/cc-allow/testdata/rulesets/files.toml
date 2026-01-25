@@ -1,18 +1,24 @@
 # File permission ruleset for testing Read, Write, Edit tools
 
-version = "1.0"
+version = "2.0"
 
-[files]
+# ============================================================================
+# READ TOOL CONFIGURATION
+# ============================================================================
+
+[read]
 default = "ask"
 
-[files.read]
-allow = [
+[read.allow]
+paths = [
     "path:/project/**",
     "path:/home/user/docs/**",
     "path:**/*.md",
     "path:**/*.txt",
 ]
-deny = [
+
+[read.deny]
+paths = [
     "path:/etc/**",
     "path:/secrets/**",
     "path:**/.env*",
@@ -21,12 +27,21 @@ deny = [
     "re:.*password.*",
 ]
 
-[files.write]
-allow = [
+# ============================================================================
+# WRITE TOOL CONFIGURATION
+# ============================================================================
+
+[write]
+default = "ask"
+
+[write.allow]
+paths = [
     "path:/project/**",
     "path:/tmp/**",
 ]
-deny = [
+
+[write.deny]
+paths = [
     "path:/etc/**",
     "path:/usr/**",
     "path:/bin/**",
@@ -36,11 +51,20 @@ deny = [
 ]
 message = "Cannot write to system or sensitive files"
 
-[files.edit]
-allow = [
+# ============================================================================
+# EDIT TOOL CONFIGURATION
+# ============================================================================
+
+[edit]
+default = "ask"
+
+[edit.allow]
+paths = [
     "path:/project/**",
 ]
-deny = [
+
+[edit.deny]
+paths = [
     "path:/etc/**",
     "path:**/.env*",
 ]

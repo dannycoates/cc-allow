@@ -1,22 +1,21 @@
 # Specificity test ruleset
 # Tests CSS-like specificity scoring and tie-breaking behavior
 #
-# Scoring reference:
+# Scoring reference (v2):
 #   Exact command (no prefix): +100
-#   Pattern command (path:, re:, path:): +0
+#   Each subcommand level: +50
 #   Each args.position entry: +20
-#   Each args.contains entry: +10
-#   Each args.any_match/all_match entry: +5
+#   Each args.any/all/not/xor item: +5
 #   Each exact pipe.to/from entry: +10
 #   Each pattern pipe.to/from entry: +5
 
-version = "1.0"
+version = "2.0"
 
-[policy]
+[bash]
 default = "ask"
 dynamic_commands = "ask"
 
-[constructs]
+[bash.constructs]
 subshells = "allow"
 heredocs = "allow"
 
@@ -24,12 +23,12 @@ heredocs = "allow"
 # TEST 1: Named command vs wildcard
 # =============================================================================
 # Wildcard rule: specificity = 0
-[[allow."path:*"]]
+[[bash.allow."path:*"]]
 message = "wildcard allow (spec=0)"
 
 # Named command rule: specificity = 100
 # Should win over wildcard
-[[deny.test1]]
+[[bash.deny.test1]]
 message = "named command deny (spec=100)"
 
 # =============================================================================
@@ -38,10 +37,10 @@ message = "named command deny (spec=100)"
 # Both rules have specificity = 100 (named command only)
 # Tie-breaker: deny (2) > ask (1) > allow (0)
 
-[[allow.test2]]
+[[bash.allow.test2]]
 message = "test2 allow (spec=100)"
 
-[[deny.test2]]
+[[bash.deny.test2]]
 message = "test2 deny (spec=100) - should win tie"
 
 # =============================================================================
@@ -49,53 +48,53 @@ message = "test2 deny (spec=100) - should win tie"
 # =============================================================================
 # All have specificity = 100, deny should win
 
-[[allow.test3]]
+[[bash.allow.test3]]
 message = "test3 allow"
 
-[[ask.test3]]
+[[bash.ask.test3]]
 message = "test3 ask"
 
-[[deny.test3]]
+[[bash.deny.test3]]
 message = "test3 deny - should win"
 
 # =============================================================================
-# TEST 4: args.contains (10 each) vs args.any_match (5 each)
+# TEST 4: args.all (AND semantics) vs args.any
 # =============================================================================
-# Rule with 2x args.contains: 100 + 20 = 120
-[[deny.test4]]
-message = "contains x2 (spec=120)"
-args.contains = ["-f", "-r"]
+# Rule with 2x args.all: 100 + 10 = 110
+[[bash.deny.test4]]
+message = "all x2 (spec=110)"
+args.all = ["-f", "-r"]
 
-# Rule with 2x args.any_match: 100 + 10 = 110
-# Should lose to contains rule
-[[allow.test4]]
-message = "any_match x2 (spec=110)"
-args.any_match = ["path:*.txt", "path:*.log"]
+# Rule with 2x args.any: 100 + 10 = 110 (same!)
+# Tie-break: deny wins
+[[bash.allow.test4]]
+message = "any x2 (spec=110)"
+args.any = ["path:*.txt", "path:*.log"]
 
 # =============================================================================
-# TEST 5: Single position vs multiple any_match
+# TEST 5: Single position vs multiple any
 # =============================================================================
 # 1 position: 100 + 20 = 120
-[[deny.test5]]
+[[bash.deny.test5]]
 message = "position x1 (spec=120)"
 args.position = { "0" = "dangerous" }
 
-# 4 any_match: 100 + 20 = 120 (same!)
-# Tie-break: deny > allow, but first rule is already deny
-[[allow.test5]]
-message = "any_match x4 (spec=120)"
-args.any_match = ["a", "b", "c", "d"]
+# 4 any: 100 + 20 = 120 (same!)
+# Tie-break: deny wins
+[[bash.allow.test5]]
+message = "any x4 (spec=120)"
+args.any = ["a", "b", "c", "d"]
 
 # =============================================================================
 # TEST 6: Multiple position entries accumulate
 # =============================================================================
 # 3 positions: 100 + 60 = 160
-[[allow.test6]]
+[[bash.allow.test6]]
 message = "position x3 (spec=160) - should win"
 args.position = { "0" = "safe", "1" = "args", "2" = "here" }
 
 # 1 position: 100 + 20 = 120
-[[deny.test6]]
+[[bash.deny.test6]]
 message = "position x1 (spec=120)"
 args.position = { "0" = "safe" }
 
@@ -103,27 +102,27 @@ args.position = { "0" = "safe" }
 # TEST 7: Named pipe.from (10) vs wildcard pipe.from (5)
 # =============================================================================
 # Named pipe.from: 100 + 10 = 110
-[[deny.test7]]
+[[bash.deny.test7]]
 message = "named pipe.from (spec=110) - should win"
 pipe.from = ["curl"]
 
 # Wildcard pipe.from: 100 + 5 = 105
-[[allow.test7]]
+[[bash.allow.test7]]
 message = "wildcard pipe.from (spec=105)"
 pipe.from = ["path:*"]
 
 # =============================================================================
 # TEST 8: Combination - command + args + pipe
 # =============================================================================
-# Full combo: 100 + 20 + 10 + 10 = 140
-[[allow.test8]]
-message = "full combo (spec=140) - should win"
+# Full combo: 100 + 20 + 5 + 10 = 135
+[[bash.allow.test8]]
+message = "full combo (spec=135) - should win"
 args.position = { "0" = "run" }
-args.contains = ["--safe"]
+args.any = ["--safe"]
 pipe.from = ["echo"]
 
 # Partial combo: 100 + 20 = 120
-[[deny.test8]]
+[[bash.deny.test8]]
 message = "partial combo (spec=120)"
 args.position = { "0" = "run" }
 
@@ -131,27 +130,27 @@ args.position = { "0" = "run" }
 # TEST 9: Wildcard with high args specificity vs named with low
 # =============================================================================
 # Wildcard + 3 positions: 0 + 60 = 60
-[[allow."path:*"]]
+[[bash.allow."path:*"]]
 message = "wildcard + positions (spec=60)"
 args.position = { "0" = "x", "1" = "y", "2" = "z" }
 
 # Named command only: 100
 # Should win because named command weight is high
-[[deny.test9]]
+[[bash.deny.test9]]
 message = "named only (spec=100) - should win"
 
 # =============================================================================
-# TEST 10: args.all_match accumulates like any_match
+# TEST 10: args.all accumulates like args.any
 # =============================================================================
-# 4 all_match patterns: 100 + 20 = 120
-[[deny.test10]]
-message = "all_match x4 (spec=120)"
-args.all_match = ["a", "b", "c", "d"]
+# 4 all patterns: 100 + 20 = 120
+[[bash.deny.test10]]
+message = "all x4 (spec=120)"
+args.all = ["a", "b", "c", "d"]
 
-# 2 any_match patterns: 100 + 10 = 110
-[[allow.test10]]
-message = "any_match x2 (spec=110)"
-args.any_match = ["a", "b"]
+# 2 any patterns: 100 + 10 = 110
+[[bash.allow.test10]]
+message = "any x2 (spec=110)"
+args.any = ["a", "b"]
 
 # =============================================================================
 # TEST 11: Multiple pipe.from entries accumulate
@@ -159,12 +158,12 @@ args.any_match = ["a", "b"]
 # Use echo/cat/head which are common and won't conflict with other rules
 
 # 3 named pipe sources: 100 + 30 = 130
-[[allow.test11]]
+[[bash.allow.test11]]
 message = "pipe.from x3 (spec=130) - should win"
 pipe.from = ["echo", "cat", "head"]
 
 # 1 named pipe source: 100 + 10 = 110
-[[deny.test11]]
+[[bash.deny.test11]]
 message = "pipe.from x1 (spec=110)"
 pipe.from = ["echo"]
 
@@ -172,12 +171,12 @@ pipe.from = ["echo"]
 # TEST 12: pipe.to also contributes to specificity
 # =============================================================================
 # pipe.to x2: 100 + 20 = 120
-[[allow.test12]]
+[[bash.allow.test12]]
 message = "pipe.to x2 (spec=120) - should win"
 pipe.to = ["bash", "sh"]
 
 # pipe.to x1: 100 + 10 = 110
-[[deny.test12]]
+[[bash.deny.test12]]
 message = "pipe.to x1 (spec=110)"
 pipe.to = ["bash"]
 
@@ -185,17 +184,16 @@ pipe.to = ["bash"]
 # TEST 13: Complex real-world scenario
 # =============================================================================
 # Generic curl deny (network command): spec = 100
-[[deny.curl]]
+[[bash.deny.curl]]
 message = "generic curl deny (spec=100)"
 
 # curl to allowed domain: spec = 100 + 5 = 105
 # Use regex for URL matching since glob is path-oriented
-[[allow.curl]]
+[[bash.allow.curl]]
 message = "curl to localhost (spec=105) - should win"
-args.any_match = ["re:localhost"]
+args.any = ["re:localhost"]
 
-# curl with specific flags to localhost: spec = 100 + 10 + 5 = 115
-[[allow.curl]]
-message = "curl -s to localhost (spec=115) - most specific"
-args.contains = ["-s"]
-args.any_match = ["re:localhost"]
+# curl with specific flags to localhost: spec = 100 + 10 = 110
+[[bash.allow.curl]]
+message = "curl -s to localhost (spec=110) - most specific"
+args.any = ["-s", "re:localhost"]

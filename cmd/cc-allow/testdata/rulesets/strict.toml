@@ -1,53 +1,51 @@
 # Strict ruleset - denies most things, only allows safe read-only commands
 
-version = "1.0"
+version = "2.0"
 
-[policy]
+# ============================================================================
+# BASH TOOL CONFIGURATION
+# ============================================================================
+
+[bash]
 default = "deny"
 dynamic_commands = "deny"
 default_message = "Command not allowed by strict policy"
 
-# ============================================================================
-# ALLOWED COMMANDS
-# ============================================================================
-
-[allow]
-commands = ["ls", "cat", "head", "tail", "wc", "pwd", "date", "echo", "printf", "grep", "cd"]
-
-# ============================================================================
-# DENIED COMMANDS
-# ============================================================================
-
-[deny]
-commands = ["sudo", "su", "rm", "rmdir", "dd", "mkfs", "shutdown", "reboot", "kill", "killall"]
-message = "Dangerous command denied"
-
-# ============================================================================
-# SHELL CONSTRUCTS
-# ============================================================================
-
-[constructs]
+[bash.constructs]
 function_definitions = "deny"
 background = "deny"
 subshells = "ask"
 heredocs = "deny"
 
 # ============================================================================
+# ALLOWED COMMANDS
+# ============================================================================
+
+[bash.allow]
+commands = ["ls", "cat", "head", "tail", "wc", "pwd", "date", "echo", "printf", "grep", "cd"]
+
+# ============================================================================
+# DENIED COMMANDS
+# ============================================================================
+
+[bash.deny]
+commands = ["sudo", "su", "rm", "rmdir", "dd", "mkfs", "shutdown", "reboot", "kill", "killall"]
+message = "Dangerous command denied"
+
+# ============================================================================
 # SPECIFIC RULES
 # ============================================================================
 
-[[deny.curl]]
+[[bash.deny.curl]]
 message = "Network commands not allowed"
 
-[[deny.wget]]
+[[bash.deny.wget]]
 message = "Network commands not allowed"
 
 # ============================================================================
 # REDIRECTS
 # ============================================================================
 
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Redirects not allowed"
-[redirect.to]
-pattern = ["re:.*"]
+paths = ["re:.*"]

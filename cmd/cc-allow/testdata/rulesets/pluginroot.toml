@@ -1,11 +1,7 @@
 # Pluginroot ruleset - tests $CLAUDE_PLUGIN_ROOT variable expansion
 # Used to verify skills/plugins can restrict commands to their own directories
 
-version = "1.0"
-
-[policy]
-default = "deny"
-dynamic_commands = "deny"
+version = "2.0"
 
 # ============================================================================
 # ALIASES
@@ -15,67 +11,71 @@ dynamic_commands = "deny"
 plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
 
 # ============================================================================
+# BASH TOOL CONFIGURATION
+# ============================================================================
+
+[bash]
+default = "deny"
+dynamic_commands = "deny"
+
+[bash.constructs]
+function_definitions = "deny"
+background = "deny"
+heredocs = "allow"
+
+# ============================================================================
 # ALLOWED COMMANDS
 # ============================================================================
 
-[allow]
+[bash.allow]
 commands = ["echo", "ls", "cat", "pwd"]
 
 # ============================================================================
 # DENIED COMMANDS
 # ============================================================================
 
-[deny]
+[bash.deny]
 commands = ["sudo", "su"]
 message = "Privilege escalation denied"
-
-# ============================================================================
-# SHELL CONSTRUCTS
-# ============================================================================
-
-[constructs]
-function_definitions = "deny"
-background = "deny"
-heredocs = "allow"
 
 # ============================================================================
 # PLUGIN ROOT PATH TESTS
 # ============================================================================
 
 # Allow read commands within plugin root
-[[allow.cat]]
+[[bash.allow.cat]]
 message = "Allowed: reading files within plugin"
-args.all_match = ["alias:plugin"]
+args.all = ["alias:plugin"]
 
 # Deny cat outside plugin root (more specific due to path pattern)
-[[deny.cat]]
+[[bash.deny.cat]]
 message = "Cannot read files outside plugin directory"
-args.any_match = ["!path:$CLAUDE_PLUGIN_ROOT/**"]
+args.any = ["!path:$CLAUDE_PLUGIN_ROOT/**"]
 
 # Allow script execution within plugin
-[[allow.bash]]
+[[bash.allow.bash]]
 message = "Allowed: running scripts within plugin"
 args.position = { "0" = "path:$CLAUDE_PLUGIN_ROOT/**" }
 
 # Deny bash scripts outside plugin
-[[deny.bash]]
+[[bash.deny.bash]]
 message = "Cannot run scripts outside plugin directory"
 
 # Allow touch within plugin root
-[[allow.touch]]
-args.all_match = ["alias:plugin"]
+[[bash.allow.touch]]
+args.all = ["alias:plugin"]
 
 # Deny touch outside plugin root
-[[deny.touch]]
+[[bash.deny.touch]]
 message = "Cannot create files outside plugin directory"
 
 # Allow rm within plugin root only
-[[allow.rm]]
+[[bash.allow.rm]]
 message = "Allowed: removing files within plugin"
-args.all_match = ["alias:plugin"]
+args.all = ["alias:plugin"]
 
 # Deny rm outside plugin root
-[[deny.rm]]
+[[bash.deny.rm]]
 message = "Cannot remove files outside plugin directory"
 
 # ============================================================================
@@ -83,12 +83,9 @@ message = "Cannot remove files outside plugin directory"
 # ============================================================================
 
 # Allow redirects within plugin root
-[[redirect]]
-action = "allow"
-[redirect.to]
-pattern = ["alias:plugin"]
+[[bash.redirects.allow]]
+paths = ["alias:plugin"]
 
 # Deny redirects outside plugin root
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot write files outside plugin directory"

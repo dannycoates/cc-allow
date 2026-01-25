@@ -1,11 +1,7 @@
 # Patterns ruleset - tests advanced pattern features
 # Used to verify: negation, path patterns, positional args, specificity, heredocs, pipe wildcards
 
-version = "1.0"
-
-[policy]
-default = "ask"
-dynamic_commands = "deny"
+version = "2.0"
 
 # ============================================================================
 # ALIASES
@@ -16,93 +12,98 @@ project = "path:$PROJECT_ROOT/**"
 etc = "path:/etc/**"
 
 # ============================================================================
+# BASH TOOL CONFIGURATION
+# ============================================================================
+
+[bash]
+default = "ask"
+dynamic_commands = "deny"
+
+[bash.constructs]
+function_definitions = "ask"
+background = "ask"
+subshells = "allow"
+heredocs = "allow"  # allow heredocs so we can test heredoc rules
+
+# ============================================================================
 # ALLOWED COMMANDS
 # ============================================================================
 
-[allow]
+[bash.allow]
 commands = ["echo", "ls", "cat", "head", "tail", "grep", "wc", "pwd", "true", "false"]
 
 # ============================================================================
 # DENIED COMMANDS
 # ============================================================================
 
-[deny]
+[bash.deny]
 commands = ["sudo", "su"]
 message = "Privilege escalation denied"
-
-# ============================================================================
-# SHELL CONSTRUCTS
-# ============================================================================
-
-[constructs]
-function_definitions = "ask"
-background = "ask"
-subshells = "allow"
-heredocs = "allow"  # allow heredocs so we can test [[heredoc]] rules
 
 # ============================================================================
 # PATTERN NEGATION TESTS
 # ============================================================================
 
 # Allow cat for any file EXCEPT those in /etc
-[[allow.cat]]
-args.any_match = ["!path:/etc/**"]
+[[bash.allow.cat]]
+args.any = ["!path:/etc/**"]
 
 # Deny cat for /etc files (more specific - should win over above)
-[[deny.cat]]
+[[bash.deny.cat]]
 message = "Cannot read system config files"
-args.any_match = ["path:/etc/**"]
+args.any = ["path:/etc/**"]
 
 # Deny grep when pattern looks like password
-[[deny.grep]]
+[[bash.deny.grep]]
 message = "Cannot grep for password patterns"
-args.any_match = ["re:(?i)password|secret|token"]
+args.any = ["re:(?i)password|secret|token"]
 
 # ============================================================================
 # PATH PATTERN TESTS WITH $PROJECT_ROOT
 # ============================================================================
 
 # Allow rm only within project (safe cleanup)
-[[allow.rm]]
+# Use args.any so flags like -rf don't break the match
+[[bash.allow.rm]]
 message = "Allowed: removing files within project"
-args.all_match = ["alias:project"]
+args.any = ["alias:project"]
 
 # Deny rm outside project
-[[deny.rm]]
+[[bash.deny.rm]]
 message = "Cannot remove files outside project"
 
 # Allow touch within project
-[[allow.touch]]
-args.any_match = ["alias:project"]
+[[bash.allow.touch]]
+args.any = ["alias:project"]
 
 # Deny touch outside project
-[[deny.touch]]
+[[bash.deny.touch]]
 message = "Cannot create files outside project"
 
 # ============================================================================
 # POSITIONAL ARGUMENT TESTS
 # ============================================================================
 
-# Allow git with specific subcommands at position 0
-[[allow.git.status]]
+# Allow git with specific subcommands
+[[bash.allow.git.status]]
 
-[[allow.git.diff]]
+[[bash.allow.git.diff]]
 
-[[allow.git.log]]
+[[bash.allow.git.log]]
 
-[[allow.git.branch]]
+[[bash.allow.git.branch]]
 
 # Deny git push/pull (network operations)
-[[deny.git]]
+[[bash.deny.git]]
 message = "Network git operations not allowed"
 args.position = { "0" = "re:^(push|pull|fetch|clone)$" }
 
 # Allow npm with read-only commands
-[[allow.npm]]
+[[bash.allow.npm]]
 args.position = { "0" = "re:^(list|ls|view|info|help)$" }
 
 # Deny npm install/publish (modifying operations)
-[[deny.npm]]
+[[bash.deny.npm]]
 message = "npm modifying operations not allowed"
 args.position = { "0" = "re:^(install|i|publish|unpublish)$" }
 
@@ -112,41 +113,41 @@ args.position = { "0" = "re:^(install|i|publish|unpublish)$" }
 # ============================================================================
 
 # Generic: any command writing to .env files - ask
-[[ask."path:*"]]
+[[bash.ask."path:*"]]
 message = "Writing to .env requires approval"
-args.any_match = ["path:*.env", "path:.env*"]
+args.any = ["path:*.env", "path:.env*"]
 
 # Specific: cp to .env - deny (more specific due to named command)
-[[deny.cp]]
+[[bash.deny.cp]]
 message = "Cannot copy to .env files"
-args.any_match = ["path:*.env", "path:.env*"]
+args.any = ["path:*.env", "path:.env*"]
 
 # Very specific: mv with exact positions - allow (most specific)
-[[allow.mv]]
+[[bash.allow.mv]]
 message = "Renaming .env.example to .env.local is allowed"
 args.position = { "0" = ".env.example", "1" = ".env.local" }
 
 # Less specific mv to .env - deny
-[[deny.mv]]
+[[bash.deny.mv]]
 message = "Cannot move files to .env"
-args.any_match = ["path:*.env", "path:.env*"]
+args.any = ["path:*.env", "path:.env*"]
 
 # ============================================================================
 # PIPE WILDCARD TESTS
 # ============================================================================
 
 # Deny eval receiving ANY piped input
-[[deny.eval]]
+[[bash.deny.eval]]
 message = "eval cannot receive piped input"
 pipe.from = ["path:*"]
 
 # Deny source/. receiving any piped input
-[[deny.source]]
+[[bash.deny.source]]
 message = "source cannot receive piped input"
 pipe.from = ["path:*"]
 
 # Deny bash from specific dangerous sources
-[[deny.bash]]
+[[bash.deny.bash]]
 message = "bash cannot receive input from download commands"
 pipe.from = ["curl", "wget", "nc", "netcat"]
 
@@ -155,47 +156,38 @@ pipe.from = ["curl", "wget", "nc", "netcat"]
 # ============================================================================
 
 # Deny heredocs containing sudo/su commands
-[[heredoc]]
-action = "deny"
+[[bash.heredocs.deny]]
 message = "Heredoc contains privilege escalation"
-content_match = ["re:(?m)^\\s*(sudo|su)\\s"]
+content.any = ["re:(?m)^\\s*(sudo|su)\\s"]
 
 # Deny heredocs that look like they're setting up reverse shells
-[[heredoc]]
-action = "deny"
+[[bash.heredocs.deny]]
 message = "Heredoc contains suspicious network code"
-content_match = ["re:/dev/tcp/", "re:nc\\s+-e", "re:bash\\s+-i"]
+content.any = ["re:/dev/tcp/", "re:nc\\s+-e", "re:bash\\s+-i"]
 
 # Deny heredocs containing rm -rf
-[[heredoc]]
-action = "deny"
+[[bash.heredocs.deny]]
 message = "Heredoc contains dangerous rm command"
-content_match = ["re:rm\\s+(-[rf]+\\s+)*(-[rf]+|/)"]
+content.any = ["re:rm\\s+(-[rf]+\\s+)*(-[rf]+|/)"]
 
 # ============================================================================
 # REDIRECT RULES
 # ============================================================================
 
 # Deny redirects to system paths
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot write to system paths"
-[redirect.to]
-pattern = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**"]
+paths = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**"]
 
 # Allow redirects within project
-[[redirect]]
-action = "allow"
-[redirect.to]
-pattern = ["alias:project"]
+[[bash.redirects.allow]]
+paths = ["alias:project"]
 
 # Deny append to shell config files
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot modify shell config"
 append = true
-[redirect.to]
-pattern = ["path:*/.bashrc", "path:*/.zshrc", "path:*/.profile"]
+paths = ["path:*/.bashrc", "path:*/.zshrc", "path:*/.profile"]
 
 # ============================================================================
 # FLAG PATTERN TESTS
@@ -203,18 +195,18 @@ pattern = ["path:*/.bashrc", "path:*/.zshrc", "path:*/.profile"]
 
 # Deny chmod with executable bits using flag pattern
 # flags[+]:x matches +x, +rx, +rwx etc.
-[[deny.chmod]]
+[[bash.deny.chmod]]
 message = "Cannot make files executable"
-args.any_match = ["flags[+]:x"]
+args.any = ["flags[+]:x"]
 
 # Allow chmod without executable bits (including -x to remove)
-[[allow.chmod]]
+[[bash.allow.chmod]]
 
 # Deny tar with extract and overwrite using flag pattern
-[[deny.tar]]
+[[bash.deny.tar]]
 message = "Cannot extract with overwrite"
-args.any_match = ["flags:xf"]
+args.any = ["flags:xf"]
 
 # Allow tar for listing and creation
-[[allow.tar]]
-args.any_match = ["flags:t", "flags:c"]
+[[bash.allow.tar]]
+args.any = ["flags:t", "flags:c"]

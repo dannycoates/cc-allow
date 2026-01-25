@@ -5,7 +5,7 @@ Bash command permission control for Claude Code. Parses bash commands into an AS
 ## Features
 
 - **AST-based parsing** - Uses `mvdan.cc/sh/v3/syntax` for accurate bash parsing
-- **TOML configuration** - Simple, readable rule definitions
+- **Tool-centric configuration** - TOML config organized by tool type (`[bash]`, `[read]`, `[write]`, `[edit]`)
 - **Specificity-based matching** - More specific rules win, regardless of order
 - **Layered configs** - Global defaults with project-level overrides
 - **Pipe security** - Block dangerous patterns like `curl | bash`
@@ -87,15 +87,17 @@ Rules are merged across configs: **deny always wins**, allow beats ask, ask mean
 ### Quick Start
 
 ```toml
-[policy]
+version = "2.0"
+
+[bash]
 default = "ask"
 dynamic_commands = "deny"  # block $VAR or $(cmd) as command names
 
-[commands.allow]
-names = ["ls", "cat", "grep", "git", "go", "npm"]
+[bash.allow]
+commands = ["ls", "cat", "grep", "git", "go", "npm"]
 
-[commands.deny]
-names = ["sudo", "rm", "dd"]
+[bash.deny]
+commands = ["sudo", "rm", "dd"]
 message = "Dangerous command blocked"
 ```
 
@@ -105,17 +107,12 @@ More specific rules win regardless of order:
 
 ```toml
 # Allow rm in general (specificity: 100)
-[[rule]]
-command = "rm"
-action = "allow"
+[[bash.allow.rm]]
 
-# But deny rm -r (specificity: 110)
-[[rule]]
-command = "rm"
-action = "deny"
+# But deny rm -r (specificity: 105)
+[[bash.deny.rm]]
 message = "Recursive rm not allowed"
-[rule.args]
-any_match = ["flags:r", "--recursive"]
+args.any = ["flags:r", "--recursive"]
 ```
 
 ### Pipe Security
@@ -124,12 +121,9 @@ Block dangerous pipe patterns:
 
 ```toml
 # Deny bash receiving piped input from download commands
-[[rule]]
-command = "bash"
-action = "deny"
+[[bash.deny.bash]]
 message = "Cannot pipe to bash from download commands"
-[rule.pipe]
-from = ["curl", "wget"]
+pipe.from = ["curl", "wget"]
 ```
 
 ### Redirect Control
@@ -137,27 +131,27 @@ from = ["curl", "wget"]
 Prevent writes to sensitive paths:
 
 ```toml
-[[redirect]]
-action = "deny"
+[[bash.redirects.deny]]
 message = "Cannot write to system directories"
-[redirect.to]
-pattern = ["path:/etc/**", "path:/usr/**"]
+paths = ["path:/etc/**", "path:/usr/**"]
 ```
 
-### File Rule Integration
+### File Tool Permissions
 
-Bash commands automatically respect file rules based on their arguments:
+Control Claude Code's Read, Write, and Edit file tools:
 
 ```toml
-[policy]
-respect_file_rules = true  # enabled by default when file rules exist
+[read]
+default = "ask"
 
-[files.read]
-allow = ["path:$PROJECT_ROOT/**"]
-deny = ["path:$HOME/.ssh/**", "path:**/*.key"]
+[read.allow]
+paths = ["path:$PROJECT_ROOT/**"]
 
-[files.write]
-deny = ["path:/etc/**", "path:$HOME/.bashrc"]
+[read.deny]
+paths = ["path:$HOME/.ssh/**", "path:**/*.key"]
+
+[write.deny]
+paths = ["path:/etc/**", "path:$HOME/.bashrc"]
 ```
 
 With this config:
@@ -167,11 +161,8 @@ With this config:
 For commands like `cp` and `mv` where arguments have different access types, use positional file rules:
 
 ```toml
-[[rule]]
-command = "cp"
-action = "allow"
-[rule.args]
-position = { "0" = "files:read", "1" = "files:write" }
+[[bash.allow.cp]]
+args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
 ```
 
 This checks the source against Read rules and destination against Write rules.

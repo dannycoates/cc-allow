@@ -1,12 +1,7 @@
 # cc-allow config for development projects
 # Sensible defaults: allow dev tools, block dangerous operations
 
-version = "1.0"
-
-[policy]
-default = "ask"                    # defer to Claude Code's permission system
-dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
-default_message = "Command not allowed by project policy"
+version = "2.0"
 
 # ============================================================================
 # ALIASES
@@ -29,43 +24,24 @@ sensitive-write = [
 ]
 
 # ============================================================================
-# FILE PERMISSIONS (Read, Edit, Write)
-# ============================================================================
-# Control Claude Code's Read, Edit, and Write file tools.
-# Also controls bash commands that access files and redirects.
-# Evaluation order: deny -> allow -> default (deny always wins)
-
-[files]
-default = "ask"  # defer to Claude Code when no rules match
-
-[files.read]
-allow = ["alias:project", "alias:plugin"]
-deny = ["alias:sensitive-read"]
-message = "Cannot read {{.FileName}} - sensitive file"
-
-[files.edit]
-allow = ["alias:project"]
-deny = ["path:$HOME/.*"]
-message = "Cannot edit {{.FileName}} - sensitive file"
-
-# Also applies to output redirects (>, >>) when redirects.respect_file_rules = true
-[files.write]
-allow = ["alias:safe-write"]
-deny = ["alias:sensitive-write"]
-message = "Cannot write to {{.FilePath}} - system directory"
-
-# ============================================================================
-# REDIRECTS
+# BASH TOOL CONFIGURATION
 # ============================================================================
 
-[redirects]
-respect_file_rules = true
+[bash]
+default = "ask"                    # defer to Claude Code's permission system
+dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
+default_message = "Command not allowed by project policy"
+
+[bash.constructs]
+function_definitions = "deny"       # prevent command shadowing
+background = "ask"                 # allow but defer to Claude Code
+subshells = "ask"
 
 # ============================================================================
 # ALLOWED COMMANDS
 # ============================================================================
 
-[allow]
+[bash.allow]
 commands = [
     # Plugin/Skill Binaries
     "alias:plugin",
@@ -124,13 +100,15 @@ commands = [
     "path:$PROJECT_ROOT/cc-allow", "path:$PROJECT_ROOT/print-ast", "path:/tmp/cc-allow-test",
     # Remove commands (handled by rules below)
     "rm", "rmdir", "chmod",
+
+    "jq",
 ]
 
 # ============================================================================
 # DENIED COMMANDS
 # ============================================================================
 
-[deny]
+[bash.deny]
 commands = [
     "sudo", "su", "doas",           # privilege escalation
     "dd", "mkfs", "fdisk", "parted", # disk operations
@@ -140,44 +118,35 @@ commands = [
 message = "{{.Command}} blocked - dangerous system command"
 
 # ============================================================================
-# SHELL CONSTRUCTS
-# ============================================================================
-
-[constructs]
-function_definitions = "deny"       # prevent command shadowing
-background = "ask"                 # allow but defer to Claude Code
-subshells = "ask"
-
-# ============================================================================
 # SPECIFIC RULES - Deny rules
 # ============================================================================
 
 # Block recursive rm
-[[deny.rm]]
+[[bash.deny.rm]]
 message = "{{.ArgsStr}} - recursive deletion not allowed"
-args.any_match = ["flags:r", "--recursive"]
+args.any = ["flags:r", "--recursive"]
 
 # Block curl/wget/fetch - use WebFetch tool instead
-[[deny.curl]]
+[[bash.deny.curl]]
 message = "{{.Command}} blocked - use WebFetch tool instead"
 
-[[deny.wget]]
+[[bash.deny.wget]]
 message = "{{.Command}} blocked - use WebFetch tool instead"
 
-[[deny.fetch]]
+[[bash.deny.fetch]]
 message = "{{.Command}} blocked - use WebFetch tool instead"
 
 # Block dangerous git operations
-[[deny.git.push]]
+[[bash.deny.git.push]]
 message = "{{.ArgsStr}} - force push not allowed"
-args.any_match = ["--force", "flags:f"]
+args.any = ["--force", "flags:f"]
 
-[[deny.git.reset]]
+[[bash.deny.git.reset]]
 message = "{{.ArgsStr}} - hard reset not allowed"
-args.contains = ["--hard"]
+args.all = ["--hard"]
 
 # Block cd to anywhere except /tmp and project dirs
-[[deny.cd]]
+[[bash.deny.cd]]
 message = "cd {{.Arg 0}} - only /tmp and project directories allowed"
 
 # ============================================================================
@@ -185,5 +154,55 @@ message = "cd {{.Arg 0}} - only /tmp and project directories allowed"
 # ============================================================================
 
 # Allow cd only to /tmp and project root
-[[allow.cd]]
-args.any_match = ["alias:tmp", "alias:project"]
+[[bash.allow.cd]]
+args.any = ["alias:tmp", "alias:project"]
+
+# ============================================================================
+# REDIRECTS
+# ============================================================================
+
+[bash.redirects]
+respect_file_rules = true
+
+# ============================================================================
+# READ TOOL CONFIGURATION
+# ============================================================================
+
+[read]
+default = "ask"
+
+[read.allow]
+paths = ["alias:project", "alias:plugin"]
+
+[read.deny]
+paths = ["alias:sensitive-read"]
+message = "Cannot read {{.FileName}} - sensitive file"
+
+# ============================================================================
+# EDIT TOOL CONFIGURATION
+# ============================================================================
+
+[edit]
+default = "ask"
+
+[edit.allow]
+paths = ["alias:project"]
+
+[edit.deny]
+paths = ["path:$HOME/.*"]
+message = "Cannot edit {{.FileName}} - sensitive file"
+
+# ============================================================================
+# WRITE TOOL CONFIGURATION
+# ============================================================================
+# Also applies to output redirects (>, >>) when bash.redirects.respect_file_rules = true
+
+[write]
+default = "ask"
+
+[write.allow]
+paths = ["alias:safe-write"]
+
+[write.deny]
+paths = ["alias:sensitive-write"]
+message = "Cannot write to {{.FilePath}} - system directory"

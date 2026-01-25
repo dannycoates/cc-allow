@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"cc-allow/pkg/pathutil"
 )
 
@@ -17,12 +20,13 @@ const (
 	PatternLiteral
 	PatternPath     // path pattern with variable expansion and symlink resolution (also used for glob-like matching)
 	PatternFlag     // flag pattern matching characters in flags (e.g., flags:rf matches -rf, -fr)
-	PatternFileRule // file rule marker (e.g., files:read, files:write, files:edit)
+	PatternRef      // reference to another config value (e.g., ref:read.allow.paths)
 )
 
-// MatchContext provides context needed for path pattern matching.
+// MatchContext provides context needed for path pattern matching and ref resolution.
 type MatchContext struct {
 	PathVars *pathutil.PathVars
+	Merged   *MergedConfig // for ref: pattern resolution
 }
 
 // Pattern represents a parsed pattern with its type.
@@ -34,7 +38,7 @@ type Pattern struct {
 	Negated       bool           // if true, match result is inverted
 	FlagDelimiter string         // flag delimiter ("-" or "--") for flag patterns
 	FlagChars     string         // characters that must all be present (for flag patterns)
-	FileRuleType  string         // for PatternFileRule: "Read", "Write", or "Edit"
+	RefPath       string         // for PatternRef: path to config value (e.g., "read.allow.paths")
 }
 
 // ParsePattern parses a pattern string and determines its type.
@@ -43,12 +47,12 @@ type Pattern struct {
 //   - "path:" for path patterns with variable expansion ($PROJECT_ROOT, $HOME) and glob-style matching
 //   - "flags:" for flag patterns (e.g., "flags:rf" matches -rf, -fr, -vrf)
 //   - "flags[delim]:" for flag patterns with explicit delimiter (e.g., "flags[--]:rec")
-//   - "files:" for file rule markers (e.g., "files:read", "files:write", "files:edit")
+//   - "ref:" for config cross-references (e.g., "ref:read.allow.paths")
 //   - No prefix defaults to literal match
 //
 // Patterns with explicit prefixes can be negated by prepending "!"
 // (e.g., "!path:/foo", "!re:test", "!flags:r")
-// Note: "files:" patterns cannot be negated and are markers, not matchers.
+// Note: "ref:" patterns cannot be negated.
 func ParsePattern(s string) (*Pattern, error) {
 	p := &Pattern{Raw: s}
 
@@ -66,18 +70,11 @@ func ParsePattern(s string) (*Pattern, error) {
 	}
 
 	switch {
-	case strings.HasPrefix(s, "files:"):
-		p.Type = PatternFileRule
-		ruleType := strings.TrimPrefix(s, "files:")
-		switch ruleType {
-		case "read":
-			p.FileRuleType = "Read"
-		case "write":
-			p.FileRuleType = "Write"
-		case "edit":
-			p.FileRuleType = "Edit"
-		default:
-			return nil, fmt.Errorf("invalid file rule type %q (must be read, write, or edit)", ruleType)
+	case strings.HasPrefix(s, "ref:"):
+		p.Type = PatternRef
+		p.RefPath = strings.TrimPrefix(s, "ref:")
+		if p.RefPath == "" {
+			return nil, fmt.Errorf("empty ref path")
 		}
 		return p, nil
 	case strings.HasPrefix(s, "re:"):
@@ -172,11 +169,8 @@ func (p *Pattern) MatchWithContext(s string, ctx *MatchContext) bool {
 		matched = p.matchPath(s, ctx)
 	case PatternFlag:
 		matched = p.matchFlag(s)
-	case PatternFileRule:
-		// File rule patterns are markers, not matchers.
-		// They signal that file rules should be checked for this position.
-		// Return true to indicate the position "matches" (will be checked by file rules).
-		return true
+	case PatternRef:
+		matched = p.matchRef(s, ctx)
 	}
 	if p.Negated {
 		return !matched
@@ -184,9 +178,130 @@ func (p *Pattern) MatchWithContext(s string, ctx *MatchContext) bool {
 	return matched
 }
 
-// IsFileRulePattern returns true if this is a file rule marker pattern.
-func (p *Pattern) IsFileRulePattern() bool {
-	return p.Type == PatternFileRule
+// matchRef resolves the ref pattern and matches against the referenced patterns.
+func (p *Pattern) matchRef(s string, ctx *MatchContext) bool {
+	if ctx == nil || ctx.Merged == nil {
+		return false
+	}
+
+	// Resolve the ref path to get patterns
+	patterns := resolveRefPath(p.RefPath, ctx.Merged)
+	if len(patterns) == 0 {
+		return false
+	}
+
+	// Match against any of the resolved patterns (OR semantics)
+	for _, pattern := range patterns {
+		refP, err := ParsePattern(pattern)
+		if err != nil {
+			continue
+		}
+		if refP.MatchWithContext(s, ctx) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveRefPath resolves a ref path like "read.allow.paths" to a list of patterns.
+func resolveRefPath(refPath string, merged *MergedConfig) []string {
+	parts := strings.Split(refPath, ".")
+	if len(parts) < 2 {
+		return nil
+	}
+
+	switch parts[0] {
+	case "read", "write", "edit":
+		return resolveFileToolRef(parts, merged)
+	case "bash":
+		return resolveBashRef(parts, merged)
+	case "aliases":
+		return resolveAliasRef(parts, merged)
+	}
+	return nil
+}
+
+// resolveFileToolRef resolves refs like "read.allow.paths" or "write.deny.paths".
+func resolveFileToolRef(parts []string, merged *MergedConfig) []string {
+	if len(parts) < 3 {
+		return nil
+	}
+
+	toolName := titleCaser.String(parts[0]) // "read" -> "Read"
+	action := parts[1]                    // "allow" or "deny"
+	field := parts[2]                     // "paths"
+
+	if field != "paths" {
+		return nil
+	}
+
+	var entries []TrackedFilePatternEntry
+	switch action {
+	case "allow":
+		entries = merged.Files.Allow[toolName]
+	case "deny":
+		entries = merged.Files.Deny[toolName]
+	default:
+		return nil
+	}
+
+	var patterns []string
+	for _, e := range entries {
+		patterns = append(patterns, e.Pattern)
+	}
+	return patterns
+}
+
+// resolveBashRef resolves refs like "bash.allow.commands" or "bash.deny.commands".
+func resolveBashRef(parts []string, merged *MergedConfig) []string {
+	if len(parts) < 3 {
+		return nil
+	}
+
+	action := parts[1] // "allow" or "deny"
+	field := parts[2]  // "commands"
+
+	if field != "commands" {
+		return nil
+	}
+
+	var entries []TrackedCommandEntry
+	switch action {
+	case "allow":
+		entries = merged.CommandsAllow
+	case "deny":
+		entries = merged.CommandsDeny
+	default:
+		return nil
+	}
+
+	var patterns []string
+	for _, e := range entries {
+		patterns = append(patterns, e.Name)
+	}
+	return patterns
+}
+
+// resolveAliasRef resolves refs like "aliases.sensitive".
+func resolveAliasRef(parts []string, merged *MergedConfig) []string {
+	if len(parts) < 2 {
+		return nil
+	}
+
+	aliasName := parts[1]
+	alias, ok := merged.Aliases[aliasName]
+	if !ok {
+		return nil
+	}
+	return alias.Patterns
+}
+
+// titleCaser is used to capitalize tool names like "read" -> "Read".
+var titleCaser = cases.Title(language.English)
+
+// IsRefPattern returns true if this is a ref pattern.
+func (p *Pattern) IsRefPattern() bool {
+	return p.Type == PatternRef
 }
 
 // matchPath handles path pattern matching with variable expansion and path resolution.

@@ -1,24 +1,24 @@
 # Default ruleset - minimal rules, mostly asks through to Claude Code
 
-version = "1.0"
+version = "2.0"
 
-[policy]
+# ============================================================================
+# BASH TOOL CONFIGURATION
+# ============================================================================
+
+[bash]
 default = "ask"
 dynamic_commands = "ask"
+
+[bash.constructs]
+function_definitions = "ask"
+background = "ask"
+subshells = "ask"
 
 # ============================================================================
 # DENIED COMMANDS
 # ============================================================================
 
-[deny]
+[bash.deny]
 commands = ["sudo", "su"]
 message = "Privilege escalation not allowed"
-
-# ============================================================================
-# SHELL CONSTRUCTS
-# ============================================================================
-
-[constructs]
-function_definitions = "ask"
-background = "ask"
-subshells = "ask"

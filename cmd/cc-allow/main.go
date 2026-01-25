@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -39,6 +40,7 @@ type HookSpecificOutput struct {
 	HookEventName            string `json:"hookEventName"`
 	PermissionDecision       string `json:"permissionDecision"`
 	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
+	AdditionalContext        string `json:"additionalContext,omitempty"`
 }
 
 // Exit codes per Claude Code hooks documentation
@@ -109,8 +111,13 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) {
 	// Load configuration chain from standard locations + explicit path
 	chain, err := LoadConfigChain(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(ExitError)
+		if hookMode {
+			outputHookConfigError(err)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			os.Exit(ExitError)
+		}
+		return
 	}
 
 	// Initialize debug logging (after config load so we can use configured path)
@@ -197,6 +204,30 @@ func outputHookResult(result Result) {
 			reason = result.Command + ": " + reason
 		}
 		output.HookSpecificOutput.PermissionDecisionReason = reason
+	}
+
+	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
+		os.Exit(ExitError)
+	}
+	os.Exit(0)
+}
+
+// outputHookConfigError outputs a hook error response for config loading failures.
+// For version-related errors (legacy v1 config), it includes migration guidance in additionalContext.
+func outputHookConfigError(err error) {
+	var output HookOutput
+	output.HookSpecificOutput.HookEventName = "PreToolUse"
+	output.HookSpecificOutput.PermissionDecision = "ask"
+	output.HookSpecificOutput.PermissionDecisionReason = fmt.Sprintf("cc-allow config error: %v", err)
+
+	// Check if this is a version-related error and add migration guidance
+	// This catches both LegacyConfigError (v1 keys detected) and explicit v1.x version strings
+	var legacyErr LegacyConfigError
+	isVersionError := errors.As(err, &legacyErr) || strings.Contains(err.Error(), "legacy format")
+	if isVersionError {
+		output.HookSpecificOutput.AdditionalContext = "The cc-allow config file uses the legacy v1 format. " +
+			"Please ask the user if they would like help migrating their config to the v2 format. " +
+			"The migration guide is available at: https://github.com/dannycoates/cc-allow/blob/main/docs/migration.md"
 	}
 
 	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
@@ -312,14 +343,14 @@ func logDebugConfigChain(chain *ConfigChain) {
 	logDebug("Config chain: %d config(s) loaded", len(chain.Configs))
 	for i, cfg := range chain.Configs {
 		logDebug("  [%d] %s", i, cfg.Path)
-		logDebug("      policy: default=%s, dynamic_commands=%s", cfg.Policy.Default, cfg.Policy.DynamicCommands)
-		if len(cfg.Commands.Deny.Names) > 0 {
-			logDebug("      commands.deny: %s", strings.Join(cfg.Commands.Deny.Names, ", "))
+		logDebug("      bash: default=%s, dynamic_commands=%s", cfg.Bash.Default, cfg.Bash.DynamicCommands)
+		if len(cfg.Bash.Deny.Commands) > 0 {
+			logDebug("      bash.deny.commands: %s", strings.Join(cfg.Bash.Deny.Commands, ", "))
 		}
-		if len(cfg.Commands.Allow.Names) > 0 {
-			logDebug("      commands.allow: %s", strings.Join(cfg.Commands.Allow.Names, ", "))
+		if len(cfg.Bash.Allow.Commands) > 0 {
+			logDebug("      bash.allow.commands: %s", strings.Join(cfg.Bash.Allow.Commands, ", "))
 		}
-		logDebug("      %d rule(s), %d redirect(s), %d heredoc(s)", len(cfg.Rules), len(cfg.Redirects), len(cfg.Heredocs))
+		logDebug("      %d rule(s), %d redirect(s), %d heredoc(s)", len(cfg.getParsedRules()), len(cfg.getParsedRedirects()), len(cfg.getParsedHeredocs()))
 	}
 }
 

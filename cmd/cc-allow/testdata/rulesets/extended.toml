@@ -1,17 +1,17 @@
 # Extended argument matching ruleset
-# Tests position enums, any_match sequences, and all_match sequences
+# Tests position enums, any sequences, and all sequences
 
-version = "1.0"
+version = "2.0"
 
-[policy]
+# ============================================================================
+# BASH TOOL CONFIGURATION
+# ============================================================================
+
+[bash]
 default = "ask"
 dynamic_commands = "deny"
 
-# ============================================================================
-# ALLOWED COMMANDS
-# ============================================================================
-
-[allow]
+[bash.allow]
 commands = ["echo", "ls", "cat"]
 
 # ============================================================================
@@ -19,56 +19,56 @@ commands = ["echo", "ls", "cat"]
 # ============================================================================
 
 # Allow safe read-only git commands
-[[allow.git]]
+[[bash.allow.git]]
 message = "Safe read-only git commands"
 args.position = { "0" = ["status", "diff", "log", "branch", "show", "blame"] }
 
 # Deny network git operations
-[[deny.git]]
+[[bash.deny.git]]
 message = "Network git operations denied"
 args.position = { "0" = ["push", "pull", "fetch", "clone"] }
 
 # ============================================================================
-# ANY_MATCH WITH SEQUENCE OBJECTS
+# ANY WITH SEQUENCE OBJECTS
 # ============================================================================
 
 # ffmpeg with safe input path
-[[allow.ffmpeg]]
+[[bash.allow.ffmpeg]]
 message = "ffmpeg with safe input path"
-args.any_match = [
+args.any = [
     { "0" = "-i", "1" = "path:$HOME/**" },
     { "0" = "-i", "1" = "path:$PROJECT_ROOT/**" }
 ]
 
 # ffmpeg with system input denied
-[[deny.ffmpeg]]
+[[bash.deny.ffmpeg]]
 message = "ffmpeg with system input denied"
-args.any_match = [
+args.any = [
     { "0" = "-i", "1" = "path:/etc/**" },
     { "0" = "-i", "1" = "path:/sys/**" }
 ]
 
 # ============================================================================
-# ANY_MATCH MIXING STRINGS AND SEQUENCES
+# ANY MIXING STRINGS AND SEQUENCES
 # ============================================================================
 
 # Allowed curl patterns
-[[allow.curl]]
+[[bash.allow.curl]]
 message = "Allowed curl patterns"
-args.any_match = [
+args.any = [
     "re:^https://localhost",
     "re:^http://127\\.0\\.0\\.1",
     { "0" = "-o", "1" = "path:/tmp/**" }
 ]
 
 # ============================================================================
-# ALL_MATCH WITH SEQUENCES (MULTIPLE REQUIRED PAIRS)
+# ALL WITH SEQUENCES (MULTIPLE REQUIRED PAIRS)
 # ============================================================================
 
 # openssl with proper in/out
-[[allow.openssl]]
+[[bash.allow.openssl]]
 message = "openssl with proper in/out"
-args.all_match = [
+args.all = [
     { "0" = "-in", "1" = ["path:*.pem", "path:*.crt", "path:*.key"] },
     { "0" = "-out", "1" = ["path:*.pem", "path:*.crt", "path:*.der"] }
 ]
@@ -78,12 +78,12 @@ args.all_match = [
 # ============================================================================
 
 # Safe docker inspect commands
-[[allow.docker]]
+[[bash.allow.docker]]
 message = "Safe docker inspect commands"
 args.position = { "0" = ["ps", "images", "inspect", "logs"], "1" = ["--format", "-f", "--tail", "--help"] }
 
 # Dangerous docker commands
-[[deny.docker]]
+[[bash.deny.docker]]
 message = "Dangerous docker commands"
 args.position = { "0" = ["rm", "rmi", "kill", "stop"] }
 
@@ -92,8 +92,8 @@ args.position = { "0" = ["rm", "rmi", "kill", "stop"] }
 # ============================================================================
 
 # rsync with specific flags
-[[allow.rsync]]
+[[bash.allow.rsync]]
 message = "rsync with specific flags"
-args.any_match = [
+args.any = [
     { "0" = "-a", "1" = "-v", "2" = "--progress" }
 ]

@@ -1,44 +1,42 @@
 # File rule integration test ruleset
 # Tests that bash commands respect file rules based on their arguments
-# This tests the new respect_file_rules feature
+# This tests the respect_file_rules feature
 
-version = "1.0"
+version = "2.0"
 
-[policy]
+# ============================================================================
+# BASH TOOL CONFIGURATION
+# ============================================================================
+
+[bash]
 default = "allow"
 respect_file_rules = true  # Enable checking file rules for command arguments
 
-[redirects]
+[bash.allow]
+commands = ["cat", "head", "tail", "less", "grep", "wc", "rm", "touch", "cp", "mv", "echo"]
+
+[bash.deny]
+commands = ["sudo"]
+
+[bash.redirects]
 respect_file_rules = true  # Enable checking file rules for redirect targets
 
 # ============================================================================
-# ALLOWED COMMANDS
+# READ TOOL CONFIGURATION - Applied to command arguments
 # ============================================================================
 
-[allow]
-commands = ["cat", "head", "tail", "less", "grep", "wc", "rm", "touch", "cp", "mv", "echo"]
-
-# ============================================================================
-# DENIED COMMANDS
-# ============================================================================
-
-[deny]
-commands = ["sudo"]
-
-# ============================================================================
-# FILE RULES - Applied to command arguments
-# ============================================================================
-
-[files]
+[read]
 default = "allow"
 
-[files.read]
-allow = [
+[read.allow]
+paths = [
     "path:/project/**",
     "path:/home/user/**",
     "path:/tmp/**",
 ]
-deny = [
+
+[read.deny]
+paths = [
     "path:**/.ssh/**",
     "path:**/*.key",
     "path:**/*.pem",
@@ -47,12 +45,21 @@ deny = [
     "path:/secrets/**",
 ]
 
-[files.write]
-allow = [
+# ============================================================================
+# WRITE TOOL CONFIGURATION
+# ============================================================================
+
+[write]
+default = "allow"
+
+[write.allow]
+paths = [
     "path:/project/**",
     "path:/tmp/**",
 ]
-deny = [
+
+[write.deny]
+paths = [
     "path:/etc/**",
     "path:/usr/**",
     "path:/bin/**",
@@ -61,11 +68,20 @@ deny = [
     "path:**/*.key",
 ]
 
-[files.edit]
-allow = [
+# ============================================================================
+# EDIT TOOL CONFIGURATION
+# ============================================================================
+
+[edit]
+default = "allow"
+
+[edit.allow]
+paths = [
     "path:/project/**",
 ]
-deny = [
+
+[edit.deny]
+paths = [
     "path:/etc/**",
     "path:**/.env*",
 ]
@@ -74,18 +90,38 @@ deny = [
 # SPECIFIC RULES
 # ============================================================================
 
-# cp: position 0 = source (read), position 1 = dest (write)
-[[allow.cp]]
-args.position = { "0" = "files:read", "1" = "files:write" }
+# cp: position 0 = source (read rules), position 1 = dest (write rules)
+[[bash.allow.cp]]
+args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
 
-# mv: position 0 = source (read), position 1 = dest (write)
-[[allow.mv]]
-args.position = { "0" = "files:read", "1" = "files:write" }
+# Deny cp if source matches read.deny or dest matches write.deny
+# Both positions specified for equal specificity (tie-break: deny wins)
+[[bash.deny.cp]]
+message = "Cannot copy from denied source"
+args.position = { "0" = "ref:read.deny.paths", "1" = "path:**" }
+
+[[bash.deny.cp]]
+message = "Cannot copy to denied destination"
+args.position = { "0" = "path:**", "1" = "ref:write.deny.paths" }
+
+# mv: position 0 = source (read rules), position 1 = dest (write rules)
+[[bash.allow.mv]]
+args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
+
+# Deny mv if source matches read.deny or dest matches write.deny
+# Both positions specified for equal specificity (tie-break: deny wins)
+[[bash.deny.mv]]
+message = "Cannot move from denied source"
+args.position = { "0" = "ref:read.deny.paths", "1" = "path:**" }
+
+[[bash.deny.mv]]
+message = "Cannot move to denied destination"
+args.position = { "0" = "path:**", "1" = "ref:write.deny.paths" }
 
 # tar: disable file rule checking for complex command
-[[allow.tar]]
+[[bash.allow.tar]]
 respect_file_rules = false
 
 # Custom command with Write access type override
-[[allow.mywrite]]
+[[bash.allow.mywrite]]
 file_access_type = "Write"

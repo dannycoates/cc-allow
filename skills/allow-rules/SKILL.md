@@ -4,9 +4,17 @@ description: Manages cc-allow.toml configuration files for bash command permissi
 context: fork
 ---
 
-# Managing cc-allow Rules
+# Managing cc-allow Rules (v2 Config Format)
 
 cc-allow evaluates bash commands and file tool requests (Read, Edit, Write) and returns exit codes: 0=allow, 1=ask (defer), 2=deny, 3=error.
+
+## Config Format Version
+
+```toml
+version = "2.0"
+```
+
+The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `[write]`, `[edit]`.
 
 ## Config Locations
 
@@ -17,15 +25,25 @@ cc-allow evaluates bash commands and file tool requests (Read, Edit, Write) and 
 
 ## Config Structure
 
-### Policy
+### Bash Tool Configuration
 
 ```toml
-[policy]
-default = "ask"               # "allow", "deny", or "ask"
-dynamic_commands = "ask"      # action for $VAR or $(cmd) as command name
+[bash]
+default = "ask"                    # "allow", "deny", or "ask"
+dynamic_commands = "deny"          # action for $VAR or $(cmd) as command name
 default_message = "Command not allowed"
-# allowed_paths = ["/usr/bin", "/bin"]  # optional: restrict command search paths
-unresolved_commands = "ask"   # "ask" or "deny" for commands not found
+unresolved_commands = "ask"        # "ask" or "deny" for commands not found
+respect_file_rules = true          # check file rules for command args
+```
+
+### Shell Constructs
+
+```toml
+[bash.constructs]
+function_definitions = "deny"      # foo() { ... }
+background = "deny"                # command &
+subshells = "ask"                  # (command)
+heredocs = "allow"                 # <<EOF ... EOF (default: allow)
 ```
 
 ### Aliases
@@ -43,199 +61,157 @@ sensitive = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
 Reference with `alias:` prefix:
 
 ```toml
-[files.read]
-allow = ["alias:project", "alias:plugin"]
-deny = ["alias:sensitive"]
+[read.allow]
+paths = ["alias:project", "alias:plugin"]
 
-[[allow.rm]]
-args.any_match = ["alias:project"]
+[read.deny]
+paths = ["alias:sensitive"]
+
+[[bash.allow.rm]]
+args.any = ["alias:project"]
 ```
 
-### Action-Based Sections (Recommended)
-
-Use `[allow]`, `[deny]`, `[ask]` sections for bulk command lists:
+### Allow/Deny Command Lists
 
 ```toml
-[allow]
+[bash.allow]
 commands = ["ls", "cat", "git", "go"]
 
-[deny]
+[bash.deny]
 commands = ["sudo", "rm", "dd"]
 message = "{{.Command}} blocked - dangerous command"
-
-[ask]
-commands = ["curl", "wget"]
 ```
 
-For complex rules with arguments, use `[[allow.X]]` or `[[deny.X]]`:
+### Complex Rules with Argument Matching
+
+For fine-grained control, use `[[bash.allow.X]]` or `[[bash.deny.X]]`:
 
 ```toml
-[[deny.rm]]
+[[bash.deny.rm]]
 message = "{{.ArgsStr}} - recursive deletion not allowed"
-args.any_match = ["flags:r", "--recursive"]
+args.any = ["flags:r", "--recursive"]
 
-[[allow.rm]]
+[[bash.allow.rm]]
 # base allow (lower specificity)
 ```
 
-#### Positional Nesting for Subcommands
+### Subcommand Nesting
 
 ```toml
-[[allow.git.status]]
-[[allow.git.diff]]
+[[bash.allow.git.status]]
+[[bash.allow.git.diff]]
 
-[[deny.git.push]]
+[[bash.deny.git.push]]
 message = "{{.ArgsStr}} - force push not allowed"
-args.any_match = ["--force", "flags:f"]
+args.any = ["--force", "flags:f"]
 
-[[allow.git.push]]
+[[bash.allow.git.push]]
 # base allow for git push
 
-[[allow.docker.compose.up]]
+[[bash.allow.docker.compose.up]]
 # matches: docker compose up
 ```
 
 This is equivalent to `args.position`:
-- `[[deny.git.push]]` = command `git` with `position.0 = "push"`
-- `[[allow.docker.compose.up]]` = command `docker` with `position.0 = "compose"`, `position.1 = "up"`
+- `[[bash.deny.git.push]]` = command `git` with `position.0 = "push"`
+- `[[bash.allow.docker.compose.up]]` = command `docker` with `position.0 = "compose"`, `position.1 = "up"`
 
-**Specificity with nesting**: +20 per nesting level
-- `[[allow.git]]` → 100
-- `[[allow.git.push]]` → 120
-- `[[allow.docker.compose.up]]` → 140
+**Specificity with nesting**: +50 per nesting level
+- `[[bash.allow.git]]` → 100
+- `[[bash.allow.git.push]]` → 150
+- `[[bash.allow.docker.compose.up]]` → 200
 
-### Legacy Quick Allow/Deny Lists
-
-The legacy format still works:
-
-```toml
-[commands.allow]
-names = ["ls", "cat", "git", "go"]
-
-[commands.deny]
-names = ["sudo", "rm", "dd"]
-message = "Dangerous command blocked"
-```
-
-### Constructs
-
-```toml
-[constructs]
-function_definitions = "deny"  # foo() { ... }
-background = "deny"            # command &
-subshells = "ask"              # (command)
-heredocs = "allow"             # <<EOF ... EOF (default: allow)
-```
-
-### Rules (Fine-grained Control)
+### Rule Specificity
 
 When multiple rules match, **most specific rule wins**. Rule order doesn't matter.
 
-**Specificity points**: Named command (+100), each position arg (+20), each contains (+10), each pattern (+5), each pipe target (+10), pipe from wildcard (+5). Tie-break: deny > ask > allow.
+**Specificity points**: Named command (+100), each subcommand (+50), each position arg (+20), each pattern in args.any/all (+5), each pipe target (+10), pipe from wildcard (+5). Tie-break: deny > ask > allow.
 
-**New format (recommended):**
+### Argument Matching
 
-```toml
-[[deny.git]]
-message = "Force push not allowed"
-args.any_match = ["--force", "-f"]
-args.contains = ["push"]
-
-[[deny.curl]]
-message = "No piping curl to shell"
-pipe.to = ["bash", "sh"]
-
-[[allow."path:$PROJECT_ROOT/scripts/*"]]
-# allow project scripts
-```
-
-**Legacy format:**
+Boolean expression operators:
 
 ```toml
-[[rule]]
-command = "git"
-action = "deny"
-message = "Force push not allowed"
-[rule.args]
-any_match = ["--force", "-f"]
-contains = ["push"]
-```
-
-#### Argument Matching
-
-```toml
+args.any = ["-r", "-rf"]              # at least one must match (OR)
+args.all = ["path:*.txt"]             # all args must match (AND)
+args.not = { any = ["--dry-run"] }    # negate the result
+args.position = { "0" = "/etc/*" }    # absolute positional match
 args.contains = ["--force"]           # must contain all (exact match)
-args.any_match = ["-r", "-rf"]        # must match at least one
-args.all_match = ["path:*.txt"]       # all args must match
-args.position = { "0" = "/etc/*" }    # arg at position must match
 ```
 
-#### Extended Argument Matching
+#### Position with Enum Values
 
-Position values can be arrays (enum matching with OR semantics):
+Position values can be arrays (OR semantics):
 
 ```toml
-[[allow.git]]
+[[bash.allow.git]]
 args.position = { "0" = ["status", "diff", "log", "branch"] }
 
-[[deny.git]]
+[[bash.deny.git]]
 args.position = { "0" = ["push", "pull", "fetch", "clone"] }
 ```
 
-`any_match` and `all_match` support sequence objects for adjacent arg matching:
+#### Relative Position Sequences
+
+`args.any` and `args.all` support sequence objects for adjacent arg matching:
 
 ```toml
-[[allow.ffmpeg]]
-args.any_match = [
+[[bash.allow.ffmpeg]]
+args.any = [
     { "0" = "-i", "1" = "path:$HOME/**" },
     "re:^--help$"
 ]
 
-[[allow.openssl]]
-args.all_match = [
+[[bash.allow.openssl]]
+args.all = [
     { "0" = "-in", "1" = ["path:*.pem", "path:*.crt"] },
     { "0" = "-out", "1" = ["path:*.pem", "path:*.der"] }
 ]
 ```
 
-#### Pipe Context
+**Key distinction:**
+- `args.position` = **absolute** positions (arg[0] must be X)
+- Objects in `args.any`/`args.all` = **relative** positions (sliding window)
+
+### Pipe Context
 
 ```toml
 pipe.to = ["bash", "sh"]              # pipes directly to one of these
 pipe.from = ["curl", "wget"]          # receives from any upstream
 ```
 
-Use `from = ["*"]` to match any piped input.
+Use `from = ["path:*"]` to match any piped input.
 
 ### Redirects
 
 ```toml
-[[redirect]]
-action = "allow"
-[redirect.to]
-exact = ["/dev/null"]
+[bash.redirects]
+respect_file_rules = true
 
-[[redirect]]
-action = "deny"
+[[bash.redirects.allow]]
+paths = ["/dev/null"]
+
+[[bash.redirects.deny]]
 message = "Cannot write to system paths"
-append = true                    # only match >> (omit for both > and >>)
-[redirect.to]
-pattern = ["re:^/etc/.*", "re:^/usr/.*"]
-exact = [".bashrc", ".zshrc"]
+paths = ["path:/etc/**", "path:/usr/**"]
+
+[[bash.redirects.deny]]
+message = "Cannot append to shell config"
+append = true                          # only match >> (omit for both > and >>)
+paths = [".bashrc", ".zshrc"]
 ```
 
 ### Heredocs
 
 ```toml
 # Deny all heredocs
-[constructs]
+[bash.constructs]
 heredocs = "deny"
 
 # Or use fine-grained rules (only checked if constructs.heredocs = "allow")
-[[heredoc]]
-action = "deny"
+[[bash.heredocs.deny]]
 message = "Dangerous content"
-content_match = ["re:DROP TABLE", "re:DELETE FROM"]
+content.any = ["re:DROP TABLE", "re:DELETE FROM"]
 ```
 
 ## Pattern Matching
@@ -246,7 +222,7 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 | `re:` | Regular expression | `re:^/etc/.*` |
 | `flags:` | Flag pattern (chars must appear) | `flags:rf`, `flags[--]:rec` |
 | `alias:` | Reference to path alias | `alias:project`, `alias:sensitive` |
-| `files:` | File rule marker for positional args | `files:read`, `files:write`, `files:edit` |
+| `ref:` | Config cross-reference | `ref:read.allow.paths` |
 | (none) | Exact literal match | `--verbose` |
 
 ### Negation
@@ -254,14 +230,13 @@ content_match = ["re:DROP TABLE", "re:DELETE FROM"]
 Prepend "!" to patterns with explicit prefixes:
 
 ```toml
-args.any_match = ["!path:/etc/**"]   # NOT under /etc
-args.any_match = ["!path:*.txt"]     # NOT .txt files
-args.any_match = ["!re:^--"]         # NOT starting with --
+args.any = ["!path:/etc/**"]         # NOT under /etc
+args.any = ["!path:*.txt"]           # NOT .txt files
 ```
 
 Note: Negation requires an explicit prefix. `!foo` matches the literal string "!foo".
 
-### Path Patterns
+### Path Variables
 
 | Variable | Description |
 |----------|-------------|
@@ -269,82 +244,78 @@ Note: Negation requires an explicit prefix. `!foo` matches the literal string "!
 | `$HOME` | User's home directory |
 | `$CLAUDE_PLUGIN_ROOT` | Plugin root directory |
 
-```toml
-[[allow.rm]]
-args.any_match = ["alias:project"]
-
-[[deny.rm]]
-message = "Cannot delete files outside project"
-```
-
 ## File Tool Permissions
 
+Separate top-level sections for each file tool:
+
 ```toml
-[files]
+[read]
 default = "ask"
 
-[files.read]
-allow = ["alias:project", "alias:plugin"]
-deny = ["alias:sensitive"]
+[read.allow]
+paths = ["alias:project", "alias:plugin"]
+
+[read.deny]
+paths = ["alias:sensitive"]
 message = "Cannot read sensitive files"
 
-[files.edit]
-allow = ["alias:project"]
-deny = ["path:$HOME/.*"]
+[edit]
+default = "ask"
 
-[files.write]
-allow = ["alias:project", "path:/tmp/**"]
-deny = ["path:$HOME/.*", "path:/etc/**", "path:/usr/**"]
+[edit.allow]
+paths = ["alias:project"]
+
+[edit.deny]
+paths = ["path:$HOME/.*"]
+
+[write]
+default = "ask"
+
+[write.allow]
+paths = ["alias:project", "path:/tmp/**"]
+
+[write.deny]
+paths = ["path:$HOME/.*", "path:/etc/**", "path:/usr/**"]
 message = "Cannot write outside project"
 ```
 
 **Evaluation order**: deny → allow → default (deny always wins)
 
-## File Rule Integration with Bash Commands
+## ref: Cross-References
+
+Use `ref:` to reference other config values:
 
 ```toml
-[policy]
-respect_file_rules = true  # default: true (only active when file rules exist)
+# Reference file rule paths for cp/mv
+[[bash.allow.cp]]
+args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
 
-[redirects]
-respect_file_rules = true  # check file rules for redirect targets
+# Reference an alias
+[[bash.allow.rm]]
+args.any = ["ref:aliases.project"]
 ```
 
-### Known Command Access Types
+**Resolution:**
+- `ref:read.allow.paths` → resolves to `[read.allow].paths`
+- `ref:aliases.project` → resolves to the alias value
 
-| Access Type | Commands |
-|-------------|----------|
-| Read | `cat`, `less`, `head`, `tail`, `grep`, `find`, `file`, `wc`, `diff`, `stat` |
-| Write | `rm`, `rmdir`, `touch`, `mkdir`, `chmod`, `chown`, `ln` |
-| Edit | `sed` (with `-i`) |
-
-### Per-Rule Configuration
+## Per-Rule File Configuration
 
 ```toml
-[[allow.tar]]
-respect_file_rules = false  # disable file checking for complex args
+[[bash.allow.tar]]
+respect_file_rules = false          # disable file checking for complex args
 
-[[allow.mycommand]]
-file_access_type = "Write"  # force specific access type
-```
-
-### Positional File Rules (cp, mv)
-
-```toml
-[[allow.cp]]
-args.position = { "0" = "files:read", "1" = "files:write" }
-
-[[allow.mv]]
-args.position = { "0" = "files:read", "1" = "files:write" }
+[[bash.allow.mycommand]]
+file_access_type = "Write"          # force specific access type
 ```
 
 ## Message Templates
 
 ```toml
-[[deny.rm]]
+[[bash.deny.rm]]
 message = "{{.ArgsStr}} - recursive deletion not allowed"
 
-[files.write]
+[write.deny]
 message = "Cannot write to {{.FilePath}} - system directory"
 ```
 
@@ -361,21 +332,21 @@ message = "Cannot write to {{.FilePath}} - system directory"
 
 ## Common Tasks
 
-**Allow a command**: Add to `[allow].commands` or create `[[allow.X]]`
+**Allow a command**: Add to `[bash.allow].commands` or create `[[bash.allow.X]]`
 
-**Block a command**: Add to `[deny].commands` or create `[[deny.X]]`
+**Block a command**: Add to `[bash.deny].commands` or create `[[bash.deny.X]]`
 
-**Block with specific args**: Use `[[deny.X]]` with `args.any_match` or `args.contains`
+**Block with specific args**: Use `[[bash.deny.X]]` with `args.any` or `args.contains`
 
-**Block subcommand**: Use nested path like `[[deny.git.push]]`
+**Block subcommand**: Use nested path like `[[bash.deny.git.push]]`
 
 **Restrict to project**: Use `alias:project` or `path:$PROJECT_ROOT/**`
 
-**Block piping to shell**: Use `[[deny.bash]]` with `pipe.from = ["curl", "wget"]`
+**Block piping to shell**: Use `[[bash.deny.bash]]` with `pipe.from = ["curl", "wget"]`
 
-**Allow file reading**: Add to `[files.read].allow`
+**Allow file reading**: Add to `[read.allow].paths`
 
-**Block file writing**: Add to `[files.write].deny`
+**Block file writing**: Add to `[write.deny].paths`
 
 ## Workflow
 
