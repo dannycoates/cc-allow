@@ -227,7 +227,7 @@ func outputHookConfigError(err error) {
 	if isVersionError {
 		output.HookSpecificOutput.AdditionalContext = "The cc-allow config file uses the legacy v1 format. " +
 			"Please ask the user if they would like help migrating their config to the v2 format. " +
-			"The migration guide is available at: https://github.com/dannycoates/cc-allow/blob/main/docs/migration.md"
+			"The migration guide is available at: https://raw.githubusercontent.com/dannycoates/cc-allow/main/docs/migration.md"
 	}
 
 	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
