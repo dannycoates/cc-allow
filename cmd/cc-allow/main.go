@@ -66,6 +66,11 @@ func main() {
 	editMode := flag.Bool("edit", false, "check file edit rules (stdin is file path)")
 	flag.Parse()
 
+	// Fall back to env var if --config not specified
+	if *configPath == "" {
+		*configPath = os.Getenv("CC_ALLOW_CONFIG")
+	}
+
 	// Determine tool mode
 	toolMode := ""
 	modeCount := 0
