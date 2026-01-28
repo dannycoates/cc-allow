@@ -76,7 +76,11 @@ func runFmt(configPath string) {
 		}
 
 		if len(cfg.Bash.Allow.Commands) > 0 {
-			fmt.Printf("    bash.allow.commands = %d command(s)\n", len(cfg.Bash.Allow.Commands))
+			mode := cfg.Bash.Allow.Mode
+			if mode == "" {
+				mode = "merge"
+			}
+			fmt.Printf("    bash.allow.commands = %d command(s) (mode: %s)\n", len(cfg.Bash.Allow.Commands), mode)
 		}
 		if len(cfg.Bash.Deny.Commands) > 0 {
 			fmt.Printf("    bash.deny.commands = %d command(s)\n", len(cfg.Bash.Deny.Commands))

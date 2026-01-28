@@ -8,7 +8,7 @@ import (
 // Current config version - v2.x uses the new tool-centric format
 const (
 	ConfigVersionMajor = 2
-	ConfigVersionMinor = 0
+	ConfigVersionMinor = 1
 )
 
 // Config represents the complete v2 configuration for cc-allow.
@@ -95,6 +95,7 @@ type ConstructsConfig struct {
 type BashAllowDeny struct {
 	Commands []string `toml:"commands"` // bulk list of command names
 	Message  string   `toml:"message"`  // shared message for these commands
+	Mode     string   `toml:"mode"`     // "merge" (default) or "replace" (only for allow)
 	// Command rules are parsed separately via raw TOML access into BashRules
 }
 
@@ -385,6 +386,7 @@ type FileToolConfig struct {
 type FileAllowDeny struct {
 	Paths   []string `toml:"paths"`   // path patterns
 	Message string   `toml:"message"` // message for this action
+	Mode    string   `toml:"mode"`    // "merge" (default) or "replace" (only for allow)
 }
 
 // DebugConfig controls debug logging behavior.

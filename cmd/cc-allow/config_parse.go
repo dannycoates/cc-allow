@@ -251,6 +251,9 @@ func parseBashAllowDenyFromRaw(raw map[string]any) BashAllowDeny {
 	// Extract message
 	result.Message, _ = raw["message"].(string)
 
+	// Extract mode
+	result.Mode, _ = raw["mode"].(string)
+
 	return result
 }
 
@@ -284,6 +287,9 @@ func parseFileAllowDenyFromRaw(raw map[string]any) FileAllowDeny {
 	}
 
 	result.Message, _ = raw["message"].(string)
+
+	// Extract mode
+	result.Mode, _ = raw["mode"].(string)
 
 	return result
 }
@@ -419,6 +425,7 @@ func isReservedBashKey(key string) bool {
 	reserved := map[string]bool{
 		"commands": true,
 		"message":  true,
+		"mode":     true,
 	}
 	return reserved[key]
 }
@@ -763,6 +770,14 @@ func validateAction(action, field string) error {
 	return nil
 }
 
+// validateAllowMode checks that an allow mode value is valid.
+func validateAllowMode(mode, field string) error {
+	if mode != "" && mode != "merge" && mode != "replace" {
+		return fmt.Errorf("%w: %s: invalid mode %q (must be \"merge\" or \"replace\")", ErrInvalidConfig, field, mode)
+	}
+	return nil
+}
+
 // Validate checks that all patterns in the config are valid.
 func (cfg *Config) Validate() error {
 	// Validate action values
@@ -796,6 +811,20 @@ func (cfg *Config) Validate() error {
 	if err := validateAction(cfg.Edit.Default, "edit.default"); err != nil {
 		return err
 	}
+	// Validate allow mode values
+	if err := validateAllowMode(cfg.Bash.Allow.Mode, "bash.allow.mode"); err != nil {
+		return err
+	}
+	if err := validateAllowMode(cfg.Read.Allow.Mode, "read.allow.mode"); err != nil {
+		return err
+	}
+	if err := validateAllowMode(cfg.Write.Allow.Mode, "write.allow.mode"); err != nil {
+		return err
+	}
+	if err := validateAllowMode(cfg.Edit.Allow.Mode, "edit.allow.mode"); err != nil {
+		return err
+	}
+
 	// Validate aliases
 	for name, alias := range cfg.Aliases {
 		if strings.HasPrefix(name, "path:") || strings.HasPrefix(name, "re:") ||

@@ -37,8 +37,26 @@ All configs are evaluated and results are combined:
 - **deny** always wins — any config can deny, and it cannot be overridden
 - **allow** wins over ask — explicit allow is preserved unless denied
 - **ask** means "no opinion" — defers to other configs
+- **allow lists** are merged (unioned) by default — each config adds to the set
 
 Within a single config, when multiple rules match a command, the **most specific rule wins** (see Rule Specificity below). Across configs, results are combined using the precedence above.
+
+#### Allow Mode: merge vs replace
+
+By default, `.allow` sections across configs are merged additively. A later config can set `mode = "replace"` to discard all allow entries from earlier configs and start fresh:
+
+```toml
+[bash.allow]
+mode = "replace"       # clear parent allow commands and allow rules
+commands = ["cat"]     # only "cat" is allowed
+```
+
+This is useful when a `--config` override needs to restrict permissions to a smaller set, rather than extend the parent config. Without `mode = "replace"`, you would need to deny every unwanted command individually.
+
+- `mode = "merge"` (default) — union allow entries from all configs
+- `mode = "replace"` — discard allow entries from earlier configs, use only this config's entries
+
+**Note:** `mode` only applies to `.allow` sections. Deny lists are always unioned — a child config cannot remove a parent's denies.
 
 ---
 
@@ -79,6 +97,16 @@ commands = ["ls", "cat", "head", "tail", "grep", "find", "echo", "pwd", "git"]
 commands = ["sudo", "su", "dd", "mkfs", "shutdown", "reboot"]
 message = "{{.Command}} blocked - dangerous system command"
 ```
+
+To replace (rather than extend) the allow list from parent configs:
+
+```toml
+[bash.allow]
+mode = "replace"
+commands = ["cat"]
+```
+
+When `mode = "replace"` is set, all allow commands **and** allow rules (e.g., `[[bash.allow.cd]]`) from earlier configs are discarded. Deny lists are unaffected.
 
 Command names can use the `path:` prefix to match by resolved filesystem path:
 
@@ -352,6 +380,14 @@ paths = ["path:$PROJECT_ROOT/**"]
 [edit.deny]
 paths = ["path:$HOME/.*", "path:**/.env*"]
 message = "Cannot edit {{.FileName}} - restricted file"
+```
+
+File allow sections also support `mode = "replace"`:
+
+```toml
+[read.allow]
+mode = "replace"
+paths = ["path:/tmp/**"]
 ```
 
 ### Evaluation Order

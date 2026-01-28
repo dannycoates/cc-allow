@@ -457,3 +457,143 @@ args.any = ["-r", "-rf", "--recursive"]
 		t.Errorf("rm -rf should be denied (specific rule wins), got %s", r.Action)
 	}
 }
+
+func TestAllowModeReplace(t *testing.T) {
+	// Project config allows many commands
+	project := configFromTOML(t, `
+version = "2.0"
+[bash]
+default = "deny"
+
+[bash.allow]
+commands = ["echo", "ls", "cat", "grep"]
+
+[[bash.allow.cd]]
+args.any = ["path:/tmp/**"]
+`)
+	project.Path = "project"
+
+	// Override config replaces allow list with just "cat"
+	override := configFromTOML(t, `
+version = "2.0"
+
+[bash.allow]
+mode = "replace"
+commands = ["cat"]
+`)
+	override.Path = "override"
+
+	t.Run("merge default keeps all commands", func(t *testing.T) {
+		// Without replace, merging adds commands
+		additive := configFromTOML(t, `
+version = "2.0"
+[bash.allow]
+commands = ["cat"]
+`)
+		additive.Path = "additive"
+		r := parseAndEvalChain(t, []*Config{project, additive}, "echo hello")
+		if r.Action != "allow" {
+			t.Errorf("echo should be allowed with merge mode, got %s", r.Action)
+		}
+	})
+
+	t.Run("replace clears parent allow commands", func(t *testing.T) {
+		r := parseAndEvalChain(t, []*Config{project, override}, "echo hello")
+		if r.Action != "deny" {
+			t.Errorf("echo should be denied after replace, got %s", r.Action)
+		}
+	})
+
+	t.Run("replace keeps own commands", func(t *testing.T) {
+		r := parseAndEvalChain(t, []*Config{project, override}, "cat /tmp/foo")
+		if r.Action != "allow" {
+			t.Errorf("cat should be allowed after replace, got %s", r.Action)
+		}
+	})
+
+	t.Run("replace clears parent allow rules", func(t *testing.T) {
+		r := parseAndEvalChain(t, []*Config{project, override}, "cd /tmp/foo")
+		if r.Action != "deny" {
+			t.Errorf("cd should be denied after replace clears allow rules, got %s", r.Action)
+		}
+	})
+
+	t.Run("replace does not affect deny list", func(t *testing.T) {
+		projectWithDeny := configFromTOML(t, `
+version = "2.0"
+[bash]
+default = "ask"
+
+[bash.allow]
+commands = ["echo", "sudo"]
+
+[bash.deny]
+commands = ["sudo"]
+`)
+		projectWithDeny.Path = "project"
+
+		overrideKeepsDeny := configFromTOML(t, `
+version = "2.0"
+[bash.allow]
+mode = "replace"
+commands = ["sudo"]
+`)
+		overrideKeepsDeny.Path = "override"
+
+		r := parseAndEvalChain(t, []*Config{projectWithDeny, overrideKeepsDeny}, "sudo ls")
+		if r.Action != "deny" {
+			t.Errorf("sudo should still be denied (deny list unaffected by replace), got %s", r.Action)
+		}
+	})
+}
+
+func TestFileAllowModeReplace(t *testing.T) {
+	project := configFromTOML(t, `
+version = "2.0"
+[read]
+default = "deny"
+
+[read.allow]
+paths = ["path:/home/**", "path:/tmp/**"]
+`)
+	project.Path = "project"
+
+	override := configFromTOML(t, `
+version = "2.0"
+[read.allow]
+mode = "replace"
+paths = ["path:/tmp/**"]
+`)
+	override.Path = "override"
+
+	chain := &ConfigChain{
+		Configs: []*Config{project, override},
+		Merged:  MergeConfigs([]*Config{project, override}),
+	}
+
+	t.Run("replaced allow no longer matches old paths", func(t *testing.T) {
+		r := evaluateFileTool(chain, "Read", "/home/user/file.txt")
+		if r.Action != "deny" {
+			t.Errorf("/home path should be denied after replace, got %s", r.Action)
+		}
+	})
+
+	t.Run("replaced allow keeps new paths", func(t *testing.T) {
+		r := evaluateFileTool(chain, "Read", "/tmp/file.txt")
+		if r.Action != "allow" {
+			t.Errorf("/tmp path should be allowed after replace, got %s", r.Action)
+		}
+	})
+}
+
+func TestAllowModeValidation(t *testing.T) {
+	_, err := parseConfig(`
+version = "2.0"
+[bash.allow]
+mode = "invalid"
+commands = ["cat"]
+`)
+	if err == nil {
+		t.Error("expected error for invalid mode value, got nil")
+	}
+}

@@ -99,7 +99,18 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 		})
 	}
 
-	// Merge bash.allow.commands (union)
+	// Merge bash.allow.commands (union or replace)
+	if cfg.Bash.Allow.Mode == "replace" {
+		merged.CommandsAllow = merged.CommandsAllow[:0]
+		// Remove allow-action rules from earlier configs
+		filtered := merged.Rules[:0]
+		for _, r := range merged.Rules {
+			if r.Action != "allow" {
+				filtered = append(filtered, r)
+			}
+		}
+		merged.Rules = filtered
+	}
 	for _, cmd := range cfg.Bash.Allow.Commands {
 		merged.CommandsAllow = append(merged.CommandsAllow, TrackedCommandEntry{
 			Name:    cmd,
@@ -149,7 +160,10 @@ func mergeFileToolConfig(merged *MergedFilesConfig, toolName string, cfg *FileTo
 		})
 	}
 
-	// Merge allow patterns (union)
+	// Merge allow patterns (union or replace)
+	if cfg.Allow.Mode == "replace" {
+		merged.Allow[toolName] = merged.Allow[toolName][:0]
+	}
 	for _, path := range cfg.Allow.Paths {
 		merged.Allow[toolName] = append(merged.Allow[toolName], TrackedFilePatternEntry{
 			Pattern: path,
