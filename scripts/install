@@ -12,12 +12,17 @@ case $ARCH in
   aarch64|arm64) ARCH="arm64" ;;
 esac
 
-CC_ALLOW_PATH="${BIN_DIR}/cc-allow"
+CC_ALLOW_BIN="${BIN_DIR}/cc-allow"
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
+
+if [ -n "$CLAUDE_ENV_FILE" ]; then
+  printf 'export CC_ALLOW_BIN="%b"\n' $CC_ALLOW_BIN >> "$CLAUDE_ENV_FILE"
+fi
 
 # Already installed - just init if .claude dir exists
-if [ -x "$CC_ALLOW_PATH" ]; then
-  if [ -d ".claude" ]; then
-    "$CC_ALLOW_PATH" --init
+if [ -x "$CC_ALLOW_BIN" ]; then
+  if [ -d "$PROJECT_DIR/.claude" ]; then
+    "$CC_ALLOW_BIN" --init
   fi
   exit 0
 fi
@@ -30,9 +35,9 @@ DOWNLOAD_URL=$(curl -sL "$RELEASE_URL" | grep "browser_download_url.*${OS}_${ARC
 
 # Download and extract
 curl -sL "$DOWNLOAD_URL" | tar -xz -C "$BIN_DIR"
-chmod +x "$CC_ALLOW_PATH"
+chmod +x "$CC_ALLOW_BIN"
 
 # Initialize project config if it doesn't exist
-if [ -d ".claude" ]; then
-  "$CC_ALLOW_PATH" --init
+if [ -d "$PROJECT_DIR/.claude" ]; then
+  "$CC_ALLOW_BIN" --init
 fi
