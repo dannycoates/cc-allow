@@ -78,8 +78,8 @@ cc-allow --fmt
 Configs are loaded from multiple locations (loosest to strictest):
 
 1. `~/.config/cc-allow.toml` - Global defaults
-2. `<project>/.claude/cc-allow.toml` - Project rules (in source control)
-3. `<project>/.claude/cc-allow.local.toml` - Local overrides (gitignored)
+2. `<project>/.config/cc-allow.toml` - Project rules (in source control)
+3. `<project>/.config/cc-allow.local.toml` - Local overrides (gitignored)
 4. `--config <path>` - Explicit config
 
 Rules are merged across configs: **deny always wins**, allow beats ask, ask means "no opinion."

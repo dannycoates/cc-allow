@@ -40,8 +40,8 @@ func runFmt(configPath string) {
 		fmt.Println("No config files found.")
 		fmt.Println("\nSearched locations:")
 		fmt.Println("  - ~/.config/cc-allow.toml (global)")
-		fmt.Println("  - <project>/.claude/cc-allow.toml (project)")
-		fmt.Println("  - <project>/.claude/cc-allow.local.toml (local)")
+		fmt.Println("  - <project>/.config/cc-allow.toml (project)")
+		fmt.Println("  - <project>/.config/cc-allow.local.toml (local)")
 		if configPath != "" {
 			fmt.Printf("  - %s (explicit)\n", configPath)
 		}
@@ -181,12 +181,12 @@ func findFmtConfigFiles(explicitPath string) []string {
 		paths = append(paths, globalPath)
 	}
 
-	projectPath, localPath := findProjectConfigs()
-	if projectPath != "" {
-		paths = append(paths, projectPath)
+	discovery := findProjectConfigs()
+	if discovery.ProjectConfig != "" {
+		paths = append(paths, discovery.ProjectConfig)
 	}
-	if localPath != "" {
-		paths = append(paths, localPath)
+	if discovery.LocalConfig != "" {
+		paths = append(paths, discovery.LocalConfig)
 	}
 
 	if explicitPath != "" {

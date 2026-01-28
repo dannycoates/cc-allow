@@ -68,8 +68,8 @@ Bash Input → [main.go] Parse → [walk.go] AST Extraction → [eval.go] Rule E
 ### Config Hierarchy (loosest to strictest)
 
 1. `~/.config/cc-allow.toml` - Global defaults
-2. `.claude/cc-allow.toml` - Project rules (in source control)
-3. `.claude/cc-allow.local.toml` - Local overrides (gitignored)
+2. `.config/cc-allow.toml` - Project rules (in source control)
+3. `.config/cc-allow.local.toml` - Local overrides (gitignored)
 4. `--config <path>` - Explicit config
 
 ### Pattern Types

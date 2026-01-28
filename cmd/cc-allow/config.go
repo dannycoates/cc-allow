@@ -493,8 +493,9 @@ type MergedConfig struct {
 
 // ConfigChain holds multiple configs ordered from highest to lowest priority.
 type ConfigChain struct {
-	Configs []*Config
-	Merged  *MergedConfig
+	Configs        []*Config
+	Merged         *MergedConfig
+	MigrationHints []string // legacy config paths that should be moved to .config/
 }
 
 // Legacy config markers for v1 detection

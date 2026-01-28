@@ -26,8 +26,8 @@ Legacy v1 configs (with `[policy]`, `[[rule]]`, `[commands]`, etc.) are not supp
 cc-allow loads configuration from multiple locations, in order (loosest to strictest):
 
 1. `~/.config/cc-allow.toml` — Global defaults
-2. `<project>/.claude/cc-allow.toml` — Project-specific rules (searches up from cwd)
-3. `<project>/.claude/cc-allow.local.toml` — Local overrides, not in source control
+2. `<project>/.config/cc-allow.toml` — Project-specific rules (searches up from cwd)
+3. `<project>/.config/cc-allow.local.toml` — Local overrides, not in source control
 4. `--config <path>` — Explicit config file
 
 ### Merge Behavior

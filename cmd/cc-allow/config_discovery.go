@@ -8,6 +8,13 @@ import (
 // Config discovery functions for cc-allow.
 // Handles finding config files in standard locations.
 
+// ProjectConfigResult holds discovery results including migration info.
+type ProjectConfigResult struct {
+	ProjectConfig string   // path to project config (empty if not found)
+	LocalConfig   string   // path to local config (empty if not found)
+	LegacyPaths   []string // paths found at old .claude/ location (needs migration)
+}
+
 // findGlobalConfig looks for ~/.config/cc-allow.toml
 func findGlobalConfig() string {
 	home, err := os.UserHomeDir()
@@ -21,31 +28,41 @@ func findGlobalConfig() string {
 	return ""
 }
 
-// findProjectConfigs looks for .claude/cc-allow.toml and .claude/cc-allow.local.toml
-// starting from cwd and walking up. Returns both paths in a single traversal.
-func findProjectConfigs() (projectConfig, localConfig string) {
+// findProjectConfigs looks for cc-allow.toml and cc-allow.local.toml
+// starting from cwd and walking up. Prefers .config/ over .claude/ (legacy).
+// If found at .claude/, the path is recorded in LegacyPaths for migration hints.
+func findProjectConfigs() ProjectConfigResult {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "", ""
+		return ProjectConfigResult{}
 	}
 
+	result := ProjectConfigResult{}
 	dir := cwd
 	for {
-		if projectConfig == "" {
-			path := filepath.Join(dir, ".claude", "cc-allow.toml")
-			if _, err := os.Stat(path); err == nil {
-				projectConfig = path
+		if result.ProjectConfig == "" {
+			newPath := filepath.Join(dir, ".config", "cc-allow.toml")
+			oldPath := filepath.Join(dir, ".claude", "cc-allow.toml")
+			if _, err := os.Stat(newPath); err == nil {
+				result.ProjectConfig = newPath
+			} else if _, err := os.Stat(oldPath); err == nil {
+				result.ProjectConfig = oldPath
+				result.LegacyPaths = append(result.LegacyPaths, oldPath)
 			}
 		}
-		if localConfig == "" {
-			path := filepath.Join(dir, ".claude", "cc-allow.local.toml")
-			if _, err := os.Stat(path); err == nil {
-				localConfig = path
+		if result.LocalConfig == "" {
+			newPath := filepath.Join(dir, ".config", "cc-allow.local.toml")
+			oldPath := filepath.Join(dir, ".claude", "cc-allow.local.toml")
+			if _, err := os.Stat(newPath); err == nil {
+				result.LocalConfig = newPath
+			} else if _, err := os.Stat(oldPath); err == nil {
+				result.LocalConfig = oldPath
+				result.LegacyPaths = append(result.LegacyPaths, oldPath)
 			}
 		}
 
 		// Found both, done
-		if projectConfig != "" && localConfig != "" {
+		if result.ProjectConfig != "" && result.LocalConfig != "" {
 			break
 		}
 
@@ -57,14 +74,15 @@ func findProjectConfigs() (projectConfig, localConfig string) {
 		dir = parent
 	}
 
-	return projectConfig, localConfig
+	return result
 }
 
 // findProjectRoot looks for the project root directory.
 // It walks up from cwd looking for:
-// 1. .claude/ directory (preferred)
-// 2. .git/ directory (fallback)
-// Returns empty string if neither found.
+// 1. .config/cc-allow.toml file (new preferred location)
+// 2. .claude/ directory (legacy)
+// 3. .git/ directory (fallback)
+// Returns empty string if none found.
 func findProjectRoot() string {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -73,7 +91,13 @@ func findProjectRoot() string {
 
 	dir := cwd
 	for {
-		// Check for .claude/ directory
+		// Check for .config/cc-allow.toml (new location, check specific file to avoid false positives)
+		configToml := filepath.Join(dir, ".config", "cc-allow.toml")
+		if _, err := os.Stat(configToml); err == nil {
+			return dir
+		}
+
+		// Check for .claude/ directory (legacy)
 		claudePath := filepath.Join(dir, ".claude")
 		if info, err := os.Stat(claudePath); err == nil && info.IsDir() {
 			return dir

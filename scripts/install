@@ -19,9 +19,9 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
   printf 'export CC_ALLOW_BIN="%b"\n' $CC_ALLOW_BIN >> "$CLAUDE_ENV_FILE"
 fi
 
-# Already installed - just init if .claude dir exists
+# Already installed - just init if project dir exists
 if [ -x "$CC_ALLOW_BIN" ]; then
-  if [ -d "$PROJECT_DIR/.claude" ]; then
+  if [ -d "$PROJECT_DIR/.config" ] || [ -d "$PROJECT_DIR/.claude" ] || [ -d "$PROJECT_DIR/.git" ]; then
     "$CC_ALLOW_BIN" --init
   fi
   exit 0
@@ -38,6 +38,6 @@ curl -sL "$DOWNLOAD_URL" | tar -xz -C "$BIN_DIR"
 chmod +x "$CC_ALLOW_BIN"
 
 # Initialize project config if it doesn't exist
-if [ -d "$PROJECT_DIR/.claude" ]; then
+if [ -d "$PROJECT_DIR/.config" ] || [ -d "$PROJECT_DIR/.claude" ] || [ -d "$PROJECT_DIR/.git" ]; then
   "$CC_ALLOW_BIN" --init
 fi

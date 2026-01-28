@@ -19,7 +19,7 @@ The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `
 ## Config Locations
 
 1. `~/.config/cc-allow.toml` — Global defaults
-2. `<project>/.claude/cc-allow.toml` — Project-specific (searches up from cwd)
+2. `<project>/.config/cc-allow.toml` — Project-specific (searches up from cwd)
 
 **Merge behavior**: All configs are evaluated and combined. deny > allow > ask. Within a config, most specific matching rule wins.
 
@@ -353,7 +353,7 @@ message = "Cannot write to {{.FilePath}} - system directory"
    ```bash
    ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --init
    ```
-1. Read the existing config at `.claude/cc-allow.toml`
+1. Read the existing config at `.config/cc-allow.toml`
 2. Determine what change is needed
 3. Add new rules
 4. Write the updated config

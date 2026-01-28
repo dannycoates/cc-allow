@@ -1202,21 +1202,24 @@ func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
 	}
 
 	// 2. Load project configs
-	projectPath, localPath := findProjectConfigs()
-	if projectPath != "" {
-		cfg, err := loadConfig(projectPath)
+	discovery := findProjectConfigs()
+	if discovery.ProjectConfig != "" {
+		cfg, err := loadConfig(discovery.ProjectConfig)
 		if err != nil {
 			return nil, err
 		}
 		chain.Configs = append(chain.Configs, cfg)
 	}
-	if localPath != "" {
-		cfg, err := loadConfig(localPath)
+	if discovery.LocalConfig != "" {
+		cfg, err := loadConfig(discovery.LocalConfig)
 		if err != nil {
 			return nil, err
 		}
 		chain.Configs = append(chain.Configs, cfg)
 	}
+
+	// Propagate migration hints for legacy .claude/ paths
+	chain.MigrationHints = discovery.LegacyPaths
 
 	// 3. Load explicit config
 	if explicitPath != "" {

@@ -57,7 +57,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and $TMPDIR/cc-allow.log")
 	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
-	initMode := flag.Bool("init", false, "create project config at .claude/cc-allow.toml")
+	initMode := flag.Bool("init", false, "create project config at .config/cc-allow.toml")
 
 	// Tool-specific modes (stdin is the path or command to check)
 	bashMode := flag.Bool("bash", false, "check bash command rules (stdin is bash command)")
@@ -132,6 +132,12 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) {
 	}
 	logDebugConfigChain(chain)
 
+	// Build migration context for hook output
+	var migrationContext string
+	if len(chain.MigrationHints) > 0 {
+		migrationContext = buildMigrationMessage(chain.MigrationHints)
+	}
+
 	// Build input
 	input, err := buildInput(hookMode, toolMode)
 	if err != nil {
@@ -145,7 +151,7 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) {
 
 	// Output
 	if hookMode {
-		outputHookResult(result)
+		outputHookResult(result, migrationContext)
 	} else {
 		outputPlainResult(result)
 	}
@@ -184,7 +190,7 @@ func buildInput(hookMode bool, toolMode string) (HookInput, error) {
 	return input, nil
 }
 
-func outputHookResult(result Result) {
+func outputHookResult(result Result, additionalContext string) {
 	var output HookOutput
 	output.HookSpecificOutput.HookEventName = "PreToolUse"
 
@@ -209,6 +215,10 @@ func outputHookResult(result Result) {
 			reason = result.Command + ": " + reason
 		}
 		output.HookSpecificOutput.PermissionDecisionReason = reason
+	}
+
+	if additionalContext != "" {
+		output.HookSpecificOutput.AdditionalContext = additionalContext
 	}
 
 	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
@@ -266,6 +276,23 @@ func outputPlainResult(result Result) {
 		}
 		os.Exit(ExitAsk)
 	}
+}
+
+// buildMigrationMessage constructs an additionalContext message for legacy config locations.
+func buildMigrationMessage(legacyPaths []string) string {
+	var moves []string
+	for _, oldPath := range legacyPaths {
+		dir := filepath.Dir(filepath.Dir(oldPath)) // go up from .claude/
+		base := filepath.Base(oldPath)
+		newPath := filepath.Join(dir, ".config", base)
+		moves = append(moves, fmt.Sprintf("mv %s %s", oldPath, newPath))
+	}
+	return fmt.Sprintf(
+		"The cc-allow project config was found at a legacy location (.claude/). "+
+			"The default location has changed to .config/. "+
+			"Please offer to move the config file(s) for the user by running: %s",
+		strings.Join(moves, " && "),
+	)
 }
 
 // Helper functions for word extraction (used by tests and walk.go)
@@ -382,25 +409,33 @@ func runInit() {
 	// 1. Find project root
 	root := findProjectRoot()
 	if root == "" {
-		fmt.Fprintln(os.Stderr, "Could not determine project root (no .claude/ or .git/ found)")
+		fmt.Fprintln(os.Stderr, "Could not determine project root (no .config/cc-allow.toml, .claude/, or .git/ found)")
 		os.Exit(1)
 	}
 
-	// 2. Check if config already exists
-	configPath := filepath.Join(root, ".claude", "cc-allow.toml")
+	// 2. Check if config already exists at new location
+	configPath := filepath.Join(root, ".config", "cc-allow.toml")
 	if _, err := os.Stat(configPath); err == nil {
 		fmt.Printf("Config already exists: %s\n", configPath)
 		os.Exit(0)
 	}
 
-	// 3. Ensure .claude directory exists
-	claudeDir := filepath.Join(root, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create .claude directory: %v\n", err)
+	// 3. Check legacy location and warn
+	legacyPath := filepath.Join(root, ".claude", "cc-allow.toml")
+	if _, err := os.Stat(legacyPath); err == nil {
+		fmt.Printf("Config exists at legacy location: %s\n", legacyPath)
+		fmt.Printf("Move it to the new location: mv %s %s\n", legacyPath, configPath)
+		os.Exit(0)
+	}
+
+	// 4. Ensure .config directory exists
+	configDir := filepath.Join(root, ".config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create .config directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 4. Choose template based on user config existence
+	// 5. Choose template based on user config existence
 	var content string
 	if findGlobalConfig() == "" {
 		content = fullTemplate
@@ -408,7 +443,7 @@ func runInit() {
 		content = stubTemplate
 	}
 
-	// 5. Write config
+	// 6. Write config
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write config: %v\n", err)
 		os.Exit(1)
