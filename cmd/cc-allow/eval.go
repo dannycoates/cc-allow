@@ -936,6 +936,8 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx 
 			if msg == "" {
 				msg = "File access denied"
 			}
+			tmplCtx := newFileTemplateContext(toolName, path, ctx)
+			msg = templateMessage(msg, tmplCtx)
 			return Result{
 				Action:  "deny",
 				Message: msg,
