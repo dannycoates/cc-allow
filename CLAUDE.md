@@ -70,7 +70,11 @@ Bash Input → [main.go] Parse → [walk.go] AST Extraction → [eval.go] Rule E
 1. `~/.config/cc-allow.toml` - Global defaults
 2. `.config/cc-allow.toml` - Project rules (in source control)
 3. `.config/cc-allow.local.toml` - Local overrides (gitignored)
-4. `--config <path>` - Explicit config
+4. `--config <path>` or `--agent <type>` - Explicit config
+
+### Agent-Specific Configs
+
+Use `--agent <type>` to load configs from `.config/cc-allow/<type>.toml`. This allows different permission sets for different subagent types (e.g., `playwright`, `Explore`). If the agent config doesn't exist, the normal config chain applies.
 
 ### Pattern Types
 
@@ -93,6 +97,7 @@ The harness (`harness_test.go`) runs command sets against multiple rulesets defi
 - **Hook mode**: `cc-allow --hook` - Parses Claude Code JSON, outputs JSON response
 - **Fmt mode**: `cc-allow --fmt` - Validate and display config
 - **Init mode**: `cc-allow --init` - Create project config from template
+- **Agent mode**: `cc-allow --agent <type>` - Load agent-specific config from `.config/cc-allow/<type>.toml`
 
 ## Debugging
 

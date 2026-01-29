@@ -53,6 +53,7 @@ const (
 
 func main() {
 	configPath := flag.String("config", "", "path to TOML configuration file (adds to config chain)")
+	agentType := flag.String("agent", "", "agent type to load config for (looks for .config/cc-allow/<agent>.toml)")
 	hookMode := flag.Bool("hook", false, "parse Claude Code hook JSON input (extracts tool_input.command)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and $TMPDIR/cc-allow.log")
@@ -65,6 +66,19 @@ func main() {
 	writeMode := flag.Bool("write", false, "check file write rules (stdin is file path)")
 	editMode := flag.Bool("edit", false, "check file edit rules (stdin is file path)")
 	flag.Parse()
+
+	// --agent and --config are mutually exclusive
+	if *agentType != "" && *configPath != "" {
+		fmt.Fprintln(os.Stderr, "Error: --agent and --config cannot be used together")
+		os.Exit(ExitError)
+	}
+
+	// Resolve --agent to a config path
+	if *agentType != "" {
+		if agentPath := findAgentConfig(*agentType); agentPath != "" {
+			*configPath = agentPath
+		}
+	}
 
 	// Fall back to env var if --config not specified
 	if *configPath == "" {

@@ -2,6 +2,8 @@ package main
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -860,4 +862,59 @@ version = "2.0"
 			}
 		})
 	}
+}
+
+func TestFindAgentConfig(t *testing.T) {
+	t.Run("finds agent config in .config/cc-allow/", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Chdir(tmp)
+
+		agentDir := filepath.Join(tmp, ".config", "cc-allow")
+		if err := os.MkdirAll(agentDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		agentFile := filepath.Join(agentDir, "playwright.toml")
+		if err := os.WriteFile(agentFile, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		got := findAgentConfig("playwright")
+		if got != agentFile {
+			t.Errorf("findAgentConfig(\"playwright\") = %q, want %q", got, agentFile)
+		}
+	})
+
+	t.Run("returns empty when agent config not found", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Chdir(tmp)
+
+		got := findAgentConfig("nonexistent")
+		if got != "" {
+			t.Errorf("findAgentConfig(\"nonexistent\") = %q, want empty string", got)
+		}
+	})
+
+	t.Run("finds agent config in parent directory", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		agentDir := filepath.Join(tmp, ".config", "cc-allow")
+		if err := os.MkdirAll(agentDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		agentFile := filepath.Join(agentDir, "myagent.toml")
+		if err := os.WriteFile(agentFile, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		subdir := filepath.Join(tmp, "src", "pkg")
+		if err := os.MkdirAll(subdir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(subdir)
+
+		got := findAgentConfig("myagent")
+		if got != agentFile {
+			t.Errorf("findAgentConfig(\"myagent\") = %q, want %q", got, agentFile)
+		}
+	})
 }

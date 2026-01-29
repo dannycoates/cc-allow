@@ -20,6 +20,9 @@ The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `
 
 1. `~/.config/cc-allow.toml` — Global defaults
 2. `<project>/.config/cc-allow.toml` — Project-specific (searches up from cwd)
+3. `<project>/.config/cc-allow/<agent>.toml` — Agent-specific configs (used with `--agent`)
+
+**Agent configs**: Use `--agent <type>` to load agent-specific rules from `.config/cc-allow/<type>.toml`. This allows different permission sets for different subagent types (e.g., `playwright`, `Explore`). If the agent config doesn't exist, normal config chain applies.
 
 **Merge behavior**: All configs are evaluated and combined. deny > allow > ask. Within a config, most specific matching rule wins.
 
@@ -370,8 +373,39 @@ message = "Cannot write to {{.FilePath}} - system directory"
    # Test file tools
    echo '/etc/passwd' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --read
    echo '$HOME/.bashrc' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --write
+
+   # Test with agent-specific config
+   echo 'npm install' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --agent playwright
    ```
 7. Use `--debug` for detailed evaluation trace:
    ```bash
    echo 'git push --force' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --debug
    ```
+
+## Agent-Specific Configs
+
+Create configs for specific subagent types in `.config/cc-allow/<agent>.toml`:
+
+```bash
+# Create agent config directory
+mkdir -p .config/cc-allow
+
+# Create playwright-specific rules
+cat > .config/cc-allow/playwright.toml << 'EOF'
+version = "2.1"
+
+[bash]
+default = "deny"
+
+[bash.allow]
+mode = "replace"
+commands = ["npx", "node"]
+
+[[bash.allow.npx.playwright]]
+EOF
+```
+
+Use with `--agent`:
+```bash
+echo 'npx playwright test' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --agent playwright
+```

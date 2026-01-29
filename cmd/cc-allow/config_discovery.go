@@ -77,6 +77,29 @@ func findProjectConfigs() ProjectConfigResult {
 	return result
 }
 
+// findAgentConfig looks for .config/cc-allow/<agent>.toml
+// starting from cwd and walking up the directory tree.
+// Returns the path if found, or empty string if not found.
+func findAgentConfig(agent string) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	dir := cwd
+	for {
+		path := filepath.Join(dir, ".config", "cc-allow", agent+".toml")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
 // findProjectRoot looks for the project root directory.
 // It walks up from cwd looking for:
 // 1. .config/cc-allow.toml file (new preferred location)
