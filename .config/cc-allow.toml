@@ -1,209 +1,22 @@
-# cc-allow config for development projects
-# Sensible defaults: allow dev tools, block dangerous operations
+# cc-allow project config (development)
+# Inherits from ~/.config/cc-allow.toml
+# Stricter rules for this security-focused project
 
 version = "2.0"
 
-# ============================================================================
-# ALIASES
-# ============================================================================
-# Define reusable pattern aliases to reduce repetition
-
-[aliases]
-project = "path:$PROJECT_ROOT/**"
-plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
-tmp = "path:/tmp/**"
-safe-write = ["path:$PROJECT_ROOT/**", "path:/tmp/**", "path:/dev/null"]
-sensitive-read = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
-sensitive-write = [
-    "path:$HOME/.*",
-    "path:/etc/**",
-    "path:/usr/**",
-    "path:/bin/**",
-    "path:/sbin/**",
-    "path:/var/**",
-]
-
-# ============================================================================
-# BASH TOOL CONFIGURATION
-# ============================================================================
-
 [bash]
-default = "ask"                    # defer to Claude Code's permission system
-dynamic_commands = "deny"           # block $VAR or $(cmd) as command names
-default_message = "Command not allowed by project policy"
-
-[bash.constructs]
-function_definitions = "deny"       # prevent command shadowing
-background = "ask"                 # allow but defer to Claude Code
-subshells = "ask"
-
-# ============================================================================
-# ALLOWED COMMANDS
-# ============================================================================
+dynamic_commands = "deny"  # stricter than global
 
 [bash.allow]
 commands = [
-    # Plugin/Skill Binaries
-    "alias:plugin",
-    "path:$HOME/**/cc-query",
-
-    # File & Directory Navigation
-    "ls", "dir", "vdir", "pwd", "tree", "file", "stat",
-    "basename", "dirname", "realpath", "readlink",
-    # File Viewing & Reading
-    "cat", "tac", "head", "tail", "less", "more", "nl",
-    "od", "hexdump", "xxd",
-    # Text Processing & Transformation
-    "grep", "egrep", "fgrep", "sed", "awk", "gawk",
-    "cut", "paste", "join", "sort", "uniq", "shuf",
-    "tr", "rev", "expand", "unexpand", "fold", "fmt", "column", "pr",
-    "wc", "comm", "diff", "cmp", "colordiff", "delta", "iconv", "strings",
-    # Searching & Finding
-    "find", "fd", "locate", "mlocate", "plocate",
-    "which", "whereis", "type", "xargs",
-    "rg", "ripgrep", "ag", "fzf",
-    # File Operations (Non-Destructive)
-    "cp", "mv", "touch", "mkdir", "ln", "install",
-    # Archive & Compression
-    "tar", "gzip", "gunzip", "zcat", "bzip2", "bunzip2", "bzcat",
-    "xz", "unxz", "xzcat", "zstd", "unzstd", "zstdcat",
-    "zip", "unzip", "7z", "7za", "7zr", "rar", "unrar",
-    # Printing & Output
-    "echo", "printf", "yes", "seq", "tee",
-    # Date, Time & Calculation
-    "date", "cal", "ncal", "time", "bc", "dc", "expr", "factor",
-    # User & System Info (Read-Only)
-    "whoami", "id", "groups", "who", "w", "users", "last", "lastlog", "finger",
-    "uname", "hostname", "hostnamectl", "uptime", "arch", "nproc",
-    "lscpu", "lsmem", "free", "df", "du", "lsblk", "lsusb", "lspci", "lsof", "dmesg",
-    # Process inspection (read-only)
-    "ps", "top", "htop", "pgrep", "pidof", "pstree", "jobs", "nice", "renice",
-    # Network inspection (read-only)
-    "ping", "ping6", "traceroute", "tracepath", "mtr",
-    "dig", "nslookup", "host", "whois",
-    "ip", "ifconfig", "ss", "netstat", "nc", "netcat", "nmap", "tcpdump",
-    # Shell Builtins & Utilities
-    "test", "[", "[[", "true", "false", "sleep", "env", "printenv",
-    # Version Control
-    "git", "gh", "hg", "svn", "fossil",
-    # Go development
-    "go", "gofmt", "golint", "gopls",
-    # Build tools
-    "make", "just", "cargo", "npm", "yarn", "pnpm", "bun",
-    # Editors & viewers
-    "vim", "nvim", "nano", "code",
-    # Misc Utilities
-    "man", "info", "help", "apropos", "whatis", "tldr",
-    "watch", "timeout", "strace", "ltrace",
-    "md5sum", "sha1sum", "sha256sum", "sha512sum", "base64",
-    "nix", "nix-env", "nix-shell", "wc",
-    # Project binaries
-    "path:$PROJECT_ROOT/cc-allow", "path:$PROJECT_ROOT/print-ast", "path:/tmp/cc-allow-test",
-    # Remove commands (handled by rules below)
-    "rm", "rmdir", "chmod",
-
-    "jq",
+    "path:$PROJECT_ROOT/cc-allow",
+    "path:$PROJECT_ROOT/print-ast",
+    "path:/tmp/cc-allow-test",
 ]
 
-# ============================================================================
-# DENIED COMMANDS
-# ============================================================================
-
-[bash.deny]
-commands = [
-    "sudo", "su", "doas",           # privilege escalation
-    "dd", "mkfs", "fdisk", "parted", # disk operations
-    "shutdown", "reboot", "halt",   # system control
-    "killall", "pkill",             # mass process killing
-]
-message = "{{.Command}} blocked - dangerous system command"
-
-# ============================================================================
-# SPECIFIC RULES - Deny rules
-# ============================================================================
-
-# Block recursive rm
-[[bash.deny.rm]]
-message = "{{.ArgsStr}} - recursive deletion not allowed"
-args.any = ["flags:r", "--recursive"]
-
-# Block curl/wget/fetch - use WebFetch tool instead
-[[bash.deny.curl]]
-message = "{{.Command}} blocked - use WebFetch tool instead"
-
-[[bash.deny.wget]]
-message = "{{.Command}} blocked - use WebFetch tool instead"
-
-[[bash.deny.fetch]]
-message = "{{.Command}} blocked - use WebFetch tool instead"
-
-# Block dangerous git operations
-[[bash.deny.git.push]]
-message = "{{.ArgsStr}} - force push not allowed"
-args.any = ["--force", "flags:f"]
-
-[[bash.deny.git.reset]]
-message = "{{.ArgsStr}} - hard reset not allowed"
-args.all = ["--hard"]
-
-# Block cd to anywhere except /tmp and project dirs
+# Restrict cd to project and tmp only
 [[bash.deny.cd]]
 message = "cd {{.Arg 0}} - only /tmp and project directories allowed"
 
-# ============================================================================
-# SPECIFIC RULES - Allow rules
-# ============================================================================
-
-# Allow cd only to /tmp and project root
 [[bash.allow.cd]]
-args.any = ["alias:tmp", "alias:project"]
-
-# ============================================================================
-# REDIRECTS
-# ============================================================================
-
-[bash.redirects]
-respect_file_rules = true
-
-# ============================================================================
-# READ TOOL CONFIGURATION
-# ============================================================================
-
-[read]
-default = "ask"
-
-[read.allow]
-paths = ["alias:project", "alias:plugin"]
-
-[read.deny]
-paths = ["alias:sensitive-read"]
-message = "Cannot read {{.FileName}} - sensitive file"
-
-# ============================================================================
-# EDIT TOOL CONFIGURATION
-# ============================================================================
-
-[edit]
-default = "ask"
-
-[edit.allow]
-paths = ["alias:project"]
-
-[edit.deny]
-paths = ["path:$HOME/.*"]
-message = "Cannot edit {{.FileName}} - sensitive file"
-
-# ============================================================================
-# WRITE TOOL CONFIGURATION
-# ============================================================================
-# Also applies to output redirects (>, >>) when bash.redirects.respect_file_rules = true
-
-[write]
-default = "ask"
-
-[write.allow]
-paths = ["alias:safe-write"]
-
-[write.deny]
-paths = ["alias:sensitive-write"]
-message = "Cannot write to {{.FilePath}} - system directory"
+args.any = ["path:/tmp/**", "path:$PROJECT_ROOT/**"]

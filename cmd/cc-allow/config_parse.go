@@ -118,7 +118,7 @@ func configFromRaw(raw map[string]any) (*Config, error) {
 
 	// Extract bash config
 	if bashRaw, ok := raw["bash"].(map[string]any); ok {
-		bashCfg, err := parseBashConfigFromRaw(bashRaw, cfg.Aliases)
+		bashCfg, err := parseBashConfigFromRaw(bashRaw)
 		if err != nil {
 			return nil, fmt.Errorf("bash: %w", err)
 		}
@@ -169,7 +169,7 @@ type bashConfigResult struct {
 }
 
 // parseBashConfigFromRaw parses the bash section.
-func parseBashConfigFromRaw(raw map[string]any, aliases map[string]Alias) (*bashConfigResult, error) {
+func parseBashConfigFromRaw(raw map[string]any) (*bashConfigResult, error) {
 	result := &bashConfigResult{}
 
 	// Extract scalar fields
@@ -202,7 +202,7 @@ func parseBashConfigFromRaw(raw map[string]any, aliases map[string]Alias) (*bash
 	}
 
 	// Parse nested command rules
-	rules, err := parseBashRules(raw, aliases)
+	rules, err := parseBashRules(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -338,8 +338,8 @@ func validateConfigVersion(version string, raw map[string]any) error {
 	return nil
 }
 
-// parseBashRules extracts rules from [bash.allow.X] and [bash.deny.X] tables.
-func parseBashRules(bashRaw map[string]any, aliases map[string]Alias) ([]BashRule, error) {
+// parseBashRules extracts rules from [bash.allow.X], [bash.deny.X], and [bash.ask.X] tables.
+func parseBashRules(bashRaw map[string]any) ([]BashRule, error) {
 	var rules []BashRule
 
 	// Parse [bash.allow] section
@@ -358,6 +358,15 @@ func parseBashRules(bashRaw map[string]any, aliases map[string]Alias) ([]BashRul
 			return nil, fmt.Errorf("deny: %w", err)
 		}
 		rules = append(rules, denyRules...)
+	}
+
+	// Parse [bash.ask] section
+	if askRaw, ok := bashRaw["ask"].(map[string]any); ok {
+		askRules, err := parseActionSection(askRaw, "ask", []string{})
+		if err != nil {
+			return nil, fmt.Errorf("ask: %w", err)
+		}
+		rules = append(rules, askRules...)
 	}
 
 	return rules, nil

@@ -882,6 +882,49 @@ name = "spec: curl -s localhost most specific"
 bash = "curl -s http://localhost:8080/health"
 specificity = "allow"  # -s + localhost (115) beats localhost (105)
 
+# --- TEST 14: ask beats allow at equal specificity ---
+
+[[command]]
+name = "spec: ask beats allow at equal specificity"
+bash = "test14 arg"
+specificity = "ask"    # both spec=100, ask wins over allow
+
+# --- TEST 15: ask with higher specificity wins over deny ---
+
+[[command]]
+name = "spec: ask with position beats deny"
+bash = "test15 safe arg"
+specificity = "ask"    # ask (120) beats deny (100)
+
+[[command]]
+name = "spec: deny wins when ask position doesn't match"
+bash = "test15 dangerous arg"
+specificity = "deny"   # ask position doesn't match, deny (100) wins
+
+# --- TEST 16: ask with args.any (real-world pattern) ---
+
+[[command]]
+name = "spec: ask for specific args wins"
+bash = "test16 install"
+specificity = "ask"    # ask (110) beats allow (100)
+
+[[command]]
+name = "spec: ask for uninstall also wins"
+bash = "test16 uninstall"
+specificity = "ask"    # ask (110) beats allow (100)
+
+[[command]]
+name = "spec: generic allow when args don't match"
+bash = "test16 status"
+specificity = "allow"  # args don't match ask, allow (100) wins
+
+# --- TEST 17: deny beats ask at equal specificity ---
+
+[[command]]
+name = "spec: deny beats ask at equal specificity"
+bash = "test17 arg"
+specificity = "deny"   # both spec=100, deny wins over ask
+
 # =============================================================================
 # FLAG PATTERN TESTS
 # =============================================================================

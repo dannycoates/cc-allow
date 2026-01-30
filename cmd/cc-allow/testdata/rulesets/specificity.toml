@@ -197,3 +197,53 @@ args.any = ["re:localhost"]
 [[bash.allow.curl]]
 message = "curl -s to localhost (spec=110) - most specific"
 args.any = ["-s", "re:localhost"]
+
+# =============================================================================
+# TEST 14: ask beats allow at equal specificity (tie-break)
+# =============================================================================
+# Tie-breaker order: deny (2) > ask (1) > allow (0)
+# Both have spec=100, ask should win
+
+[[bash.allow.test14]]
+message = "test14 allow (spec=100)"
+
+[[bash.ask.test14]]
+message = "test14 ask (spec=100) - should win tie"
+
+# =============================================================================
+# TEST 15: ask with higher specificity wins over deny
+# =============================================================================
+# Generic deny: spec = 100
+[[bash.deny.test15]]
+message = "test15 deny (spec=100)"
+
+# Ask with position match: spec = 100 + 20 = 120
+[[bash.ask.test15]]
+message = "test15 ask with position (spec=120) - should win"
+args.position = { "0" = "safe" }
+
+# =============================================================================
+# TEST 16: ask with args.any (real-world pattern)
+# =============================================================================
+# This tests the common pattern of asking for specific subcommands
+# Similar to: [[bash.ask.just]] with args.any = ["install", "uninstall"]
+
+# Generic allow for the command: spec = 100
+[[bash.allow.test16]]
+message = "test16 generic allow (spec=100)"
+
+# Ask for specific args: spec = 100 + 10 = 110
+[[bash.ask.test16]]
+message = "test16 ask for specific args (spec=110) - should win"
+args.any = ["install", "uninstall"]
+
+# =============================================================================
+# TEST 17: ask loses to deny at equal specificity
+# =============================================================================
+# Confirms tie-break order: deny > ask
+
+[[bash.ask.test17]]
+message = "test17 ask (spec=100)"
+
+[[bash.deny.test17]]
+message = "test17 deny (spec=100) - should win tie"
