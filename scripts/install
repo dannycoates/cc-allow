@@ -2,7 +2,8 @@
 set -e
 
 REPO="dannycoates/cc-allow"
-BIN_DIR="${CLAUDE_PLUGIN_ROOT}/bin"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(dirname "$0")")}"
+BIN_DIR="${PLUGIN_ROOT}/bin"
 
 # Detect platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -19,25 +20,19 @@ if [ -n "$CLAUDE_ENV_FILE" ]; then
   printf 'export CC_ALLOW_BIN="%b"\n' $CC_ALLOW_BIN >> "$CLAUDE_ENV_FILE"
 fi
 
-# Already installed - just init if project dir exists
-if [ -x "$CC_ALLOW_BIN" ]; then
-  if [ -d "$PROJECT_DIR/.config" ] || [ -d "$PROJECT_DIR/.claude" ] || [ -d "$PROJECT_DIR/.git" ]; then
-    "$CC_ALLOW_BIN" --init
-  fi
-  exit 0
+# Download if not already installed
+if [ ! -x "$CC_ALLOW_BIN" ]; then
+  mkdir -p "$BIN_DIR"
+
+  # Get download URL from latest release
+  RELEASE_URL="https://api.github.com/repos/${REPO}/releases/latest"
+  DOWNLOAD_URL=$(curl -sL "$RELEASE_URL" | grep "browser_download_url.*${OS}_${ARCH}" | cut -d'"' -f4)
+
+  # Download and extract
+  curl -sL "$DOWNLOAD_URL" | tar -xz -C "$BIN_DIR"
+  chmod +x "$CC_ALLOW_BIN"
 fi
 
-mkdir -p "$BIN_DIR"
-
-# Get download URL from latest release
-RELEASE_URL="https://api.github.com/repos/${REPO}/releases/latest"
-DOWNLOAD_URL=$(curl -sL "$RELEASE_URL" | grep "browser_download_url.*${OS}_${ARCH}" | cut -d'"' -f4)
-
-# Download and extract
-curl -sL "$DOWNLOAD_URL" | tar -xz -C "$BIN_DIR"
-chmod +x "$CC_ALLOW_BIN"
-
-# Initialize project config if it doesn't exist
-if [ -d "$PROJECT_DIR/.config" ] || [ -d "$PROJECT_DIR/.claude" ] || [ -d "$PROJECT_DIR/.git" ]; then
-  "$CC_ALLOW_BIN" --init
-fi
+# Initialize project config
+mkdir -p "$PROJECT_DIR/.config/cc-allow"
+"$CC_ALLOW_BIN" --init

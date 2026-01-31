@@ -1,11 +1,12 @@
 #!/bin/bash
 set -e
 
-BIN="${CLAUDE_PLUGIN_ROOT}/bin/cc-allow"
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(dirname "$0")")}"
+BIN="${PLUGIN_ROOT}/bin/cc-allow"
 
 # Install if binary doesn't exist
 if [ ! -x "$BIN" ]; then
-  "${CLAUDE_PLUGIN_ROOT}/scripts/install" >&2
+  "${PLUGIN_ROOT}/scripts/install" >&2
 fi
 
-exec "$BIN" --hook
+exec "$BIN" --hook --agent
