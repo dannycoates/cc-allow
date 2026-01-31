@@ -9,4 +9,4 @@ if [ ! -x "$BIN" ]; then
   "${PLUGIN_ROOT}/scripts/install" >&2
 fi
 
-exec "$BIN" --hook --agent
+exec "$BIN" --hook
