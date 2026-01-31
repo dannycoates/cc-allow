@@ -32,7 +32,6 @@ type TemplateContext struct {
 	// Environment context (always available when MatchContext is present)
 	Home        string // $HOME directory
 	ProjectRoot string // $PROJECT_ROOT
-	PluginRoot  string // $CLAUDE_PLUGIN_ROOT (if set)
 }
 
 // ArgsStr returns args joined by space.
@@ -118,7 +117,6 @@ func newCommandTemplateContext(cmd Command, matchCtx *MatchContext) TemplateCont
 	if matchCtx != nil && matchCtx.PathVars != nil {
 		ctx.Home = matchCtx.PathVars.Home
 		ctx.ProjectRoot = matchCtx.PathVars.ProjectRoot
-		ctx.PluginRoot = matchCtx.PathVars.PluginRoot
 	}
 	return ctx
 }
@@ -132,7 +130,6 @@ func newRedirectTemplateContext(redir Redirect, matchCtx *MatchContext) Template
 	if matchCtx != nil && matchCtx.PathVars != nil {
 		ctx.Home = matchCtx.PathVars.Home
 		ctx.ProjectRoot = matchCtx.PathVars.ProjectRoot
-		ctx.PluginRoot = matchCtx.PathVars.PluginRoot
 	}
 	return ctx
 }
@@ -146,7 +143,6 @@ func newHeredocTemplateContext(hdoc Heredoc, matchCtx *MatchContext) TemplateCon
 	if matchCtx != nil && matchCtx.PathVars != nil {
 		ctx.Home = matchCtx.PathVars.Home
 		ctx.ProjectRoot = matchCtx.PathVars.ProjectRoot
-		ctx.PluginRoot = matchCtx.PathVars.PluginRoot
 	}
 	return ctx
 }
@@ -160,7 +156,6 @@ func newFileTemplateContext(toolName, filePath string, matchCtx *MatchContext) T
 	if matchCtx != nil && matchCtx.PathVars != nil {
 		ctx.Home = matchCtx.PathVars.Home
 		ctx.ProjectRoot = matchCtx.PathVars.ProjectRoot
-		ctx.PluginRoot = matchCtx.PathVars.PluginRoot
 	}
 	return ctx
 }

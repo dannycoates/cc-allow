@@ -352,15 +352,40 @@ v2 introduces aliases for reusable patterns:
 ```toml
 [aliases]
 project = "path:$PROJECT_ROOT/**"
-plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
 sensitive = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
 
 [read.allow]
-paths = ["alias:project", "alias:plugin"]
+paths = ["alias:project"]
 
 [read.deny]
 paths = ["alias:sensitive"]
 ```
+
+### 12. Deprecated: $CLAUDE_PLUGIN_ROOT Variable
+
+The `$CLAUDE_PLUGIN_ROOT` path variable is deprecated. For backward compatibility, it still works when cc-allow runs from its installed plugin location - the path is derived from the executable location rather than the environment variable.
+
+**Recommended replacement** - use `$HOME/.claude/plugins/**` instead:
+
+**Before:**
+```toml
+[aliases]
+plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
+
+[bash.allow]
+commands = ["path:$CLAUDE_PLUGIN_ROOT/**"]
+```
+
+**After:**
+```toml
+[aliases]
+plugins = "path:$HOME/.claude/plugins/**"
+
+[bash.allow]
+commands = ["path:$HOME/.claude/plugins/**"]
+```
+
+Note: The shell variable `${CLAUDE_PLUGIN_ROOT}` (with curly braces) used in hook scripts is still valid - it's expanded by Claude Code, not by cc-allow.
 
 ## Complete Migration Example
 

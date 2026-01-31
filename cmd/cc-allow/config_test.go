@@ -554,16 +554,16 @@ extended = ["path:/tmp/**", "alias:base"]
 			config: `
 version = "2.0"
 [aliases]
-plugin-bin = "path:$CLAUDE_PLUGIN_ROOT/**"
+project-bin = "path:$PROJECT_ROOT/bin/**"
 
 [bash.allow]
-commands = ["alias:plugin-bin", "ls"]
+commands = ["alias:project-bin", "ls"]
 `,
 			verify: func(t *testing.T, cfg *Config) {
 				if len(cfg.Bash.Allow.Commands) != 2 {
 					t.Fatalf("expected 2 commands, got %d", len(cfg.Bash.Allow.Commands))
 				}
-				if cfg.Bash.Allow.Commands[0] != "path:$CLAUDE_PLUGIN_ROOT/**" {
+				if cfg.Bash.Allow.Commands[0] != "path:$PROJECT_ROOT/bin/**" {
 					t.Errorf("expected expanded alias, got %q", cfg.Bash.Allow.Commands[0])
 				}
 				if cfg.Bash.Allow.Commands[1] != "ls" {

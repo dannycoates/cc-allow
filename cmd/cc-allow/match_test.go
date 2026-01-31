@@ -230,7 +230,6 @@ func TestPathPatternWithContext(t *testing.T) {
 		pattern     string
 		input       string
 		projectRoot string
-		pluginRoot  string
 		home        string
 		cwd         string
 		want        bool
@@ -317,52 +316,6 @@ func TestPathPatternWithContext(t *testing.T) {
 			cwd:         "/home/user/project",
 			want:        true,
 		},
-		// CLAUDE_PLUGIN_ROOT patterns
-		{
-			name:        "match under plugin root",
-			pattern:     "path:$CLAUDE_PLUGIN_ROOT/**",
-			input:       "/opt/plugins/myplugin/scripts/run.sh",
-			pluginRoot:  "/opt/plugins/myplugin",
-			home:        "/home/user",
-			cwd:         "/home/user/project",
-			want:        true,
-		},
-		{
-			name:        "match exact plugin root",
-			pattern:     "path:$CLAUDE_PLUGIN_ROOT",
-			input:       "/opt/plugins/myplugin",
-			pluginRoot:  "/opt/plugins/myplugin",
-			home:        "/home/user",
-			cwd:         "/home/user/project",
-			want:        true,
-		},
-		{
-			name:        "no match outside plugin root",
-			pattern:     "path:$CLAUDE_PLUGIN_ROOT/**",
-			input:       "/etc/passwd",
-			pluginRoot:  "/opt/plugins/myplugin",
-			home:        "/home/user",
-			cwd:         "/home/user/project",
-			want:        false,
-		},
-		{
-			name:        "negated plugin root does not match inside",
-			pattern:     "!path:$CLAUDE_PLUGIN_ROOT/**",
-			input:       "/opt/plugins/myplugin/file.txt",
-			pluginRoot:  "/opt/plugins/myplugin",
-			home:        "/home/user",
-			cwd:         "/home/user/project",
-			want:        false,
-		},
-		{
-			name:        "negated plugin root matches outside",
-			pattern:     "!path:$CLAUDE_PLUGIN_ROOT/**",
-			input:       "/etc/passwd",
-			pluginRoot:  "/opt/plugins/myplugin",
-			home:        "/home/user",
-			cwd:         "/home/user/project",
-			want:        true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -375,7 +328,6 @@ func TestPathPatternWithContext(t *testing.T) {
 			ctx := &MatchContext{
 				PathVars: &pathutil.PathVars{
 					ProjectRoot: tt.projectRoot,
-					PluginRoot:  tt.pluginRoot,
 					Home:        tt.home,
 					Cwd:         tt.cwd,
 				},

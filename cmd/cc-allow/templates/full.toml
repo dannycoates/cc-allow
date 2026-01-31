@@ -1,7 +1,7 @@
-# cc-allow Global Configuration Example
+# cc-allow Global Configuration
 # Place at: ~/.config/cc-allow.toml
 #
-# This provides sensible defaults for common *nix commands and coreutils.
+# Provides sensible defaults for common *nix commands and coreutils.
 # Project-level configs can add stricter rules on top of this.
 
 version = "2.0"
@@ -9,11 +9,11 @@ version = "2.0"
 # ============================================================================
 # ALIASES
 # ============================================================================
-# Define reusable pattern aliases to reduce repetition
 
 [aliases]
 project = "path:$PROJECT_ROOT/**"
-plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
+claude-user-config = "path:$HOME/.claude/**"
+tmp = "path:/tmp/**"
 sensitive-read = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
 sensitive-write = [
     "path:$HOME/.*",
@@ -26,6 +26,7 @@ sensitive-write = [
     "path:/var/**",
     "path:/boot/**",
     "path:/root/**",
+    "path:/",
 ]
 
 # ============================================================================
@@ -33,217 +34,179 @@ sensitive-write = [
 # ============================================================================
 
 [bash]
-default = "ask"                    # defer unmatched commands to Claude Code
-dynamic_commands = "ask"           # $VAR or $(cmd) as command names
+default = "ask"
+dynamic_commands = "ask"
 default_message = "Command not in allow list"
-unresolved_commands = "ask"        # "ask" or "deny" for commands not found in PATH
-
-# ============================================================================
-# SHELL CONSTRUCTS
-# ============================================================================
+unresolved_commands = "ask"
 
 [bash.constructs]
-function_definitions = "deny"      # prevent command shadowing
-background = "ask"                 # background jobs need review
-subshells = "ask"                  # subshells need review
-heredocs = "allow"                 # heredocs are generally safe
+function_definitions = "deny"
+background = "ask"
+subshells = "ask"
+heredocs = "allow"
 
 # ============================================================================
 # ALLOWED COMMANDS
 # ============================================================================
-# These are generally safe read-only or low-risk commands.
-# Note: Dangerous variations (like rm -rf) are blocked by specific rules below.
-#
-# Command names can use path: prefix to match by resolved filesystem path:
-#   "path:$PROJECT_ROOT/bin/*"      - allow project-local binaries
-#   "path:$CLAUDE_PLUGIN_ROOT/**"   - allow plugin/skill-local binaries
-#   "path:/usr/bin/git"             - allow git only from /usr/bin
 
 [bash.allow]
 commands = [
-    # -------------------------------------------------------------------------
-    # Plugin/Skill Binaries
-    # -------------------------------------------------------------------------
-    "path:$CLAUDE_PLUGIN_ROOT/**",  # allow binaries from loaded skill/plugin
+    # Claude scripts
+    "alias:claude-user-config",
 
-
-    # -------------------------------------------------------------------------
     # File & Directory Navigation
-    # -------------------------------------------------------------------------
-    "ls", "dir", "vdir",           # list directory contents
-    "pwd",                          # print working directory
-    "tree",                         # directory tree view
-    "file",                         # determine file type
-    "stat",                         # file/filesystem status
-    "basename", "dirname",          # path component extraction
-    "realpath", "readlink",         # resolve paths and symlinks
+    "ls", "dir", "vdir",
+    "pwd",
+    "tree",
+    "file",
+    "stat",
+    "basename", "dirname",
+    "realpath", "readlink",
 
-    # -------------------------------------------------------------------------
     # File Viewing & Reading
-    # -------------------------------------------------------------------------
-    "cat", "tac",                   # concatenate/reverse files
-    "head", "tail",                 # first/last lines
-    "less", "more",                 # pagers
-    "nl",                           # number lines
-    "od", "hexdump", "xxd",         # binary/hex viewers
+    "cat", "tac",
+    "head", "tail",
+    "less", "more",
+    "nl",
+    "od", "hexdump", "xxd",
 
-    # -------------------------------------------------------------------------
     # Text Processing & Transformation
-    # -------------------------------------------------------------------------
-    "grep", "egrep", "fgrep",       # pattern matching
-    "sed", "awk", "gawk",           # stream editing (output only, not in-place)
-    "cut", "paste", "join",         # column operations
-    "sort", "uniq", "shuf",         # line ordering/filtering
-    "tr", "rev",                    # character translation
-    "expand", "unexpand",           # tab/space conversion
-    "fold", "fmt",                  # line wrapping
-    "column",                       # columnate output
-    "pr",                           # paginate for printing
-    "wc",                           # word/line/byte count
-    "comm", "diff", "cmp", "colordiff", "delta",  # comparison
-    "iconv",                        # character encoding conversion
-    "strings",                      # extract printable strings
+    "grep", "egrep", "fgrep",
+    "sed", "awk", "gawk",
+    "cut", "paste", "join",
+    "sort", "uniq", "shuf",
+    "tr", "rev",
+    "expand", "unexpand",
+    "fold", "fmt",
+    "column",
+    "pr",
+    "wc",
+    "comm", "diff", "cmp", "colordiff", "delta",
+    "iconv",
+    "strings",
 
-    # -------------------------------------------------------------------------
     # Searching & Finding
-    # -------------------------------------------------------------------------
-    "find",                         # find files
-    "fd",                           # modern find alternative
-    "locate", "mlocate", "plocate", # locate files in database
-    "which", "whereis", "type",     # locate commands
-    "xargs",                        # build commands from stdin
-    "rg", "ripgrep",                # ripgrep
-    "ag",                           # silver searcher
-    "fzf",                          # fuzzy finder
+    "find",
+    "fd",
+    "locate", "mlocate", "plocate",
+    "which", "whereis", "type",
+    "xargs",
+    "rg", "ripgrep",
+    "ag",
+    "fzf",
 
-    # -------------------------------------------------------------------------
     # File Operations (Non-Destructive)
-    # -------------------------------------------------------------------------
-    "cp",                           # copy files
-    "mv",                           # move/rename files
-    "touch",                        # create/update timestamps
-    "mkdir",                        # create directories
-    "ln",                           # create links
-    "install",                      # copy and set attributes
+    "cp",
+    "mv",
+    "touch",
+    "mkdir",
+    "ln",
+    "install",
+    "rm",
+    "rmdir",
 
-    # -------------------------------------------------------------------------
     # Archive & Compression
-    # -------------------------------------------------------------------------
-    "tar",                          # archive files
-    "gzip", "gunzip", "zcat",       # gzip compression
-    "bzip2", "bunzip2", "bzcat",    # bzip2 compression
-    "xz", "unxz", "xzcat",          # xz compression
-    "zstd", "unzstd", "zstdcat",    # zstd compression
-    "zip", "unzip",                 # zip archives
-    "7z", "7za", "7zr",             # 7-zip
-    "rar", "unrar",                 # rar archives
+    "tar",
+    "gzip", "gunzip", "zcat",
+    "bzip2", "bunzip2", "bzcat",
+    "xz", "unxz", "xzcat",
+    "zstd", "unzstd", "zstdcat",
+    "zip", "unzip",
+    "7z", "7za", "7zr",
+    "rar", "unrar",
 
-    # -------------------------------------------------------------------------
     # Printing & Output
-    # -------------------------------------------------------------------------
-    "echo", "printf",               # print text
-    "yes",                          # repeated output
-    "seq",                          # number sequences
-    "tee",                          # pipe to file and stdout
+    "echo", "printf",
+    "yes",
+    "seq",
+    "tee",
 
-    # -------------------------------------------------------------------------
     # Date, Time & Calculation
-    # -------------------------------------------------------------------------
-    "date",                         # date/time display
-    "cal", "ncal",                  # calendar
-    "time",                         # time command execution
-    "bc", "dc",                     # calculators
-    "expr",                         # expression evaluation
-    "factor",                       # factorize numbers
+    "date",
+    "cal", "ncal",
+    "time",
+    "bc", "dc",
+    "expr",
+    "factor",
 
-    # -------------------------------------------------------------------------
     # User & System Info (Read-Only)
-    # -------------------------------------------------------------------------
-    "whoami",                       # current user
-    "id",                           # user/group IDs
-    "groups",                       # group memberships
-    "who", "w",                     # logged in users
-    "users",                        # list users
-    "last", "lastlog",              # login history
-    "finger",                       # user info
-    "uname",                        # system info
-    "hostname",                     # system hostname
-    "hostnamectl",                  # hostname info (read-only)
-    "uptime",                       # system uptime
-    "arch",                         # machine architecture
-    "nproc",                        # number of processors
-    "lscpu",                        # CPU info
-    "lsmem",                        # memory info
-    "free",                         # memory usage
-    "df",                           # disk space
-    "du",                           # directory sizes
-    "lsblk",                        # block devices
-    "lsusb",                        # USB devices
-    "lspci",                        # PCI devices
-    "lsof",                         # open files
-    "dmesg",                        # kernel messages
+    "whoami",
+    "id",
+    "groups",
+    "who", "w",
+    "users",
+    "last", "lastlog",
+    "finger",
+    "uname",
+    "hostname",
+    "hostnamectl",
+    "uptime",
+    "arch",
+    "nproc",
+    "lscpu",
+    "lsmem",
+    "free",
+    "df",
+    "du",
+    "lsblk",
+    "lsusb",
+    "lspci",
+    "lsof",
+    "dmesg",
 
-    # -------------------------------------------------------------------------
     # Process Inspection (Read-Only)
-    # -------------------------------------------------------------------------
-    "ps",                           # process status
-    "top",                          # process monitors
-    "pgrep", "pidof",               # find process IDs
-    "pstree",                       # process tree
-    "jobs",                         # job control (built-in)
-    "nice", "renice",               # priority (viewing)
+    "ps",
+    "top", "htop",
+    "pgrep", "pidof",
+    "pstree",
+    "jobs",
+    "nice", "renice",
 
-    # -------------------------------------------------------------------------
     # Network Inspection (Read-Only)
-    # -------------------------------------------------------------------------
-    "ping", "ping6",                # network connectivity
-    "traceroute", "tracepath",      # route tracing
-    "mtr",                          # network diagnostic
-    "dig", "nslookup", "host",      # DNS lookup
-    "whois",                        # domain info
-    "ip",                           # network config (read-only)
-    "ifconfig",                     # legacy network config
-    "ss", "netstat",                # socket/network stats
-    "nc", "netcat",                 # network utility
-    "nmap",                         # network scanner
-    "tcpdump",                      # packet capture
+    "ping", "ping6",
+    "traceroute", "tracepath",
+    "mtr",
+    "dig", "nslookup", "host",
+    "whois",
+    "ip",
+    "ifconfig",
+    "ss", "netstat",
+    "nc", "netcat",
+    "nmap",
+    "tcpdump",
 
-    # -------------------------------------------------------------------------
     # Shell Builtins & Utilities
-    # -------------------------------------------------------------------------
-    "test", "[", "[[",              # conditionals
-    "true", "false",                # exit status
-    "sleep",                        # delay
-    "env", "printenv",              # environment
+    "test", "[", "[[",
+    "true", "false",
+    "sleep",
+    "env", "printenv",
 
-    # -------------------------------------------------------------------------
     # Version Control
-    # -------------------------------------------------------------------------
-    "git",                          # git
-    "gh",                           # GitHub CLI
-    "hg",                           # mercurial
-    "svn",                          # subversion
-    "fossil",                       # fossil
+    "git",
+    "gh",
+    "hg",
+    "svn",
+    "fossil",
 
-    # -------------------------------------------------------------------------
+    # Build Tools
+    # - please customize to your project's needs
+
     # Misc Utilities
-    # -------------------------------------------------------------------------
-    "man", "info", "help",          # documentation
-    "apropos", "whatis",            # command lookup
-    "tldr",                         # simplified man pages
-    "watch",                        # repeated execution
-    "timeout",                      # run with time limit
-    "strace", "ltrace",             # syscall/library tracing
-    "md5sum", "sha1sum", "sha256sum", "sha512sum",  # checksums
-    "base64",                       # base64 encoding
-    "nix", "nix-env", "nix-shell",  # Nix
+    "man", "info", "help",
+    "apropos", "whatis",
+    "tldr",
+    "watch",
+    "timeout",
+    "strace", "ltrace",
+    "md5sum", "sha1sum", "sha256sum", "sha512sum",
+    "base64",
+    "nix", "nix-env", "nix-shell",
     "jq",
 ]
 
 # ============================================================================
 # DENIED COMMANDS
 # ============================================================================
-# These commands are categorically dangerous and should never run automatically.
 
 [bash.deny]
 commands = [
@@ -266,10 +229,10 @@ commands = [
     "killall", "pkill",
     # Dangerous network
     "iptables", "ip6tables", "nft", "firewall-cmd",
-    "route",                        # modify routing
+    "route",
     # System modification
     "sysctl",
-    "modprobe", "insmod", "rmmod",  # kernel modules
+    "modprobe", "insmod", "rmmod",
     "update-grub", "grub-install",
 ]
 message = "{{.Command}} blocked - dangerous system command"
@@ -277,113 +240,119 @@ message = "{{.Command}} blocked - dangerous system command"
 # ============================================================================
 # REDIRECTS
 # ============================================================================
-# Redirects respect file rules - output redirects (>, >>) check Write rules,
-# input redirects (<) check Read rules.
 
 [bash.redirects]
 respect_file_rules = true
 
 [[bash.redirects.allow]]
-paths = ["/dev/null"]
+paths = ["/dev/null", "/dev/stderr", "/dev/stdout"]
+
+[[bash.redirects.deny]]
+message = "Cannot redirect to system directories"
+paths = [
+    "path:/etc/**",
+    "path:/usr/**",
+    "path:/bin/**",
+    "path:/sbin/**",
+    "path:/lib/**",
+    "path:/lib64/**",
+    "path:/var/**",
+    "path:/boot/**",
+    "path:/root/**",
+]
+
+[[bash.redirects.deny]]
+message = "Cannot modify shell configuration files"
+paths = [
+    "path:$HOME/.*rc",
+    "path:$HOME/.*shrc",
+    "path:$HOME/.*profile",
+    "path:$HOME/.*_profile",
+    "path:$HOME/.*login",
+    "path:$HOME/.*_login",
+    "path:$HOME/.*logout",
+    "path:$HOME/.*_logout",
+]
 
 # ============================================================================
 # SPECIFIC RULES
 # ============================================================================
-# Fine-grained control for commands that are generally safe but have
-# dangerous modes.
 
-# --- systemctl: Allow status checks ---
-[[bash.allow.systemctl.status]]
-
-# --- rm: Block recursive deletion ---
-[[bash.deny.rm]]
-message = "{{.ArgsStr}} - recursive deletion not allowed"
-args.any = ["flags:r", "--recursive"]
-
-# --- rm: Allow non-recursive rm ---
-[[bash.allow.rm]]
-
-# --- rmdir: Allow (only removes empty directories) ---
-[[bash.allow.rmdir]]
-
-# --- chmod: Block making files executable ---
-[[bash.deny.chmod]]
+# --- chmod: Ask when making files executable ---
+[[bash.ask.chmod]]
 message = "{{.ArgsStr}} - making files executable requires review"
 args.any = ["re:\\+x", "re:[0-7][1357][0-7]", "re:[0-7][0-7][1357]"]
 
 # --- chmod: Allow other chmod operations ---
 [[bash.allow.chmod]]
 
-# --- chown/chgrp: Always deny (ownership changes are sensitive) ---
-[[bash.deny.chown]]
-message = "{{.ArgsStr}} - ownership changes not allowed"
+# --- chown/chgrp: Ask (ownership changes are sensitive) ---
+[[bash.ask.chown]]
+message = "{{.ArgsStr}} - ownership change requires review"
 
-[[bash.deny.chgrp]]
-message = "{{.ArgsStr}} - group changes not allowed"
+[[bash.ask.chgrp]]
+message = "{{.ArgsStr}} - group change requires review"
 
 # --- git: Block force push ---
-[[bash.deny.git.push]]
+[[bash.ask.git.push]]
 message = "{{.ArgsStr}} - force push not allowed"
 args.any = ["--force", "flags:f", "--force-with-lease"]
 
 # --- git: Block hard reset ---
-[[bash.deny.git.reset]]
+[[bash.ask.git.reset]]
 message = "{{.ArgsStr}} - hard reset may lose work"
 args.any = ["--hard"]
 
-# --- git: Block clean -f (force delete untracked files) ---
-[[bash.deny.git.clean]]
+# --- git: Ask for clean -f ---
+[[bash.ask.git.clean]]
 message = "{{.ArgsStr}} - git clean requires review"
 args.any = ["flags:f", "--force"]
 
 # --- sed/awk: Block in-place editing ---
-[[bash.deny.sed]]
+[[bash.ask.sed]]
 message = "{{.ArgsStr}} - in-place editing not allowed, use Edit tool"
 args.any = ["flags:i", "--in-place"]
 
-[[bash.deny.awk]]
+[[bash.ask.awk]]
 message = "{{.ArgsStr}} - in-place editing not allowed, use Edit tool"
 args.any = ["flags:i"]
 
-# --- curl/wget: Block piping to shell ---
-[[bash.deny.bash]]
+# --- Block piping to shell from download commands ---
+[[bash.ask.bash]]
 message = "{{.Command}} receiving from {{index .PipesFrom 0}} - piping to shell not allowed"
 pipe.from = ["curl", "wget", "http"]
 
-[[bash.deny.sh]]
+[[bash.ask.sh]]
 message = "{{.Command}} receiving from {{index .PipesFrom 0}} - piping to shell not allowed"
 pipe.from = ["curl", "wget", "http"]
 
-[[bash.deny.zsh]]
+[[bash.ask.zsh]]
 message = "{{.Command}} receiving from {{index .PipesFrom 0}} - piping to shell not allowed"
 pipe.from = ["curl", "wget", "http"]
 
 # --- docker/podman: Block privileged containers ---
-[[bash.deny.docker]]
+[[bash.ask.docker]]
 message = "{{.ArgsStr}} - privileged containers not allowed"
 args.any = ["--privileged"]
 
-[[bash.deny.podman]]
+[[bash.ask.podman]]
 message = "{{.ArgsStr}} - privileged containers not allowed"
 args.any = ["--privileged"]
 
-# --- ssh: Block with -o options that could be dangerous ---
-[[bash.deny.ssh]]
+# --- ssh: Ask for custom options ---
+[[bash.ask.ssh]]
 message = "{{.ArgsStr}} - ssh with custom options requires review"
 args.any = ["flags:o"]
 
 # ============================================================================
-# FILE TOOL PERMISSIONS (Read, Edit, Write)
+# FILE TOOL PERMISSIONS
 # ============================================================================
-# Control Claude Code's Read, Edit, and Write file tools.
-# Also controls bash commands that access files and redirects.
-# Evaluation order: deny -> allow -> default (deny always wins)
 
 [read]
-default = "ask"  # defer to Claude Code when no rules match
+default = "ask"
 
 [read.allow]
-paths = ["alias:project", "alias:plugin"]
+paths = ["alias:project", "alias:tmp", "alias:claude-user-config"]
 
 [read.deny]
 paths = ["alias:sensitive-read"]
@@ -393,18 +362,17 @@ message = "Cannot read {{.FileName}} - sensitive file"
 default = "ask"
 
 [edit.allow]
-paths = ["alias:project"]
+paths = ["alias:project", "alias:claude-user-config"]
 
 [edit.deny]
 paths = ["path:$HOME/.*"]
 message = "Cannot edit {{.FileName}} - sensitive file"
 
-# Also applies to output redirects (>, >>) when bash.redirects.respect_file_rules = true
 [write]
 default = "ask"
 
 [write.allow]
-paths = ["alias:project"]
+paths = ["alias:project", "alias:tmp", "alias:claude-user-config"]
 
 [write.deny]
 paths = ["alias:sensitive-write"]

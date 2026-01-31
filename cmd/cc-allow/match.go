@@ -306,8 +306,8 @@ func (p *Pattern) IsRefPattern() bool {
 }
 
 // matchPath handles path pattern matching with variable expansion and path resolution.
-// If the pattern contains path variables ($PROJECT_ROOT, $HOME, $CLAUDE_PLUGIN_ROOT) and
-// the input is path-like, does full variable expansion and path resolution.
+// If the pattern contains path variables ($PROJECT_ROOT, $HOME) and the input is path-like,
+// does full variable expansion and path resolution.
 // Otherwise, does raw doublestar glob matching.
 func (p *Pattern) matchPath(s string, ctx *MatchContext) bool {
 	// Only do full path resolution if:

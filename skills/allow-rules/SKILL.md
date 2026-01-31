@@ -56,7 +56,6 @@ Define reusable pattern aliases:
 ```toml
 [aliases]
 project = "path:$PROJECT_ROOT/**"
-plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
 safe-write = ["path:$PROJECT_ROOT/**", "path:/tmp/**"]
 sensitive = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
 ```
@@ -244,7 +243,6 @@ Note: Negation requires an explicit prefix. `!foo` matches the literal string "!
 |----------|-------------|
 | `$PROJECT_ROOT` | Directory containing `.claude/` or `.git/` |
 | `$HOME` | User's home directory |
-| `$CLAUDE_PLUGIN_ROOT` | Plugin root directory |
 
 ## File Tool Permissions
 

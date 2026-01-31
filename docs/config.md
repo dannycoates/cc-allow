@@ -115,7 +115,6 @@ Command names can use the `path:` prefix to match by resolved filesystem path:
 commands = [
     "git",                              # match by name
     "path:$PROJECT_ROOT/bin/*",         # allow project-local binaries
-    "path:$CLAUDE_PLUGIN_ROOT/**",      # allow plugin binaries
 ]
 
 [bash.deny]
@@ -499,7 +498,7 @@ Note: Negation requires an explicit prefix. `!foo` matches the literal string "!
 
 ### Path Patterns
 
-Path patterns use glob syntax with `**` for recursive matching. When the pattern contains path variables (`$PROJECT_ROOT`, `$HOME`, `$CLAUDE_PLUGIN_ROOT`), inputs are resolved to absolute paths before matching.
+Path patterns use glob syntax with `**` for recursive matching. When the pattern contains path variables (`$PROJECT_ROOT`, `$HOME`), inputs are resolved to absolute paths before matching.
 
 **Variables:**
 
@@ -507,7 +506,6 @@ Path patterns use glob syntax with `**` for recursive matching. When the pattern
 |----------|-------------|
 | `$PROJECT_ROOT` | Detected project root (directory containing `.claude/` or `.git/`) |
 | `$HOME` | User's home directory |
-| `$CLAUDE_PLUGIN_ROOT` | Plugin root directory (if set) |
 
 ### Flag Patterns
 

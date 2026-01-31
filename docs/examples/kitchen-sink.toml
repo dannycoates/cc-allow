@@ -11,7 +11,6 @@ version = "2.0"
 
 [aliases]
 project = "path:$PROJECT_ROOT/**"
-plugin = "path:$CLAUDE_PLUGIN_ROOT/**"
 sensitive = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
 system = ["path:/etc/**", "path:/usr/**", "path:/bin/**", "path:/sbin/**"]
 

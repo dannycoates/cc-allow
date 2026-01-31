@@ -135,12 +135,6 @@ func TestHarness(t *testing.T) {
 		rulesets[name] = cfg
 	}
 
-	// Set up CLAUDE_PLUGIN_ROOT for pluginroot ruleset tests
-	// Use /opt/my-plugin as the test plugin root
-	testPluginRoot := "/opt/my-plugin"
-	os.Setenv("CLAUDE_PLUGIN_ROOT", testPluginRoot)
-	defer os.Unsetenv("CLAUDE_PLUGIN_ROOT")
-
 	// Run each command against each ruleset
 	for _, cmd := range harness.Commands {
 		// Load bash content (inline or from file)

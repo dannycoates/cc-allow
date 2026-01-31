@@ -114,10 +114,6 @@ func NewEvaluator(chain *ConfigChain) *Evaluator {
 		configError = fmt.Errorf("config uses $HOME but HOME environment variable is not set")
 	}
 
-	if configError == nil && !pathVars.PluginRootSet && merged != nil && mergedConfigUsesPluginRoot(merged) {
-		configError = fmt.Errorf("config uses $CLAUDE_PLUGIN_ROOT but CLAUDE_PLUGIN_ROOT environment variable is not set")
-	}
-
 	return &Evaluator{
 		chain:  chain,
 		merged: merged,
@@ -1052,11 +1048,6 @@ func matchPositionFlexible(args []string, pos int, patterns []string, ctx *Match
 // mergedConfigUsesHome checks if any pattern uses $HOME.
 func mergedConfigUsesHome(m *MergedConfig) bool {
 	return mergedConfigContainsVar(m, "$HOME")
-}
-
-// mergedConfigUsesPluginRoot checks if any pattern uses $CLAUDE_PLUGIN_ROOT.
-func mergedConfigUsesPluginRoot(m *MergedConfig) bool {
-	return mergedConfigContainsVar(m, "$CLAUDE_PLUGIN_ROOT")
 }
 
 // mergedConfigContainsVar checks if any pattern in the merged config contains the variable.

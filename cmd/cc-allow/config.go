@@ -8,7 +8,7 @@ import (
 // Current config version - v2.x uses the new tool-centric format
 const (
 	ConfigVersionMajor = 2
-	ConfigVersionMinor = 1
+	ConfigVersionMinor = 2
 )
 
 // Config represents the complete v2 configuration for cc-allow.
