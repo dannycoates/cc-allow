@@ -350,6 +350,7 @@ args.any = ["flags:o"]
 
 [read]
 default = "ask"
+default_message = "File read requires approval: {{.FilePath}}"
 
 [read.allow]
 paths = ["alias:project", "alias:tmp", "alias:claude-user-config"]
@@ -360,6 +361,7 @@ message = "Cannot read {{.FileName}} - sensitive file"
 
 [edit]
 default = "ask"
+default_message = "File edit requires approval: {{.FilePath}}"
 
 [edit.allow]
 paths = ["alias:project", "alias:claude-user-config"]
@@ -370,6 +372,7 @@ message = "Cannot edit {{.FileName}} - sensitive file"
 
 [write]
 default = "ask"
+default_message = "File write requires approval: {{.FilePath}}"
 
 [write.allow]
 paths = ["alias:project", "alias:tmp", "alias:claude-user-config"]

@@ -308,6 +308,7 @@ content.any = ["re:(?m)^\\s*(sudo|su)\\s"]
 
 [read]
 default = "ask"                    # when no rules match
+default_message = "File read requires approval: {{.FilePath}}"
 
 [read.allow]
 paths = [
@@ -341,6 +342,7 @@ message = "Cannot read {{.FilePath}} — sensitive file"
 
 [edit]
 default = "ask"
+default_message = "File edit requires approval: {{.FilePath}}"
 
 [edit.allow]
 paths = [
@@ -357,6 +359,7 @@ message = "Cannot edit {{.FileName}} in {{.FileDir}}"
 
 [write]
 default = "ask"
+default_message = "File write requires approval: {{.FilePath}}"
 
 [write.allow]
 paths = [

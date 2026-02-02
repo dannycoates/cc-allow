@@ -250,6 +250,33 @@ message = "Cannot write to system files"
 	}
 }
 
+func TestEvalFileToolDefaultMessage(t *testing.T) {
+	config := `
+version = "2.0"
+[read]
+default = "ask"
+default_message = "File read requires approval: {{.FilePath}}"
+`
+	cfg, err := ParseConfigWithDefaults(config)
+	if err != nil {
+		t.Fatalf("ParseConfigWithDefaults failed: %v", err)
+	}
+
+	chain := &ConfigChain{
+		Configs: []*Config{cfg},
+		Merged:  MergeConfigs([]*Config{cfg}),
+	}
+
+	result := evaluateFileTool(chain, "Read", "/some/unknown/file.txt")
+	if result.Action != "ask" {
+		t.Errorf("expected ask, got %s", result.Action)
+	}
+	expectedMsg := "File read requires approval: /some/unknown/file.txt"
+	if result.Message != expectedMsg {
+		t.Errorf("expected message %q, got %q", expectedMsg, result.Message)
+	}
+}
+
 func TestFilePatternValidation(t *testing.T) {
 	tests := []struct {
 		name    string

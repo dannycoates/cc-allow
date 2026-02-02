@@ -377,9 +377,10 @@ type HeredocRule struct {
 
 // FileToolConfig holds configuration for read/write/edit tools.
 type FileToolConfig struct {
-	Default string        `toml:"default"` // default action: "allow", "deny", or "ask"
-	Allow   FileAllowDeny `toml:"allow"`
-	Deny    FileAllowDeny `toml:"deny"`
+	Default        string        `toml:"default"`         // default action: "allow", "deny", or "ask"
+	DefaultMessage string        `toml:"default_message"` // message when default action is triggered
+	Allow          FileAllowDeny `toml:"allow"`
+	Deny           FileAllowDeny `toml:"deny"`
 }
 
 // FileAllowDeny holds path lists for allow/deny.
@@ -446,9 +447,10 @@ type TrackedFilePatternEntry struct {
 
 // MergedFilesConfig holds merged file tool settings with source tracking.
 type MergedFilesConfig struct {
-	Default Tracked[string]
-	Allow   map[string][]TrackedFilePatternEntry // keys are "Read", "Edit", "Write"
-	Deny    map[string][]TrackedFilePatternEntry
+	Default        Tracked[string]
+	DefaultMessage map[string]Tracked[string]            // per-tool default messages: "Read", "Edit", "Write"
+	Allow          map[string][]TrackedFilePatternEntry // keys are "Read", "Edit", "Write"
+	Deny           map[string][]TrackedFilePatternEntry
 }
 
 // MergedPolicy holds policy settings with source tracking.

@@ -957,10 +957,18 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx 
 	}
 
 	// Default
-	return Result{
+	result := Result{
 		Action: merged.Files.Default.Value,
-		Source: merged.Files.Default.Source + ": files default",
+		Source: merged.Files.Default.Source + ": " + strings.ToLower(toolName) + " default",
 	}
+
+	// Apply default message if configured for this tool
+	if tracked, ok := merged.Files.DefaultMessage[toolName]; ok && tracked.Value != "" {
+		tmplCtx := newFileTemplateContext(toolName, path, ctx)
+		result.Message = templateMessage(tracked.Value, tmplCtx)
+	}
+
+	return result
 }
 
 // evaluateFileTool evaluates a file tool request.

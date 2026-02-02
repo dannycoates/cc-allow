@@ -352,6 +352,7 @@ Control Claude Code's Read, Write, and Edit file tools with separate top-level s
 ```toml
 [read]
 default = "ask"
+default_message = "File read requires approval: {{.FilePath}}"
 
 [read.allow]
 paths = ["path:$PROJECT_ROOT/**", "path:$HOME/Documents/**"]
@@ -362,6 +363,7 @@ message = "Cannot read {{.FilePath}} - sensitive file"
 
 [write]
 default = "ask"
+default_message = "File write requires approval: {{.FilePath}}"
 
 [write.allow]
 paths = ["path:$PROJECT_ROOT/**", "path:/tmp/**"]
@@ -372,6 +374,7 @@ message = "Cannot write to {{.FilePath}} - protected location"
 
 [edit]
 default = "ask"
+default_message = "File edit requires approval: {{.FilePath}}"
 
 [edit.allow]
 paths = ["path:$PROJECT_ROOT/**"]
@@ -394,6 +397,18 @@ paths = ["path:/tmp/**"]
 1. **Deny lists** are checked first — deny always wins
 2. **Allow lists** are checked next
 3. **Default policy** applies if no patterns match
+
+### Default Message
+
+Use `default_message` to customize the message shown when no patterns match and the default action is triggered:
+
+```toml
+[read]
+default = "ask"
+default_message = "File read requires approval: {{.FilePath}}"
+```
+
+Available template variables: `{{.FilePath}}`, `{{.FileName}}`, `{{.FileDir}}`, `{{.Tool}}`, `{{.Home}}`, `{{.ProjectRoot}}`.
 
 ### Hook Configuration
 
@@ -683,6 +698,7 @@ paths = ["path:/etc/**", "path:/usr/**", "path:/bin/**"]
 # File tool permissions
 [read]
 default = "ask"
+default_message = "File read requires approval: {{.FilePath}}"
 
 [read.allow]
 paths = ["alias:project"]
@@ -693,6 +709,7 @@ message = "Cannot read {{.FileName}} - sensitive file"
 
 [write]
 default = "ask"
+default_message = "File write requires approval: {{.FilePath}}"
 
 [write.allow]
 paths = ["alias:project"]
@@ -703,6 +720,7 @@ message = "Cannot write to {{.FilePath}} - system directory"
 
 [edit]
 default = "ask"
+default_message = "File edit requires approval: {{.FilePath}}"
 
 [edit.allow]
 paths = ["alias:project"]

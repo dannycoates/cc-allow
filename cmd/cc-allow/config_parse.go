@@ -262,6 +262,7 @@ func parseFileToolConfigFromRaw(raw map[string]any) FileToolConfig {
 	var cfg FileToolConfig
 
 	cfg.Default, _ = raw["default"].(string)
+	cfg.DefaultMessage, _ = raw["default_message"].(string)
 
 	if allowRaw, ok := raw["allow"].(map[string]any); ok {
 		cfg.Allow = parseFileAllowDenyFromRaw(allowRaw)

@@ -1016,10 +1016,11 @@ path = "/var/notes/todo.md"
 files = "allow"
 
 [[file]]
-name = "read: /etc/passwd (denied)"
+name = "read: /etc/passwd (denied with message)"
 tool = "Read"
 path = "/etc/passwd"
 files = "deny"
+files_message = "Cannot read sensitive file: /etc/passwd"
 
 [[file]]
 name = "read: /etc/hosts (denied)"
@@ -1064,10 +1065,11 @@ path = "/config/password.txt"
 files = "deny"
 
 [[file]]
-name = "read: random path (ask)"
+name = "read: random path (ask with message)"
 tool = "Read"
 path = "/var/log/app.log"
 files = "ask"
+files_message = "File read requires approval: /var/log/app.log"
 
 # --- Write Tool Tests ---
 
@@ -1090,10 +1092,11 @@ path = "/tmp/scratch.txt"
 files = "allow"
 
 [[file]]
-name = "write: /etc/hosts (denied)"
+name = "write: /etc/hosts (denied with message)"
 tool = "Write"
 path = "/etc/hosts"
 files = "deny"
+files_message = "Cannot write to system or sensitive files"
 
 [[file]]
 name = "write: /usr/bin (denied)"
@@ -1120,10 +1123,11 @@ path = "/home/user/.ssh/new.key"
 files = "deny"
 
 [[file]]
-name = "write: random path (ask)"
+name = "write: random path (ask with message)"
 tool = "Write"
 path = "/var/data/output.csv"
 files = "ask"
+files_message = "File write requires approval: /var/data/output.csv"
 
 # --- Edit Tool Tests ---
 
@@ -1140,10 +1144,11 @@ path = "/project/config/settings.json"
 files = "allow"
 
 [[file]]
-name = "edit: /etc/passwd (denied)"
+name = "edit: /etc/passwd (denied with message)"
 tool = "Edit"
 path = "/etc/passwd"
 files = "deny"
+files_message = "Cannot edit sensitive file: /etc/passwd"
 
 [[file]]
 name = "edit: .env (denied)"
@@ -1152,10 +1157,11 @@ path = "/project/.env"
 files = "deny"
 
 [[file]]
-name = "edit: random path (ask)"
+name = "edit: random path (ask with message)"
 tool = "Edit"
 path = "/home/user/notes.txt"
 files = "ask"
+files_message = "File edit requires approval: /home/user/notes.txt"
 
 # =============================================================================
 # FILE RULE INTEGRATION WITH BASH COMMANDS

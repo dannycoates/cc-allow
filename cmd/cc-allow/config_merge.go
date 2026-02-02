@@ -62,8 +62,9 @@ func newEmptyMergedConfig() *MergedConfig {
 		CommandsDeny:  []TrackedCommandEntry{},
 		CommandsAllow: []TrackedCommandEntry{},
 		Files: MergedFilesConfig{
-			Allow: make(map[string][]TrackedFilePatternEntry),
-			Deny:  make(map[string][]TrackedFilePatternEntry),
+			DefaultMessage: make(map[string]Tracked[string]),
+			Allow:          make(map[string][]TrackedFilePatternEntry),
+			Deny:           make(map[string][]TrackedFilePatternEntry),
 		},
 		Aliases:   make(map[string]Alias),
 		Rules:     []TrackedRule{},
@@ -151,6 +152,11 @@ func mergeFileToolConfig(merged *MergedFilesConfig, toolName string, cfg *FileTo
 	// Merge default (stricter wins)
 	merged.Default = mergeTrackedAction(merged.Default, cfg.Default, source)
 
+	// Merge default message per tool (later configs override)
+	if cfg.DefaultMessage != "" {
+		merged.DefaultMessage[toolName] = Tracked[string]{Value: cfg.DefaultMessage, Source: source}
+	}
+
 	// Merge deny patterns (union)
 	for _, path := range cfg.Deny.Paths {
 		merged.Deny[toolName] = append(merged.Deny[toolName], TrackedFilePatternEntry{
@@ -203,6 +209,15 @@ func applyMergedDefaults(merged *MergedConfig) {
 	}
 	if !merged.Files.Default.IsSet() {
 		merged.Files.Default = Tracked[string]{Value: "ask", Source: "(default)"}
+	}
+	if _, ok := merged.Files.DefaultMessage["Read"]; !ok {
+		merged.Files.DefaultMessage["Read"] = Tracked[string]{Value: "File read requires approval: {{.FilePath}}", Source: "(default)"}
+	}
+	if _, ok := merged.Files.DefaultMessage["Write"]; !ok {
+		merged.Files.DefaultMessage["Write"] = Tracked[string]{Value: "File write requires approval: {{.FilePath}}", Source: "(default)"}
+	}
+	if _, ok := merged.Files.DefaultMessage["Edit"]; !ok {
+		merged.Files.DefaultMessage["Edit"] = Tracked[string]{Value: "File edit requires approval: {{.FilePath}}", Source: "(default)"}
 	}
 	if !merged.RedirectsPolicy.RespectFileRules.IsSet() {
 		merged.RedirectsPolicy.RespectFileRules = Tracked[bool]{Value: false, Source: "(default)"}

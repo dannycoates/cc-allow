@@ -222,7 +222,9 @@ func outputHookResult(result Result, additionalContext string) {
 	default: // "ask" - defer to Claude Code's default behavior
 		output.HookSpecificOutput.PermissionDecision = "ask"
 		reason := "No cc-allow rules matched"
-		if result.Source != "" {
+		if result.Message != "" {
+			reason = result.Message
+		} else if result.Source != "" {
 			reason = result.Source
 		}
 		if result.Command != "" {
@@ -280,7 +282,9 @@ func outputPlainResult(result Result) {
 		os.Exit(ExitDeny)
 	default: // "ask" or empty
 		reason := "no rules matched"
-		if result.Source != "" {
+		if result.Message != "" {
+			reason = result.Message
+		} else if result.Source != "" {
 			reason = result.Source
 		}
 		if result.Command != "" {

@@ -79,6 +79,8 @@ type HarnessFile struct {
 	Path string `toml:"path"` // file path to test
 	// Expected results are stored as a map, populated dynamically from TOML fields
 	Expected map[string]string `toml:"-"`
+	// Expected messages per ruleset (optional), keyed as "<ruleset>_message"
+	ExpectedMessage map[string]string `toml:"-"`
 }
 
 // UnmarshalTOML implements custom unmarshaling to capture ruleset expectations
@@ -89,6 +91,7 @@ func (h *HarnessFile) UnmarshalTOML(data any) error {
 	}
 
 	h.Expected = make(map[string]string)
+	h.ExpectedMessage = make(map[string]string)
 
 	for key, val := range d {
 		strVal, ok := val.(string)
@@ -103,8 +106,14 @@ func (h *HarnessFile) UnmarshalTOML(data any) error {
 		case "path":
 			h.Path = strVal
 		default:
-			// Assume any other string field is a ruleset expectation
-			h.Expected[key] = strVal
+			// Check if this is a message expectation (e.g., "files_message")
+			if strings.HasSuffix(key, "_message") {
+				rulesetName := strings.TrimSuffix(key, "_message")
+				h.ExpectedMessage[rulesetName] = strVal
+			} else {
+				// Assume any other string field is a ruleset expectation
+				h.Expected[key] = strVal
+			}
 		}
 	}
 
@@ -186,6 +195,13 @@ func TestHarness(t *testing.T) {
 						file.Tool, file.Path, expectedAction, result.Action, result.Source)
 					if result.Message != "" {
 						t.Logf("message: %s", result.Message)
+					}
+				}
+				// Check expected message if specified
+				if expectedMsg, ok := file.ExpectedMessage[rulesetName]; ok {
+					if result.Message != expectedMsg {
+						t.Errorf("tool=%s path=%q\nexpected message %q, got %q",
+							file.Tool, file.Path, expectedMsg, result.Message)
 					}
 				}
 			})
