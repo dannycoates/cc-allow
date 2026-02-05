@@ -1144,3 +1144,179 @@ func TestLoadConfigChainDeduplicatesGlobalConfig(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigValidationError(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       string
+		wantLocation string
+		wantValue    string
+	}{
+		{
+			name: "invalid action shows location and value",
+			config: `
+version = "2.0"
+[bash]
+default = "invalid_action"
+`,
+			wantLocation: "bash.default",
+			wantValue:    "invalid_action",
+		},
+		{
+			name: "invalid pattern shows location and value",
+			config: `
+version = "2.0"
+[bash.allow]
+commands = ["re:[unclosed"]
+`,
+			wantLocation: "bash.allow.commands[0]",
+			wantValue:    "re:[unclosed",
+		},
+		{
+			name: "invalid mode shows location and value",
+			config: `
+version = "2.0"
+[bash.allow]
+mode = "invalid_mode"
+`,
+			wantLocation: "bash.allow.mode",
+			wantValue:    "invalid_mode",
+		},
+		{
+			name: "alias with reserved prefix shows location",
+			config: `
+version = "2.0"
+[aliases]
+"path:foo" = "bar"
+`,
+			wantLocation: "aliases.path:foo",
+			wantValue:    "path:foo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseConfigWithDefaults(tt.config)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+
+			// Check that error is a ConfigValidationError
+			var valErr *ConfigValidationError
+			if !errors.As(err, &valErr) {
+				t.Fatalf("expected ConfigValidationError, got %T: %v", err, err)
+			}
+
+			// Check location
+			if valErr.Location != tt.wantLocation {
+				t.Errorf("Location = %q, want %q", valErr.Location, tt.wantLocation)
+			}
+
+			// Check value
+			if valErr.Value != tt.wantValue {
+				t.Errorf("Value = %q, want %q", valErr.Value, tt.wantValue)
+			}
+
+			// Check that error message contains key info
+			errStr := err.Error()
+			if !strings.Contains(errStr, "invalid configuration") {
+				t.Errorf("error should contain 'invalid configuration', got: %s", errStr)
+			}
+			if !strings.Contains(errStr, tt.wantLocation) {
+				t.Errorf("error should contain location %q, got: %s", tt.wantLocation, errStr)
+			}
+			if !strings.Contains(errStr, tt.wantValue) {
+				t.Errorf("error should contain value %q, got: %s", tt.wantValue, errStr)
+			}
+		})
+	}
+}
+
+func TestConfigErrorWrapping(t *testing.T) {
+	// Create a temp config file with invalid content
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "cc-allow.toml")
+	err := os.WriteFile(configPath, []byte(`
+version = "2.0"
+[bash]
+default = "invalid"
+`), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Load the config - should fail with wrapped error including path
+	_, err = loadConfig(configPath)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	// Check that error is wrapped in ConfigError with path
+	var cfgErr *ConfigError
+	if !errors.As(err, &cfgErr) {
+		t.Fatalf("expected ConfigError, got %T: %v", err, err)
+	}
+
+	if cfgErr.Path != configPath {
+		t.Errorf("ConfigError.Path = %q, want %q", cfgErr.Path, configPath)
+	}
+
+	// Check that the underlying validation error is accessible
+	var valErr *ConfigValidationError
+	if !errors.As(err, &valErr) {
+		t.Fatalf("expected to find ConfigValidationError in chain, got: %v", err)
+	}
+
+	if valErr.Location != "bash.default" {
+		t.Errorf("ConfigValidationError.Location = %q, want %q", valErr.Location, "bash.default")
+	}
+
+	// Check that error message includes path
+	errStr := err.Error()
+	if !strings.Contains(errStr, configPath) {
+		t.Errorf("error should contain config path %q, got: %s", configPath, errStr)
+	}
+
+	// Verify errors.Is still works
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Error("errors.Is(err, ErrInvalidConfig) should be true")
+	}
+}
+
+func TestExtractConfigPath(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantPath string
+	}{
+		{
+			name:     "ConfigError with path",
+			err:      &ConfigError{Path: "/path/to/config.toml", Err: ErrInvalidConfig},
+			wantPath: "/path/to/config.toml",
+		},
+		{
+			name:     "ConfigError without path",
+			err:      &ConfigError{Err: ErrInvalidConfig},
+			wantPath: "",
+		},
+		{
+			name:     "plain error",
+			err:      errors.New("some error"),
+			wantPath: "",
+		},
+		{
+			name:     "nil error",
+			err:      nil,
+			wantPath: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractConfigPath(tt.err)
+			if got != tt.wantPath {
+				t.Errorf("extractConfigPath() = %q, want %q", got, tt.wantPath)
+			}
+		})
+	}
+}

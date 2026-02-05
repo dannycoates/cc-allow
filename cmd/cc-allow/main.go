@@ -133,7 +133,7 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) {
 		if hookMode {
 			outputHookConfigError(err)
 		} else {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintln(os.Stderr, formatConfigError(err))
 			os.Exit(ExitError)
 		}
 		return
@@ -245,11 +245,22 @@ func outputHookResult(result Result, additionalContext string) {
 
 // outputHookConfigError outputs a hook error response for config loading failures.
 // For version-related errors (legacy v1 config), it includes migration guidance in additionalContext.
+// For validation errors, it offers to help fix the config.
 func outputHookConfigError(err error) {
 	var output HookOutput
 	output.HookSpecificOutput.HookEventName = "PreToolUse"
 	output.HookSpecificOutput.PermissionDecision = "ask"
-	output.HookSpecificOutput.PermissionDecisionReason = fmt.Sprintf("cc-allow config error: %v", err)
+
+	// Format the error message based on error type
+	var cfgErr *ConfigError
+	var valErr *ConfigValidationError
+	if errors.As(err, &cfgErr) {
+		output.HookSpecificOutput.PermissionDecisionReason = "cc-allow config error: " + cfgErr.Error()
+	} else if errors.As(err, &valErr) {
+		output.HookSpecificOutput.PermissionDecisionReason = "cc-allow config error: " + valErr.Error()
+	} else {
+		output.HookSpecificOutput.PermissionDecisionReason = fmt.Sprintf("cc-allow config error: %v", err)
+	}
 
 	// Check if this is a version-related error and add migration guidance
 	// This catches both LegacyConfigError (v1 keys detected) and explicit v1.x version strings
@@ -259,12 +270,33 @@ func outputHookConfigError(err error) {
 		output.HookSpecificOutput.AdditionalContext = "The cc-allow config file uses the legacy v1 format. " +
 			"Please ask the user if they would like help migrating their config to the v2 format. " +
 			"The migration guide is available at: https://raw.githubusercontent.com/dannycoates/cc-allow/main/docs/migration.md"
+	} else {
+		// For other config errors (validation, parse errors), offer to fix
+		configPath := extractConfigPath(err)
+		if configPath != "" {
+			output.HookSpecificOutput.AdditionalContext = fmt.Sprintf(
+				"There is an error in the cc-allow config file at %s. "+
+					"Offer to fix the error for the user using the /allow-rules skill.",
+				configPath)
+		} else {
+			output.HookSpecificOutput.AdditionalContext = "There is an error in the cc-allow config. " +
+				"Offer to help the user fix the configuration error using the /allow-rules skill."
+		}
 	}
 
 	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
 		os.Exit(ExitError)
 	}
 	os.Exit(0)
+}
+
+// extractConfigPath extracts the config file path from a config error.
+func extractConfigPath(err error) string {
+	var cfgErr *ConfigError
+	if errors.As(err, &cfgErr) && cfgErr.Path != "" {
+		return cfgErr.Path
+	}
+	return ""
 }
 
 func outputPlainResult(result Result) {
@@ -294,6 +326,24 @@ func outputPlainResult(result Result) {
 		}
 		os.Exit(ExitAsk)
 	}
+}
+
+// formatConfigError formats a config error for human-readable output.
+// It handles ConfigError and ConfigValidationError specially to provide
+// structured output with file path, location, and value context.
+func formatConfigError(err error) string {
+	var cfgErr *ConfigError
+	var valErr *ConfigValidationError
+
+	if errors.As(err, &cfgErr) {
+		return "Error: " + cfgErr.Error()
+	}
+
+	if errors.As(err, &valErr) {
+		return "Error: " + valErr.Error()
+	}
+
+	return "Error loading config: " + err.Error()
 }
 
 // buildMigrationMessage constructs an additionalContext message for legacy config locations.

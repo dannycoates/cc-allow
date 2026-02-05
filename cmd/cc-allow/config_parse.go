@@ -21,7 +21,7 @@ func loadConfig(path string) (*Config, error) {
 	}
 	cfg, err := parseConfig(string(data))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, WrapConfigError(path, err)
 	}
 	cfg.Path = path
 	return cfg, nil
@@ -50,7 +50,7 @@ func LoadConfigWithDefaults(path string) (*Config, error) {
 	}
 	cfg, err := ParseConfigWithDefaults(string(data))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, WrapConfigError(path, err)
 	}
 	cfg.Path = path
 	return cfg, nil
@@ -775,7 +775,11 @@ func isValidAction(action string) bool {
 // validateAction checks that an action value is valid, returning an error if not.
 func validateAction(action, field string) error {
 	if !isValidAction(action) {
-		return fmt.Errorf("%w: %s: invalid action %q (must be \"allow\", \"deny\", or \"ask\")", ErrInvalidConfig, field, action)
+		return &ConfigValidationError{
+			Location: field,
+			Value:    action,
+			Message:  "invalid action (must be \"allow\", \"deny\", or \"ask\")",
+		}
 	}
 	return nil
 }
@@ -783,12 +787,17 @@ func validateAction(action, field string) error {
 // validateAllowMode checks that an allow mode value is valid.
 func validateAllowMode(mode, field string) error {
 	if mode != "" && mode != "merge" && mode != "replace" {
-		return fmt.Errorf("%w: %s: invalid mode %q (must be \"merge\" or \"replace\")", ErrInvalidConfig, field, mode)
+		return &ConfigValidationError{
+			Location: field,
+			Value:    mode,
+			Message:  "invalid mode (must be \"merge\" or \"replace\")",
+		}
 	}
 	return nil
 }
 
 // Validate checks that all patterns in the config are valid.
+// Returns a ConfigValidationError with location and value context on failure.
 func (cfg *Config) Validate() error {
 	// Validate action values
 	if err := validateAction(cfg.Bash.Default, "bash.default"); err != nil {
@@ -840,12 +849,20 @@ func (cfg *Config) Validate() error {
 		if strings.HasPrefix(name, "path:") || strings.HasPrefix(name, "re:") ||
 			strings.HasPrefix(name, "flags:") || strings.HasPrefix(name, "alias:") ||
 			strings.HasPrefix(name, "ref:") {
-			return fmt.Errorf("%w: aliases: name %q cannot start with a reserved prefix", ErrInvalidConfig, name)
+			return &ConfigValidationError{
+				Location: fmt.Sprintf("aliases.%s", name),
+				Value:    name,
+				Message:  "alias name cannot start with a reserved prefix (path:, re:, flags:, alias:, ref:)",
+			}
 		}
 		// Aliases cannot reference other aliases (prevents circular references)
 		for i, pattern := range alias.Patterns {
 			if strings.HasPrefix(pattern, "alias:") {
-				return fmt.Errorf("%w: aliases[%s][%d]: aliases cannot reference other aliases", ErrInvalidConfig, name, i)
+				return &ConfigValidationError{
+					Location: fmt.Sprintf("aliases.%s[%d]", name, i),
+					Value:    pattern,
+					Message:  "aliases cannot reference other aliases",
+				}
 			}
 		}
 	}
@@ -853,24 +870,40 @@ func (cfg *Config) Validate() error {
 	// Validate bash.allow.commands patterns
 	for i, cmd := range cfg.Bash.Allow.Commands {
 		if _, err := ParsePattern(cmd); err != nil {
-			return fmt.Errorf("%w: bash.allow.commands[%d]: %w", ErrInvalidConfig, i, err)
+			return &ConfigValidationError{
+				Location: fmt.Sprintf("bash.allow.commands[%d]", i),
+				Value:    cmd,
+				Message:  "invalid pattern",
+				Cause:    err,
+			}
 		}
 	}
 
 	// Validate bash.deny.commands patterns
 	for i, cmd := range cfg.Bash.Deny.Commands {
 		if _, err := ParsePattern(cmd); err != nil {
-			return fmt.Errorf("%w: bash.deny.commands[%d]: %w", ErrInvalidConfig, i, err)
+			return &ConfigValidationError{
+				Location: fmt.Sprintf("bash.deny.commands[%d]", i),
+				Value:    cmd,
+				Message:  "invalid pattern",
+				Cause:    err,
+			}
 		}
 	}
 
 	// Validate parsed rules
 	for i, rule := range cfg.getParsedRules() {
+		ruleLocation := formatRuleLocation(rule, i)
 		if _, err := ParsePattern(rule.Command); err != nil {
-			return fmt.Errorf("%w: bash rule[%d] command: %w", ErrInvalidConfig, i, err)
+			return &ConfigValidationError{
+				Location: ruleLocation,
+				Value:    rule.Command,
+				Message:  "invalid command pattern",
+				Cause:    err,
+			}
 		}
-		if err := validateArgsMatch(rule.Args, fmt.Sprintf("bash rule[%d]", i)); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+		if err := validateArgsMatch(rule.Args, ruleLocation); err != nil {
+			return err
 		}
 	}
 
@@ -878,71 +911,91 @@ func (cfg *Config) Validate() error {
 	for i, rule := range cfg.getParsedRedirects() {
 		for j, path := range rule.Paths {
 			if _, err := ParsePattern(path); err != nil {
-				return fmt.Errorf("%w: bash.redirects rule[%d] paths[%d]: %w", ErrInvalidConfig, i, j, err)
+				return &ConfigValidationError{
+					Location: fmt.Sprintf("bash.redirects.%s[%d].paths[%d]", rule.Action, i, j),
+					Value:    path,
+					Message:  "invalid pattern",
+					Cause:    err,
+				}
 			}
 		}
 	}
 
 	// Validate heredoc rules
 	for i, rule := range cfg.getParsedHeredocs() {
-		if err := validateBoolExpr(rule.Content, fmt.Sprintf("bash.heredocs rule[%d]", i)); err != nil {
-			return fmt.Errorf("%w: %w", ErrInvalidConfig, err)
+		if err := validateBoolExpr(rule.Content, fmt.Sprintf("bash.heredocs.%s[%d].content", rule.Action, i)); err != nil {
+			return err
 		}
 	}
 
 	// Validate file tool patterns
-	for i, path := range cfg.Read.Allow.Paths {
-		if _, err := ParsePattern(path); err != nil {
-			return fmt.Errorf("%w: read.allow.paths[%d]: %w", ErrInvalidConfig, i, err)
-		}
+	if err := validateFilePatterns(cfg.Read.Allow.Paths, "read.allow.paths"); err != nil {
+		return err
 	}
-	for i, path := range cfg.Read.Deny.Paths {
-		if _, err := ParsePattern(path); err != nil {
-			return fmt.Errorf("%w: read.deny.paths[%d]: %w", ErrInvalidConfig, i, err)
-		}
+	if err := validateFilePatterns(cfg.Read.Deny.Paths, "read.deny.paths"); err != nil {
+		return err
 	}
-	for i, path := range cfg.Write.Allow.Paths {
-		if _, err := ParsePattern(path); err != nil {
-			return fmt.Errorf("%w: write.allow.paths[%d]: %w", ErrInvalidConfig, i, err)
-		}
+	if err := validateFilePatterns(cfg.Write.Allow.Paths, "write.allow.paths"); err != nil {
+		return err
 	}
-	for i, path := range cfg.Write.Deny.Paths {
-		if _, err := ParsePattern(path); err != nil {
-			return fmt.Errorf("%w: write.deny.paths[%d]: %w", ErrInvalidConfig, i, err)
-		}
+	if err := validateFilePatterns(cfg.Write.Deny.Paths, "write.deny.paths"); err != nil {
+		return err
 	}
-	for i, path := range cfg.Edit.Allow.Paths {
-		if _, err := ParsePattern(path); err != nil {
-			return fmt.Errorf("%w: edit.allow.paths[%d]: %w", ErrInvalidConfig, i, err)
-		}
+	if err := validateFilePatterns(cfg.Edit.Allow.Paths, "edit.allow.paths"); err != nil {
+		return err
 	}
-	for i, path := range cfg.Edit.Deny.Paths {
-		if _, err := ParsePattern(path); err != nil {
-			return fmt.Errorf("%w: edit.deny.paths[%d]: %w", ErrInvalidConfig, i, err)
-		}
+	if err := validateFilePatterns(cfg.Edit.Deny.Paths, "edit.deny.paths"); err != nil {
+		return err
 	}
 
 	return nil
 }
 
+// formatRuleLocation creates a human-readable location string for a bash rule.
+func formatRuleLocation(rule BashRule, index int) string {
+	parts := []string{"bash", rule.Action, rule.Command}
+	parts = append(parts, rule.Subcommands...)
+	return strings.Join(parts, ".")
+}
+
+// validateFilePatterns validates a slice of file path patterns.
+func validateFilePatterns(paths []string, location string) error {
+	for i, path := range paths {
+		if _, err := ParsePattern(path); err != nil {
+			return &ConfigValidationError{
+				Location: fmt.Sprintf("%s[%d]", location, i),
+				Value:    path,
+				Message:  "invalid pattern",
+				Cause:    err,
+			}
+		}
+	}
+	return nil
+}
+
 // validateArgsMatch validates patterns in an ArgsMatch.
 func validateArgsMatch(args ArgsMatch, context string) error {
-	if err := validateBoolExpr(args.Any, context+" args.any"); err != nil {
+	if err := validateBoolExpr(args.Any, context+".args.any"); err != nil {
 		return err
 	}
-	if err := validateBoolExpr(args.All, context+" args.all"); err != nil {
+	if err := validateBoolExpr(args.All, context+".args.all"); err != nil {
 		return err
 	}
-	if err := validateBoolExpr(args.Not, context+" args.not"); err != nil {
+	if err := validateBoolExpr(args.Not, context+".args.not"); err != nil {
 		return err
 	}
-	if err := validateBoolExpr(args.Xor, context+" args.xor"); err != nil {
+	if err := validateBoolExpr(args.Xor, context+".args.xor"); err != nil {
 		return err
 	}
 	for key, fp := range args.Position {
 		for i, pattern := range fp.Patterns {
 			if _, err := ParsePattern(pattern); err != nil {
-				return fmt.Errorf("%s args.position[%s][%d]: %w", context, key, i, err)
+				return &ConfigValidationError{
+					Location: fmt.Sprintf("%s.args.position[%s][%d]", context, key, i),
+					Value:    pattern,
+					Message:  "invalid pattern",
+					Cause:    err,
+				}
 			}
 		}
 	}
@@ -956,14 +1009,24 @@ func validateBoolExpr(expr *BoolExpr, context string) error {
 	}
 	for i, pattern := range expr.Patterns {
 		if _, err := ParsePattern(pattern); err != nil {
-			return fmt.Errorf("%s[%d]: %w", context, i, err)
+			return &ConfigValidationError{
+				Location: fmt.Sprintf("%s[%d]", context, i),
+				Value:    pattern,
+				Message:  "invalid pattern",
+				Cause:    err,
+			}
 		}
 	}
 	if expr.IsSequence {
 		for key, fp := range expr.Sequence {
 			for i, pattern := range fp.Patterns {
 				if _, err := ParsePattern(pattern); err != nil {
-					return fmt.Errorf("%s sequence[%s][%d]: %w", context, key, i, err)
+					return &ConfigValidationError{
+						Location: fmt.Sprintf("%s.sequence[%s][%d]", context, key, i),
+						Value:    pattern,
+						Message:  "invalid pattern",
+						Cause:    err,
+					}
 				}
 			}
 		}
