@@ -29,11 +29,25 @@ func findGlobalConfig() string {
 }
 
 // findProjectConfigs looks for cc-allow.toml and cc-allow.local.toml
-// starting from cwd and walking up. Prefers .config/ over .claude/ (legacy).
+// starting from cwd and walking up to the project root. Prefers .config/ over .claude/ (legacy).
 // If found at .claude/, the path is recorded in LegacyPaths for migration hints.
+// Only searches within the project boundary (up to and including project root).
+// Returns empty if project root is $HOME (global config there is handled separately).
 func findProjectConfigs() ProjectConfigResult {
 	cwd, err := os.Getwd()
 	if err != nil {
+		return ProjectConfigResult{}
+	}
+
+	// Find project root to bound the search
+	projectRoot := findProjectRoot()
+	if projectRoot == "" {
+		// No project root found - no project configs to find
+		return ProjectConfigResult{}
+	}
+
+	// If project root is $HOME, treat as no project (global config is handled separately)
+	if home, _ := os.UserHomeDir(); home != "" && projectRoot == home {
 		return ProjectConfigResult{}
 	}
 
@@ -61,14 +75,14 @@ func findProjectConfigs() ProjectConfigResult {
 			}
 		}
 
-		// Found both, done
-		if result.ProjectConfig != "" && result.LocalConfig != "" {
+		// Found both, or reached project root - done
+		if (result.ProjectConfig != "" && result.LocalConfig != "") || dir == projectRoot {
 			break
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached root
+			// Reached filesystem root
 			break
 		}
 		dir = parent
@@ -78,19 +92,38 @@ func findProjectConfigs() ProjectConfigResult {
 }
 
 // findAgentConfig looks for .config/cc-allow/<agent>.toml
-// starting from cwd and walking up the directory tree.
+// starting from cwd and walking up to the project root.
 // Returns the path if found, or empty string if not found.
+// Returns empty if project root is $HOME (global config location).
 func findAgentConfig(agent string) string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
+
+	// Find project root to bound the search
+	projectRoot := findProjectRoot()
+	if projectRoot == "" {
+		return ""
+	}
+
+	// If project root is $HOME, treat as no project
+	if home, _ := os.UserHomeDir(); home != "" && projectRoot == home {
+		return ""
+	}
+
 	dir := cwd
 	for {
 		path := filepath.Join(dir, ".config", "cc-allow", agent+".toml")
 		if _, err := os.Stat(path); err == nil {
 			return path
 		}
+
+		// Reached project root, stop searching
+		if dir == projectRoot {
+			break
+		}
+
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
@@ -104,7 +137,7 @@ func findAgentConfig(agent string) string {
 // It walks up from cwd looking for:
 // 1. .config/cc-allow.toml file (new preferred location)
 // 2. .claude/ directory (legacy)
-// 3. .git/ directory (fallback)
+// 3. .git (directory for normal repos, file for worktrees)
 // Returns empty string if none found.
 func findProjectRoot() string {
 	cwd, err := os.Getwd()
@@ -126,9 +159,9 @@ func findProjectRoot() string {
 			return dir
 		}
 
-		// Check for .git/ directory
+		// Check for .git (directory for normal repos, file for worktrees)
 		gitPath := filepath.Join(dir, ".git")
-		if info, err := os.Stat(gitPath); err == nil && info.IsDir() {
+		if _, err := os.Stat(gitPath); err == nil {
 			return dir
 		}
 

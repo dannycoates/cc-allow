@@ -869,6 +869,11 @@ func TestFindAgentConfig(t *testing.T) {
 		tmp := t.TempDir()
 		t.Chdir(tmp)
 
+		// Create .git as project root marker
+		if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
 		agentDir := filepath.Join(tmp, ".config", "cc-allow")
 		if err := os.MkdirAll(agentDir, 0755); err != nil {
 			t.Fatal(err)
@@ -888,14 +893,43 @@ func TestFindAgentConfig(t *testing.T) {
 		tmp := t.TempDir()
 		t.Chdir(tmp)
 
+		// Create .git as project root marker
+		if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
 		got := findAgentConfig("nonexistent")
 		if got != "" {
 			t.Errorf("findAgentConfig(\"nonexistent\") = %q, want empty string", got)
 		}
 	})
 
+	t.Run("returns empty when no project root exists", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Chdir(tmp)
+
+		// No project root marker - should return empty even if config exists
+		agentDir := filepath.Join(tmp, ".config", "cc-allow")
+		if err := os.MkdirAll(agentDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(agentDir, "myagent.toml"), []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		got := findAgentConfig("myagent")
+		if got != "" {
+			t.Errorf("findAgentConfig(\"myagent\") = %q, want empty string (no project root)", got)
+		}
+	})
+
 	t.Run("finds agent config in parent directory", func(t *testing.T) {
 		tmp := t.TempDir()
+
+		// Create .git as project root marker
+		if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
 
 		agentDir := filepath.Join(tmp, ".config", "cc-allow")
 		if err := os.MkdirAll(agentDir, 0755); err != nil {
@@ -915,6 +949,198 @@ func TestFindAgentConfig(t *testing.T) {
 		got := findAgentConfig("myagent")
 		if got != agentFile {
 			t.Errorf("findAgentConfig(\"myagent\") = %q, want %q", got, agentFile)
+		}
+	})
+}
+
+func TestFindProjectConfigsStopsAtProjectRoot(t *testing.T) {
+	// This test verifies that findProjectConfigs() only searches within
+	// the project boundary (up to project root) and doesn't walk beyond.
+
+	t.Run("returns empty when no project root exists", func(t *testing.T) {
+		// Create a temp dir with NO project markers (.git, .claude, cc-allow.toml)
+		tmp := t.TempDir()
+
+		// Create a subdir without any project markers and cd into it
+		subdir := filepath.Join(tmp, "some", "random", "dir")
+		if err := os.MkdirAll(subdir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(subdir)
+
+		// findProjectConfigs should return empty - no project root found
+		result := findProjectConfigs()
+		if result.ProjectConfig != "" {
+			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want empty (no project root)", result.ProjectConfig)
+		}
+	})
+
+	t.Run("finds config at project root with .git marker", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		// Create .git directory as project root marker
+		if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create project config
+		configDir := filepath.Join(tmp, ".config")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		projectConfig := filepath.Join(configDir, "cc-allow.toml")
+		if err := os.WriteFile(projectConfig, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create a subdir and cd into it
+		subdir := filepath.Join(tmp, "src", "pkg")
+		if err := os.MkdirAll(subdir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(subdir)
+
+		// findProjectConfigs should find the config at project root
+		result := findProjectConfigs()
+		if result.ProjectConfig != projectConfig {
+			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want %q", result.ProjectConfig, projectConfig)
+		}
+	})
+
+	t.Run("finds config at project root with .git file (worktree)", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		// Create .git as a FILE (like in a worktree) instead of directory
+		gitFile := filepath.Join(tmp, ".git")
+		if err := os.WriteFile(gitFile, []byte("gitdir: /some/path/.git/worktrees/name\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create project config
+		configDir := filepath.Join(tmp, ".config")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		projectConfig := filepath.Join(configDir, "cc-allow.toml")
+		if err := os.WriteFile(projectConfig, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create a subdir and cd into it
+		subdir := filepath.Join(tmp, "src", "pkg")
+		if err := os.MkdirAll(subdir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(subdir)
+
+		// findProjectConfigs should find the config at project root (worktree)
+		result := findProjectConfigs()
+		if result.ProjectConfig != projectConfig {
+			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want %q", result.ProjectConfig, projectConfig)
+		}
+	})
+
+	t.Run("stops at project root and does not search parent directories", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		// Create a config ABOVE the project root (should NOT be found)
+		parentConfigDir := filepath.Join(tmp, ".config")
+		if err := os.MkdirAll(parentConfigDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		parentConfig := filepath.Join(parentConfigDir, "cc-allow.toml")
+		if err := os.WriteFile(parentConfig, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create project subdir with .git marker (this is the project root)
+		projectDir := filepath.Join(tmp, "myproject")
+		if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// cd into the project
+		t.Chdir(projectDir)
+
+		// findProjectConfigs should NOT find the parent config - it's outside project root
+		result := findProjectConfigs()
+		if result.ProjectConfig != "" {
+			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want empty (config is above project root)", result.ProjectConfig)
+		}
+	})
+
+	t.Run("finds config in subdir when project root is above", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		// Create .git at top level (project root)
+		if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create config in a subdir of the project
+		subConfigDir := filepath.Join(tmp, "packages", "foo", ".config")
+		if err := os.MkdirAll(subConfigDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		subConfig := filepath.Join(subConfigDir, "cc-allow.toml")
+		if err := os.WriteFile(subConfig, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// cd into that subdir
+		t.Chdir(filepath.Join(tmp, "packages", "foo"))
+
+		// findProjectConfigs should find the config in current dir
+		result := findProjectConfigs()
+		if result.ProjectConfig != subConfig {
+			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want %q", result.ProjectConfig, subConfig)
+		}
+	})
+}
+
+func TestLoadConfigChainDeduplicatesGlobalConfig(t *testing.T) {
+	// This test verifies that when $HOME is a project root (e.g., has .git for dotfiles),
+	// the global config at ~/.config/cc-allow.toml is not loaded twice.
+
+	t.Run("does not load global config twice when HOME has .git", func(t *testing.T) {
+		// Create a fake HOME directory
+		fakeHome := t.TempDir()
+		t.Setenv("HOME", fakeHome)
+
+		// Create .git at HOME (simulating dotfiles repo)
+		if err := os.MkdirAll(filepath.Join(fakeHome, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create global config at ~/.config/cc-allow.toml
+		configDir := filepath.Join(fakeHome, ".config")
+		if err := os.MkdirAll(configDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		globalConfig := filepath.Join(configDir, "cc-allow.toml")
+		if err := os.WriteFile(globalConfig, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Create a subdir and cd into it
+		subdir := filepath.Join(fakeHome, "projects", "test")
+		if err := os.MkdirAll(subdir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(subdir)
+
+		// Load config chain
+		chain, err := LoadConfigChain("")
+		if err != nil {
+			t.Fatalf("LoadConfigChain() error = %v", err)
+		}
+
+		// Should only have one config loaded (the global one)
+		if len(chain.Configs) != 1 {
+			t.Errorf("LoadConfigChain() loaded %d configs, want 1 (global config should not be duplicated)", len(chain.Configs))
+			for i, cfg := range chain.Configs {
+				t.Logf("  config[%d]: %s", i, cfg.Path)
+			}
 		}
 	})
 }
