@@ -1,0 +1,29 @@
+# WebFetch ruleset for testing URL pattern matching
+
+version = "2.0"
+
+[webfetch]
+default = "ask"
+default_message = "URL fetch requires approval: {{.FilePath}}"
+
+[webfetch.allow]
+paths = [
+    "re:^https://github\\.com/",
+    "re:^https://api\\.github\\.com/",
+    "re:^https://pkg\\.go\\.dev/",
+    "re:^https://docs\\.",
+    "re:^https://golang\\.org/",
+    "re:^https://.*\\.wikipedia\\.org/",
+]
+
+[webfetch.deny]
+paths = [
+    "re:^https?://localhost",
+    "re:^https?://127\\.0\\.0\\.1",
+    "re:^https?://\\[::1\\]",
+    "re:^https?://0\\.0\\.0\\.0",
+    "re:^https?://10\\.",
+    "re:^https?://192\\.168\\.",
+    "re:^file://",
+]
+message = "Blocked URL: {{.FilePath}}"

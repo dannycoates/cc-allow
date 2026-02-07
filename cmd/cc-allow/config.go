@@ -20,8 +20,9 @@ type Config struct {
 	Bash    BashConfig       `toml:"bash"`    // bash tool configuration
 	Read    FileToolConfig   `toml:"read"`    // read tool configuration
 	Write   FileToolConfig   `toml:"write"`   // write tool configuration
-	Edit    FileToolConfig   `toml:"edit"`    // edit tool configuration
-	Debug   DebugConfig      `toml:"debug"`   // debug settings
+	Edit     FileToolConfig   `toml:"edit"`     // edit tool configuration
+	WebFetch WebFetchConfig   `toml:"webfetch"` // webfetch tool configuration
+	Debug    DebugConfig      `toml:"debug"`    // debug settings
 
 	// Parsed rules (populated during parsing, not from TOML)
 	parsedRules     []BashRule     `toml:"-"`
@@ -390,6 +391,18 @@ type FileAllowDeny struct {
 	Mode    string   `toml:"mode"`    // "merge" (default) or "replace" (only for allow)
 }
 
+// WebFetchConfig holds configuration for the WebFetch tool.
+type WebFetchConfig struct {
+	FileToolConfig                                       // embeds Default, DefaultMessage, Allow, Deny
+	SafeBrowsing   SafeBrowsingConfig `toml:"safe_browsing"` // Google Safe Browsing integration
+}
+
+// SafeBrowsingConfig holds Google Safe Browsing API settings.
+type SafeBrowsingConfig struct {
+	Enabled bool   `toml:"enabled"` // enable Safe Browsing URL checks
+	APIKey  string `toml:"api_key"` // Google Safe Browsing API key
+}
+
 // DebugConfig controls debug logging behavior.
 type DebugConfig struct {
 	LogFile string `toml:"log_file"` // path to debug log file
@@ -490,6 +503,7 @@ type MergedConfig struct {
 	Redirects       []TrackedRedirectRule
 	Heredocs        []TrackedHeredocRule
 	Aliases         map[string]Alias // merged aliases from all configs
+	SafeBrowsing    SafeBrowsingConfig
 	Debug           DebugConfig
 }
 

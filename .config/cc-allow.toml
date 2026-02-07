@@ -22,3 +22,11 @@ message = "cd {{.Arg 0}} - only /tmp and project directories allowed"
 
 [[bash.allow.cd]]
 args.any = ["path:/tmp/**", "path:$PROJECT_ROOT/**"]
+
+[webfetch]
+default = "allow"
+default_message = "URL fetch requires approval: {{.FilePath}}"
+
+[webfetch.safe_browsing]
+enabled = true
+api_key = "AIzaSyBPGXa4AYD4FC3HJK7LnIKxm4fDusVuuco"

@@ -123,6 +123,33 @@ func runFmt(configPath string) {
 		if cfg.Bash.Constructs.Heredocs != "" && cfg.Bash.Constructs.Heredocs != "allow" {
 			fmt.Printf("    bash.constructs.heredocs = %q\n", cfg.Bash.Constructs.Heredocs)
 		}
+
+		// Display WebFetch config
+		if cfg.WebFetch.Default != "" || len(cfg.WebFetch.Allow.Paths) > 0 || len(cfg.WebFetch.Deny.Paths) > 0 || cfg.WebFetch.SafeBrowsing.Enabled {
+			fmt.Println("    WebFetch:")
+			if cfg.WebFetch.Default != "" {
+				fmt.Printf("      default = %q\n", cfg.WebFetch.Default)
+			}
+			if cfg.WebFetch.SafeBrowsing.Enabled {
+				if cfg.WebFetch.SafeBrowsing.APIKey != "" {
+					fmt.Println("      safe_browsing: enabled (key configured)")
+				} else {
+					fmt.Println("      safe_browsing: enabled (no key)")
+				}
+			}
+			if len(cfg.WebFetch.Allow.Paths) > 0 {
+				fmt.Printf("      allow: %d pattern(s)\n", len(cfg.WebFetch.Allow.Paths))
+				for _, p := range cfg.WebFetch.Allow.Paths {
+					fmt.Printf("        %s\n", p)
+				}
+			}
+			if len(cfg.WebFetch.Deny.Paths) > 0 {
+				fmt.Printf("      deny: %d pattern(s)\n", len(cfg.WebFetch.Deny.Paths))
+				for _, p := range cfg.WebFetch.Deny.Paths {
+					fmt.Printf("        %s\n", p)
+				}
+			}
+		}
 	}
 
 	if hasError {

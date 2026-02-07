@@ -65,6 +65,7 @@ func main() {
 	readMode := flag.Bool("read", false, "check file read rules (stdin is file path)")
 	writeMode := flag.Bool("write", false, "check file write rules (stdin is file path)")
 	editMode := flag.Bool("edit", false, "check file edit rules (stdin is file path)")
+	fetchMode := flag.Bool("fetch", false, "check webfetch URL rules (stdin is URL)")
 	flag.Parse()
 
 	// --agent and --config are mutually exclusive
@@ -104,8 +105,12 @@ func main() {
 		toolMode = "Edit"
 		modeCount++
 	}
+	if *fetchMode {
+		toolMode = "WebFetch"
+		modeCount++
+	}
 	if modeCount > 1 {
-		fmt.Fprintln(os.Stderr, "Error: only one of --bash, --read, --write, --edit can be specified")
+		fmt.Fprintln(os.Stderr, "Error: only one of --bash, --read, --write, --edit, --fetch can be specified")
 		os.Exit(ExitError)
 	}
 
@@ -200,6 +205,8 @@ func buildInput(hookMode bool, toolMode string) (HookInput, error) {
 		input.ToolInput.Command = value
 	case "Read", "Write", "Edit":
 		input.ToolInput.FilePath = value
+	case "WebFetch":
+		input.ToolInput.URL = value
 	}
 	return input, nil
 }

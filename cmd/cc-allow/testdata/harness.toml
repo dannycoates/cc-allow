@@ -12,6 +12,8 @@ specificity = "rulesets/specificity.toml"
 files = "rulesets/files.toml"
 filerules = "rulesets/filerules.toml"
 extended = "rulesets/extended.toml"
+webfetch = "rulesets/webfetch.toml"
+webfetch_sb = "rulesets/webfetch_sb.toml"
 
 # Each [[command]] defines a bash string and expected result per ruleset
 # Results: "allow", "deny", "ask"
@@ -1570,3 +1572,123 @@ extended = "ask"     # sequence requires all 3 positions
 name = "extended: rsync --progress -a -v (wrong order)"
 bash = "rsync --progress -a -v src/ dest/"
 extended = "ask"     # order matters in sequence
+
+# ============================================================================
+# WEBFETCH TOOL TESTS
+# ============================================================================
+
+# --- URL pattern matching ---
+
+[[webfetch]]
+name = "github repo URL"
+url = "https://github.com/anthropics/claude-code"
+webfetch = "allow"
+
+[[webfetch]]
+name = "github API URL"
+url = "https://api.github.com/repos/anthropics/claude-code"
+webfetch = "allow"
+
+[[webfetch]]
+name = "go pkg URL"
+url = "https://pkg.go.dev/fmt"
+webfetch = "allow"
+
+[[webfetch]]
+name = "docs subdomain URL"
+url = "https://docs.python.org/3/library/os.html"
+webfetch = "allow"
+
+[[webfetch]]
+name = "golang.org URL"
+url = "https://golang.org/doc/install"
+webfetch = "allow"
+
+[[webfetch]]
+name = "wikipedia URL"
+url = "https://en.wikipedia.org/wiki/Go_(programming_language)"
+webfetch = "allow"
+
+[[webfetch]]
+name = "localhost HTTP"
+url = "http://localhost:3000/api"
+webfetch = "deny"
+
+[[webfetch]]
+name = "localhost HTTPS"
+url = "https://localhost:8443/admin"
+webfetch = "deny"
+
+[[webfetch]]
+name = "127.0.0.1"
+url = "http://127.0.0.1:8080/debug"
+webfetch = "deny"
+
+[[webfetch]]
+name = "IPv6 loopback"
+url = "http://[::1]:9090/health"
+webfetch = "deny"
+
+[[webfetch]]
+name = "0.0.0.0"
+url = "http://0.0.0.0:4000/test"
+webfetch = "deny"
+
+[[webfetch]]
+name = "private network 10.x"
+url = "http://10.0.0.1/internal"
+webfetch = "deny"
+
+[[webfetch]]
+name = "private network 192.168.x"
+url = "http://192.168.1.1/admin"
+webfetch = "deny"
+
+[[webfetch]]
+name = "file:// URL"
+url = "file:///etc/passwd"
+webfetch = "deny"
+
+[[webfetch]]
+name = "unknown HTTPS site"
+url = "https://unknown-site.example.com/page"
+webfetch = "ask"
+
+[[webfetch]]
+name = "unknown HTTP site"
+url = "http://random-blog.com/article"
+webfetch = "ask"
+
+# --- Safe Browsing integration tests ---
+# These use the webfetch_sb ruleset which has safe_browsing.enabled = true
+# Tests are automatically skipped if no API key is available
+
+[[webfetch]]
+name = "SB: safe github URL"
+url = "https://github.com/anthropics/claude-code"
+webfetch_sb = "allow"
+
+[[webfetch]]
+name = "SB: safe google URL"
+url = "https://google.com"
+webfetch_sb = "allow"
+
+[[webfetch]]
+name = "SB: local deny takes precedence"
+url = "http://localhost:8080"
+webfetch_sb = "deny"
+
+[[webfetch]]
+name = "SB: malware test URL"
+url = "https://testsafebrowsing.appspot.com/s/malware.html"
+webfetch_sb = "deny"
+
+[[webfetch]]
+name = "SB: phishing test URL"
+url = "https://testsafebrowsing.appspot.com/s/phishing.html"
+webfetch_sb = "deny"
+
+[[webfetch]]
+name = "SB: unwanted software test URL"
+url = "https://testsafebrowsing.appspot.com/s/unwanted.html"
+webfetch_sb = "deny"

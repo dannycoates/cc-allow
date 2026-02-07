@@ -13,9 +13,10 @@ import (
 
 // HarnessConfig represents the test harness configuration
 type HarnessConfig struct {
-	Rulesets map[string]string `toml:"rulesets"`
-	Commands []HarnessCommand  `toml:"command"`
-	Files    []HarnessFile     `toml:"file"`
+	Rulesets  map[string]string  `toml:"rulesets"`
+	Commands  []HarnessCommand   `toml:"command"`
+	Files     []HarnessFile      `toml:"file"`
+	WebFetch  []HarnessWebFetch  `toml:"webfetch"`
 }
 
 // HarnessCommand represents a single test command with expected results per ruleset
@@ -120,6 +121,49 @@ func (h *HarnessFile) UnmarshalTOML(data any) error {
 	return nil
 }
 
+// HarnessWebFetch represents a WebFetch URL test with expected results per ruleset
+type HarnessWebFetch struct {
+	Name string `toml:"name"`
+	URL  string `toml:"url"`
+	// Expected results are stored as a map, populated dynamically from TOML fields
+	Expected map[string]string `toml:"-"`
+	// Expected messages per ruleset (optional), keyed as "<ruleset>_message"
+	ExpectedMessage map[string]string `toml:"-"`
+}
+
+// UnmarshalTOML implements custom unmarshaling to capture ruleset expectations
+func (h *HarnessWebFetch) UnmarshalTOML(data any) error {
+	d, ok := data.(map[string]any)
+	if !ok {
+		return fmt.Errorf("expected map, got %T", data)
+	}
+
+	h.Expected = make(map[string]string)
+	h.ExpectedMessage = make(map[string]string)
+
+	for key, val := range d {
+		strVal, ok := val.(string)
+		if !ok {
+			continue
+		}
+		switch key {
+		case "name":
+			h.Name = strVal
+		case "url":
+			h.URL = strVal
+		default:
+			if strings.HasSuffix(key, "_message") {
+				rulesetName := strings.TrimSuffix(key, "_message")
+				h.ExpectedMessage[rulesetName] = strVal
+			} else {
+				h.Expected[key] = strVal
+			}
+		}
+	}
+
+	return nil
+}
+
 func TestHarness(t *testing.T) {
 	// Load harness config
 	harnessPath := filepath.Join("testdata", "harness.toml")
@@ -178,6 +222,14 @@ func TestHarness(t *testing.T) {
 		}
 	}
 
+	// For webfetch_sb ruleset, inject the API key from the real config chain
+	if sbCfg, ok := rulesets["webfetch_sb"]; ok {
+		apiKey := loadHarnessAPIKey(t)
+		if apiKey != "" {
+			sbCfg.WebFetch.SafeBrowsing.APIKey = apiKey
+		}
+	}
+
 	// Run each file test against each ruleset
 	for _, file := range harness.Files {
 		for rulesetName, expectedAction := range file.Expected {
@@ -202,6 +254,40 @@ func TestHarness(t *testing.T) {
 					if result.Message != expectedMsg {
 						t.Errorf("tool=%s path=%q\nexpected message %q, got %q",
 							file.Tool, file.Path, expectedMsg, result.Message)
+					}
+				}
+			})
+		}
+	}
+
+	// Run each webfetch test against each ruleset
+	for _, wf := range harness.WebFetch {
+		for rulesetName, expectedAction := range wf.Expected {
+			cfg, ok := rulesets[rulesetName]
+			if !ok {
+				t.Errorf("WebFetch %q references unknown ruleset %q", wf.Name, rulesetName)
+				continue
+			}
+
+			// Skip webfetch_sb tests if no API key is available
+			if rulesetName == "webfetch_sb" && cfg.WebFetch.SafeBrowsing.APIKey == "" {
+				continue
+			}
+
+			testName := fmt.Sprintf("%s/%s", rulesetName, wf.Name)
+			t.Run(testName, func(t *testing.T) {
+				result := evalWebFetch(t, cfg, wf.URL)
+				if result.Action != expectedAction {
+					t.Errorf("url=%q\nexpected %s, got %s (source: %s)",
+						wf.URL, expectedAction, result.Action, result.Source)
+					if result.Message != "" {
+						t.Logf("message: %s", result.Message)
+					}
+				}
+				if expectedMsg, ok := wf.ExpectedMessage[rulesetName]; ok {
+					if result.Message != expectedMsg {
+						t.Errorf("url=%q\nexpected message %q, got %q",
+							wf.URL, expectedMsg, result.Message)
 					}
 				}
 			})
@@ -232,6 +318,38 @@ func evalFile(t *testing.T, cfg *Config, tool, path string) Result {
 	t.Helper()
 	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
 	return evaluateFileTool(chain, tool, path)
+}
+
+func evalWebFetch(t *testing.T, cfg *Config, url string) Result {
+	t.Helper()
+	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
+	return evaluateWebFetchTool(chain, url)
+}
+
+// loadHarnessAPIKey walks up from the test directory to find the project config
+// and extract the Safe Browsing API key.
+func loadHarnessAPIKey(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		configPath := filepath.Join(dir, ".config", "cc-allow.toml")
+		if _, err := os.Stat(configPath); err == nil {
+			cfg, err := LoadConfigWithDefaults(configPath)
+			if err != nil {
+				return ""
+			}
+			return cfg.WebFetch.SafeBrowsing.APIKey
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
 }
 
 // TestHarnessRulesetLoading verifies all rulesets can be loaded

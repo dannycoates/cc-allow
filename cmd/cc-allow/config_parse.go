@@ -139,6 +139,11 @@ func configFromRaw(raw map[string]any) (*Config, error) {
 		cfg.Edit = parseFileToolConfigFromRaw(editRaw)
 	}
 
+	// Extract webfetch config
+	if webfetchRaw, ok := raw["webfetch"].(map[string]any); ok {
+		cfg.WebFetch = parseWebFetchConfigFromRaw(webfetchRaw)
+	}
+
 	// Extract debug config
 	if debugRaw, ok := raw["debug"].(map[string]any); ok {
 		cfg.Debug.LogFile, _ = debugRaw["log_file"].(string)
@@ -293,6 +298,25 @@ func parseFileAllowDenyFromRaw(raw map[string]any) FileAllowDeny {
 	result.Mode, _ = raw["mode"].(string)
 
 	return result
+}
+
+// parseWebFetchConfigFromRaw parses a [webfetch] section.
+func parseWebFetchConfigFromRaw(raw map[string]any) WebFetchConfig {
+	var cfg WebFetchConfig
+	cfg.Default, _ = raw["default"].(string)
+	cfg.DefaultMessage, _ = raw["default_message"].(string)
+
+	if allowRaw, ok := raw["allow"].(map[string]any); ok {
+		cfg.Allow = parseFileAllowDenyFromRaw(allowRaw)
+	}
+	if denyRaw, ok := raw["deny"].(map[string]any); ok {
+		cfg.Deny = parseFileAllowDenyFromRaw(denyRaw)
+	}
+	if sbRaw, ok := raw["safe_browsing"].(map[string]any); ok {
+		cfg.SafeBrowsing.Enabled, _ = sbRaw["enabled"].(bool)
+		cfg.SafeBrowsing.APIKey, _ = sbRaw["api_key"].(string)
+	}
+	return cfg
 }
 
 // validateConfigVersion checks the version and detects legacy format.
@@ -830,6 +854,9 @@ func (cfg *Config) Validate() error {
 	if err := validateAction(cfg.Edit.Default, "edit.default"); err != nil {
 		return err
 	}
+	if err := validateAction(cfg.WebFetch.Default, "webfetch.default"); err != nil {
+		return err
+	}
 	// Validate allow mode values
 	if err := validateAllowMode(cfg.Bash.Allow.Mode, "bash.allow.mode"); err != nil {
 		return err
@@ -841,6 +868,9 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 	if err := validateAllowMode(cfg.Edit.Allow.Mode, "edit.allow.mode"); err != nil {
+		return err
+	}
+	if err := validateAllowMode(cfg.WebFetch.Allow.Mode, "webfetch.allow.mode"); err != nil {
 		return err
 	}
 
@@ -945,6 +975,12 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 	if err := validateFilePatterns(cfg.Edit.Deny.Paths, "edit.deny.paths"); err != nil {
+		return err
+	}
+	if err := validateFilePatterns(cfg.WebFetch.Allow.Paths, "webfetch.allow.paths"); err != nil {
+		return err
+	}
+	if err := validateFilePatterns(cfg.WebFetch.Deny.Paths, "webfetch.deny.paths"); err != nil {
 		return err
 	}
 

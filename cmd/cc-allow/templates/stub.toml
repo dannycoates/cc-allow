@@ -130,3 +130,12 @@ version = "2.0"
 
 # [debug]
 # log_file = "/tmp/cc-allow.log"  # debug log output
+
+# [webfetch]
+# default = "allow"
+# default_message = "URL fetch requires approval: {{.FilePath}}"
+
+# [webfetch.safe_browsing]
+# enabled = true
+# # use your own key - not this one
+# api_key = "AIzaSyBPGXa4AYD4FC3HJK7LnIKxm4fDusVuuco"

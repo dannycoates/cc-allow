@@ -380,3 +380,12 @@ paths = ["alias:project", "alias:tmp", "alias:claude-user-config"]
 [write.deny]
 paths = ["alias:sensitive-write"]
 message = "Cannot write to {{.FilePath}} - system directory"
+
+[webfetch]
+default = "allow"
+default_message = "URL fetch requires approval: {{.FilePath}}"
+
+[webfetch.safe_browsing]
+enabled = true
+# use your own key - not this one
+api_key = "AIzaSyBPGXa4AYD4FC3HJK7LnIKxm4fDusVuuco"

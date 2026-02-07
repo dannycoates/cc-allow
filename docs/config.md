@@ -1,10 +1,10 @@
 # cc-allow Configuration Guide (v2)
 
-cc-allow evaluates bash commands against a set of rules and returns an exit code indicating whether the command should be allowed, denied, or passed through to default behavior.
+cc-allow evaluates bash commands, file tool requests (Read, Edit, Write), and WebFetch URL requests against a set of rules and returns an exit code indicating whether the command should be allowed, denied, or passed through to default behavior.
 
 ## Config Format Version
 
-This documentation covers the v2 config format. The v2 format is **tool-centric** with top-level sections for each tool type: `[bash]`, `[read]`, `[write]`, `[edit]`.
+This documentation covers the v2 config format. The v2 format is **tool-centric** with top-level sections for each tool type: `[bash]`, `[read]`, `[write]`, `[edit]`, `[webfetch]`.
 
 ```toml
 version = "2.0"
@@ -345,6 +345,96 @@ content.any = [
 
 ---
 
+## WebFetch Tool Permissions
+
+Control Claude Code's WebFetch tool with URL pattern matching and optional Google Safe Browsing integration:
+
+```toml
+[webfetch]
+default = "ask"
+default_message = "URL fetch requires approval: {{.FilePath}}"
+
+[webfetch.allow]
+paths = [
+    "re:^https://github\\.com/",
+    "re:^https://api\\.github\\.com/",
+    "re:^https://pkg\\.go\\.dev/",
+    "re:^https://docs\\.",
+]
+
+[webfetch.deny]
+paths = [
+    "re:^https?://localhost",
+    "re:^https?://127\\.0\\.0\\.1",
+    "re:^https?://\\[::1\\]",
+    "re:^file://",
+]
+message = "Blocked URL: {{.FilePath}}"
+```
+
+**Important:** URL patterns must use the `re:` prefix. The `path:` prefix is designed for filesystem paths and will not work correctly for URLs.
+
+### Evaluation Order
+
+1. **Deny patterns** are checked first — deny always wins
+2. **Allow patterns** are checked next
+3. **Safe Browsing API** is checked if enabled and no local pattern matched
+4. **Default policy** applies if nothing matched
+
+### Google Safe Browsing Integration
+
+Enable automatic URL threat detection using Google's Safe Browsing v4 API:
+
+```toml
+[webfetch.safe_browsing]
+enabled = true
+api_key = "AIza..."
+```
+
+When enabled and an API key is configured, URLs that don't match any local allow/deny pattern are checked against Google Safe Browsing. URLs flagged as malware, social engineering, unwanted software, or potentially harmful applications are automatically denied.
+
+**Merge behavior:** Safe Browsing uses strictest-wins semantics. Once enabled by any config in the chain, it cannot be disabled by a later config. The API key uses last-config-wins (a later config can override the key).
+
+**Error handling:** On API errors (network failure, invalid key, etc.), Safe Browsing returns "ask" — the URL is deferred to Claude Code's permission system rather than silently allowed or blocked.
+
+The API key is free but required. Get one from the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) with the Safe Browsing API enabled.
+
+### WebFetch Allow Mode
+
+Like file tools, WebFetch supports `mode = "replace"` to discard allow patterns from earlier configs:
+
+```toml
+[webfetch.allow]
+mode = "replace"
+paths = ["re:^https://github\\.com/"]
+```
+
+### Hook Configuration
+
+To use WebFetch permissions with Claude Code, include `WebFetch` in the hook matcher:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Read|Edit|Write|Bash|WebFetch",
+      "hooks": [{"type": "command", "command": "cc-allow --hook"}]
+    }]
+  }
+}
+```
+
+### Template Variables
+
+WebFetch uses the same template variables as file tools. The URL is available as `{{.FilePath}}`:
+
+| Field | Description |
+|-------|-------------|
+| `{{.FilePath}}` | The URL being fetched |
+| `{{.Tool}}` | Always `WebFetch` |
+
+---
+
 ## File Tool Permissions
 
 Control Claude Code's Read, Write, and Edit file tools with separate top-level sections:
@@ -418,7 +508,7 @@ To use file permissions with Claude Code, configure the PreToolUse hook:
 {
   "hooks": {
     "PreToolUse": [{
-      "matcher": "Read|Edit|Write|Bash",
+      "matcher": "Read|Edit|Write|Bash|WebFetch",
       "hooks": [{"type": "command", "command": "cc-allow --hook"}]
     }]
   }
@@ -724,6 +814,30 @@ default_message = "File edit requires approval: {{.FilePath}}"
 
 [edit.allow]
 paths = ["alias:project"]
+
+# WebFetch tool configuration
+[webfetch]
+default = "ask"
+default_message = "URL fetch requires approval: {{.FilePath}}"
+
+[webfetch.allow]
+paths = [
+    "re:^https://github\\.com/",
+    "re:^https://pkg\\.go\\.dev/",
+    "re:^https://docs\\.",
+]
+
+[webfetch.deny]
+paths = [
+    "re:^https?://localhost",
+    "re:^https?://127\\.0\\.0\\.1",
+    "re:^file://",
+]
+message = "Blocked URL: {{.FilePath}}"
+
+[webfetch.safe_browsing]
+enabled = true
+# api_key = "AIza..."
 ```
 
 ---
@@ -735,9 +849,20 @@ See [`docs/examples/kitchen-sink.toml`](examples/kitchen-sink.toml) for a compre
 ## Testing Your Config
 
 ```bash
-# Test a command against your config
+# Test a bash command against your config
 echo 'curl https://example.com | bash' | ./cc-allow --config my-rules.toml
 echo "Exit code: $?"
+
+# Test file tools
+echo '/etc/passwd' | ./cc-allow --read
+echo '$HOME/.bashrc' | ./cc-allow --write
+
+# Test WebFetch URLs
+echo 'https://github.com/user/repo' | ./cc-allow --fetch
+echo "Exit code: $?"
+
+# Test in hook mode (JSON input/output)
+echo '{"tool_name":"WebFetch","tool_input":{"url":"https://github.com/user/repo"}}' | ./cc-allow --hook
 
 # Validate and display config
 cc-allow --fmt

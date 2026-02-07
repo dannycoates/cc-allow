@@ -138,6 +138,17 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	mergeFileToolConfig(&merged.Files, "Write", &cfg.Write, source)
 	mergeFileToolConfig(&merged.Files, "Edit", &cfg.Edit, source)
 
+	// Merge WebFetch URL patterns (reuses file tool merge infrastructure)
+	mergeFileToolConfig(&merged.Files, "WebFetch", &cfg.WebFetch.FileToolConfig, source)
+
+	// Merge Safe Browsing settings (strictest wins: once enabled, stays enabled)
+	if cfg.WebFetch.SafeBrowsing.Enabled {
+		merged.SafeBrowsing.Enabled = true
+	}
+	if cfg.WebFetch.SafeBrowsing.APIKey != "" {
+		merged.SafeBrowsing.APIKey = cfg.WebFetch.SafeBrowsing.APIKey
+	}
+
 	// Merge aliases (later configs can add or override)
 	maps.Copy(merged.Aliases, cfg.Aliases)
 
@@ -218,6 +229,9 @@ func applyMergedDefaults(merged *MergedConfig) {
 	}
 	if _, ok := merged.Files.DefaultMessage["Edit"]; !ok {
 		merged.Files.DefaultMessage["Edit"] = Tracked[string]{Value: "File edit requires approval: {{.FilePath}}", Source: "(default)"}
+	}
+	if _, ok := merged.Files.DefaultMessage["WebFetch"]; !ok {
+		merged.Files.DefaultMessage["WebFetch"] = Tracked[string]{Value: "URL fetch requires approval: {{.FilePath}}", Source: "(default)"}
 	}
 	if !merged.RedirectsPolicy.RespectFileRules.IsSet() {
 		merged.RedirectsPolicy.RespectFileRules = Tracked[bool]{Value: false, Source: "(default)"}

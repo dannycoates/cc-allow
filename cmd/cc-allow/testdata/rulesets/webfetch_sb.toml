@@ -1,0 +1,23 @@
+# WebFetch ruleset with Safe Browsing enabled
+# Uses Google's test URLs for integration testing
+
+version = "2.0"
+
+[webfetch]
+default = "ask"
+
+[webfetch.allow]
+paths = [
+    "re:^https://github\\.com/",
+    "re:^https://google\\.com",
+]
+
+[webfetch.deny]
+paths = [
+    "re:^https?://localhost",
+]
+message = "Blocked URL: {{.FilePath}}"
+
+[webfetch.safe_browsing]
+enabled = true
+# api_key is loaded dynamically by the test harness

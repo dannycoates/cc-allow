@@ -12,6 +12,8 @@ type HookInput struct {
 	ToolInput struct {
 		Command  string `json:"command"`   // Bash tool
 		FilePath string `json:"file_path"` // Read, Edit, Write tools
+		URL      string `json:"url"`       // WebFetch tool
+		Prompt   string `json:"prompt"`    // WebFetch tool
 	} `json:"tool_input"`
 }
 
@@ -30,6 +32,8 @@ func (d *ToolDispatcher) Dispatch(input HookInput) Result {
 	switch input.ToolName {
 	case "Read", "Edit", "Write":
 		return d.evaluateFile(input)
+	case "WebFetch":
+		return d.evaluateWebFetch(input)
 	case "Bash", "":
 		return d.evaluateBash(input)
 	default:
@@ -44,6 +48,16 @@ func (d *ToolDispatcher) evaluateFile(input HookInput) Result {
 	logDebug("File tool: %s path=%q", input.ToolName, input.ToolInput.FilePath)
 	result := evaluateFileTool(d.chain, input.ToolName, input.ToolInput.FilePath)
 	logDebug("File result: action=%q message=%q source=%q", result.Action, result.Message, result.Source)
+	return result
+}
+
+func (d *ToolDispatcher) evaluateWebFetch(input HookInput) Result {
+	if input.ToolInput.URL == "" {
+		return Result{Action: "ask", Source: "no URL"}
+	}
+	logDebug("WebFetch tool: url=%q", input.ToolInput.URL)
+	result := evaluateWebFetchTool(d.chain, input.ToolInput.URL)
+	logDebug("WebFetch result: action=%q message=%q source=%q", result.Action, result.Message, result.Source)
 	return result
 }
 

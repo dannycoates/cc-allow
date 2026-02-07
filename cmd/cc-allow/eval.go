@@ -989,6 +989,49 @@ func evaluateFileTool(chain *ConfigChain, toolName, filePath string) Result {
 	return checkFilePathAgainstRules(merged, toolName, absPath, ctx)
 }
 
+// evaluateWebFetchTool evaluates a WebFetch URL request.
+// Unlike evaluateFileTool, this does NOT call ResolvePath -- URLs are not filesystem paths.
+func evaluateWebFetchTool(chain *ConfigChain, url string) Result {
+	merged := chain.Merged
+	if merged == nil {
+		return Result{Action: "ask", Source: "no configuration loaded"}
+	}
+
+	// Step 1: Check local URL pattern rules (reuse file pattern infrastructure)
+	projectRoot := findProjectRoot()
+	pathVars := pathutil.NewPathVars(projectRoot)
+	ctx := &MatchContext{PathVars: pathVars, Merged: merged}
+	localResult := checkFilePathAgainstRules(merged, "WebFetch", url, ctx)
+
+	// If local rules gave a definitive answer (allow or deny), use it
+	if localResult.Action == "allow" || localResult.Action == "deny" {
+		return localResult
+	}
+
+	// Step 2: If Safe Browsing is enabled and no local rule matched, check API
+	apiKey := getAPIKey(merged.SafeBrowsing)
+	if merged.SafeBrowsing.Enabled && apiKey != "" {
+		safe, threatType, err := checkSafeBrowsing(url, apiKey)
+		if err != nil {
+			logDebug("Safe Browsing API error: %v", err)
+			return Result{
+				Action:  "ask",
+				Message: fmt.Sprintf("Safe Browsing API error: %v", err),
+				Source:  "safe-browsing-api",
+			}
+		} else if !safe {
+			return Result{
+				Action:  "deny",
+				Message: fmt.Sprintf("URL flagged by Google Safe Browsing: %s", threatType),
+				Source:  "safe-browsing-api",
+			}
+		}
+	}
+
+	// Step 3: Return the local default result
+	return localResult
+}
+
 // Helper functions
 
 // matchAnyArg checks if any arg matches the pattern.

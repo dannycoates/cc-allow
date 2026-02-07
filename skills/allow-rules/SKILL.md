@@ -1,12 +1,12 @@
 ---
 name: allow-rules
-description: Manages cc-allow.toml configuration files for bash command permission control. Use when the user wants to add, modify, or remove allow/deny rules, redirect rules, or pipe rules for Claude Code bash commands.
+description: Manages cc-allow.toml configuration files for bash command, file tool, and WebFetch URL permission control. Use when the user wants to add, modify, or remove allow/deny rules, redirect rules, pipe rules, or URL rules for Claude Code tools.
 context: fork
 ---
 
 # Managing cc-allow Rules (v2 Config Format)
 
-cc-allow evaluates bash commands and file tool requests (Read, Edit, Write) and returns exit codes: 0=allow, 1=ask (defer), 2=deny, 3=error.
+cc-allow evaluates bash commands, file tool requests (Read, Edit, Write), and WebFetch URL requests and returns exit codes: 0=allow, 1=ask (defer), 2=deny, 3=error.
 
 ## Config Format Version
 
@@ -14,7 +14,7 @@ cc-allow evaluates bash commands and file tool requests (Read, Edit, Write) and 
 version = "2.0"
 ```
 
-The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `[write]`, `[edit]`.
+The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `[write]`, `[edit]`, `[webfetch]`.
 
 ## Config Locations
 
@@ -281,6 +281,50 @@ message = "Cannot write outside project"
 
 **Evaluation order**: deny → allow → default (deny always wins)
 
+## WebFetch Tool Permissions
+
+Control Claude Code's WebFetch tool with URL pattern matching and optional Google Safe Browsing:
+
+```toml
+[webfetch]
+default = "ask"
+default_message = "URL fetch requires approval: {{.FilePath}}"
+
+[webfetch.allow]
+paths = [
+    "re:^https://github\\.com/",
+    "re:^https://api\\.github\\.com/",
+    "re:^https://pkg\\.go\\.dev/",
+    "re:^https://docs\\.",
+]
+
+[webfetch.deny]
+paths = [
+    "re:^https?://localhost",
+    "re:^https?://127\\.0\\.0\\.1",
+    "re:^file://",
+]
+message = "Blocked URL: {{.FilePath}}"
+```
+
+**Important:** URL patterns must use `re:` prefix. The `path:` prefix is for filesystem paths and won't work for URLs.
+
+**Evaluation order**: deny → allow → Safe Browsing (if enabled) → default
+
+### Google Safe Browsing
+
+Enable automatic URL threat detection:
+
+```toml
+[webfetch.safe_browsing]
+enabled = true
+api_key = "AIza..."
+```
+
+When enabled, URLs not matching any local pattern are checked against Google Safe Browsing v4 API. Flagged URLs are denied. On API errors, fails open with 'ask' (defers to claude).
+
+**Merge**: strictest-wins — once enabled by any config, cannot be disabled. API key uses last-config-wins.
+
 ## ref: Cross-References
 
 Use `ref:` to reference other config values:
@@ -348,6 +392,12 @@ message = "Cannot write to {{.FilePath}} - system directory"
 
 **Block file writing**: Add to `[write.deny].paths`
 
+**Allow URL fetching**: Add `re:` pattern to `[webfetch.allow].paths`
+
+**Block URL fetching**: Add `re:` pattern to `[webfetch.deny].paths`
+
+**Enable Safe Browsing**: Set `[webfetch.safe_browsing] enabled = true` with `api_key`
+
 ## Workflow
 
 0. If no project config exists, initialize one:
@@ -371,6 +421,9 @@ message = "Cannot write to {{.FilePath}} - system directory"
    # Test file tools
    echo '/etc/passwd' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --read
    echo '$HOME/.bashrc' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --write
+
+   # Test WebFetch URLs
+   echo 'https://github.com/user/repo' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --fetch
 
    # Test with agent-specific config
    echo 'npm install' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --agent playwright
