@@ -575,14 +575,14 @@ paths = ["path:/tmp/**"]
 	}
 
 	t.Run("replaced allow no longer matches old paths", func(t *testing.T) {
-		r := NewEvaluator(chain).evaluateFileTool("Read", "/home/user/file.txt")
+		r := NewEvaluator(chain).evaluateFileTool(ToolRead, "/home/user/file.txt")
 		if r.Action != ActionDeny {
 			t.Errorf("/home path should be denied after replace, got %s", r.Action)
 		}
 	})
 
 	t.Run("replaced allow keeps new paths", func(t *testing.T) {
-		r := NewEvaluator(chain).evaluateFileTool("Read", "/tmp/file.txt")
+		r := NewEvaluator(chain).evaluateFileTool(ToolRead, "/tmp/file.txt")
 		if r.Action != ActionAllow {
 			t.Errorf("/tmp path should be allowed after replace, got %s", r.Action)
 		}

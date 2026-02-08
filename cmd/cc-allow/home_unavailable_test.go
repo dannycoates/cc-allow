@@ -123,8 +123,8 @@ func TestMergedConfigUsesHome(t *testing.T) {
 			name: "file allow with $HOME",
 			config: &MergedConfig{
 				Files: MergedFilesConfig{
-					Allow: map[string][]TrackedFilePatternEntry{"Read": {{Pattern: "path:$HOME/**"}}},
-					Deny:  map[string][]TrackedFilePatternEntry{},
+					Allow: map[ToolName][]TrackedFilePatternEntry{ToolRead: {{Pattern: "path:$HOME/**"}}},
+					Deny:  map[ToolName][]TrackedFilePatternEntry{},
 				},
 			},
 			wantHome: true,
@@ -133,8 +133,8 @@ func TestMergedConfigUsesHome(t *testing.T) {
 			name: "file deny with $HOME",
 			config: &MergedConfig{
 				Files: MergedFilesConfig{
-					Allow: map[string][]TrackedFilePatternEntry{},
-					Deny:  map[string][]TrackedFilePatternEntry{"Write": {{Pattern: "path:$HOME/.ssh/*"}}},
+					Allow: map[ToolName][]TrackedFilePatternEntry{},
+					Deny:  map[ToolName][]TrackedFilePatternEntry{ToolWrite: {{Pattern: "path:$HOME/.ssh/*"}}},
 				},
 			},
 			wantHome: true,
@@ -152,8 +152,8 @@ func TestMergedConfigUsesHome(t *testing.T) {
 				CommandsAllow: []TrackedCommandEntry{{Name: "ls"}},
 				Rules:         []TrackedRule[BashRule]{{Rule: BashRule{Command: "rm"}}},
 				Files: MergedFilesConfig{
-					Allow: map[string][]TrackedFilePatternEntry{},
-					Deny:  map[string][]TrackedFilePatternEntry{},
+					Allow: map[ToolName][]TrackedFilePatternEntry{},
+					Deny:  map[ToolName][]TrackedFilePatternEntry{},
 				},
 				Aliases: map[string]Alias{},
 			},

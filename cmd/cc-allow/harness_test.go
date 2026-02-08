@@ -76,7 +76,7 @@ func (h *HarnessCommand) GetBash(testdataDir string) (string, error) {
 // HarnessFile represents a single file tool test with expected results per ruleset
 type HarnessFile struct {
 	Name string `toml:"name"`
-	Tool string `toml:"tool"` // Read, Write, or Edit
+	Tool ToolName `toml:"tool"` // Read, Write, or Edit
 	Path string `toml:"path"` // file path to test
 	// Expected results are stored as a map, populated dynamically from TOML fields
 	Expected map[string]string `toml:"-"`
@@ -103,7 +103,7 @@ func (h *HarnessFile) UnmarshalTOML(data any) error {
 		case "name":
 			h.Name = strVal
 		case "tool":
-			h.Tool = strVal
+			h.Tool = ToolName(strVal)
 		case "path":
 			h.Path = strVal
 		default:
@@ -315,7 +315,7 @@ func evalBash(t *testing.T, cfg *Config, bash string) Result {
 	return eval.Evaluate(info)
 }
 
-func evalFile(t *testing.T, cfg *Config, tool, path string) Result {
+func evalFile(t *testing.T, cfg *Config, tool ToolName, path string) Result {
 	t.Helper()
 	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
 	return NewEvaluator(chain).evaluateFileTool(tool, path)

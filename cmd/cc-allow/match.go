@@ -245,7 +245,7 @@ func resolveFileToolRef(parts []string, merged *MergedConfig) []string {
 		return nil
 	}
 
-	toolName := titleCaser.String(parts[0]) // "read" -> "Read"
+	toolName := ToolName(titleCaser.String(parts[0])) // "read" -> "Read"
 	action := parts[1]                      // "allow" or "deny"
 	field := parts[2]                       // "paths"
 

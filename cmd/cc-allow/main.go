@@ -81,26 +81,26 @@ func main() {
 	}
 
 	// Determine tool mode
-	toolMode := ""
+	var toolMode ToolName
 	modeCount := 0
 	if *bashMode {
-		toolMode = "Bash"
+		toolMode = ToolBash
 		modeCount++
 	}
 	if *readMode {
-		toolMode = "Read"
+		toolMode = ToolRead
 		modeCount++
 	}
 	if *writeMode {
-		toolMode = "Write"
+		toolMode = ToolWrite
 		modeCount++
 	}
 	if *editMode {
-		toolMode = "Edit"
+		toolMode = ToolEdit
 		modeCount++
 	}
 	if *fetchMode {
-		toolMode = "WebFetch"
+		toolMode = ToolWebFetch
 		modeCount++
 	}
 	if modeCount > 1 {
@@ -125,7 +125,7 @@ func main() {
 // In hook mode, it reads JSON from stdin and outputs JSON.
 // In pipe mode, it reads the input directly from stdin.
 // toolMode specifies the tool type: "Bash", "Read", "Write", "Edit", or "" (defaults to Bash).
-func runEval(configPath string, hookMode, debugMode bool, toolMode string) ExitCode {
+func runEval(configPath string, hookMode, debugMode bool, toolMode ToolName) ExitCode {
 	// Load configuration chain from standard locations + explicit path
 	chain, err := LoadConfigChain(configPath)
 	if err != nil {
@@ -171,7 +171,7 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) ExitC
 }
 
 // buildInput constructs a HookInput from stdin based on mode.
-func buildInput(hookMode bool, toolMode string) (HookInput, error) {
+func buildInput(hookMode bool, toolMode ToolName) (HookInput, error) {
 	if hookMode {
 		var input HookInput
 		if err := json.NewDecoder(os.Stdin).Decode(&input); err != nil {
@@ -189,17 +189,17 @@ func buildInput(hookMode bool, toolMode string) (HookInput, error) {
 
 	// Default to Bash
 	if toolMode == "" {
-		toolMode = "Bash"
+		toolMode = ToolBash
 	}
 
 	var input HookInput
 	input.ToolName = toolMode
 	switch toolMode {
-	case "Bash":
+	case ToolBash:
 		input.ToolInput.Command = value
-	case "Read", "Write", "Edit":
+	case ToolRead, ToolWrite, ToolEdit:
 		input.ToolInput.FilePath = value
-	case "WebFetch":
+	case ToolWebFetch:
 		input.ToolInput.URL = value
 	}
 	return input, nil
@@ -489,9 +489,9 @@ func logDebugEval(input HookInput, result Result) {
 	// Determine the input value for display
 	var inputValue string
 	switch input.ToolName {
-	case "Read", "Write", "Edit":
+	case ToolRead, ToolWrite, ToolEdit:
 		inputValue = input.ToolInput.FilePath
-	case "WebFetch":
+	case ToolWebFetch:
 		inputValue = input.ToolInput.URL
 	default:
 		inputValue = input.ToolInput.Command
@@ -515,7 +515,7 @@ func logDebugEval(input HookInput, result Result) {
 	}
 	logDebugEntry(logEntry{
 		Ts:      time.Now().Format(time.RFC3339Nano),
-		Tool:    input.ToolName,
+		Tool:    string(input.ToolName),
 		Input:   inputValue,
 		Action:  string(result.Action),
 		Source:  result.Source,

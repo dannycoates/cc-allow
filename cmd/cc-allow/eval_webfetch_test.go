@@ -75,6 +75,18 @@ paths = ["re:^https://github\\.com/"]
 			wantAction: ActionAsk,
 		},
 		{
+			name: "webfetch default independent from read default",
+			config: `
+version = "2.0"
+[read]
+default = "ask"
+[webfetch]
+default = "allow"
+`,
+			url:        "https://any-site.com/page",
+			wantAction: ActionAllow,
+		},
+		{
 			name: "default deny when configured",
 			config: `
 version = "2.0"
@@ -157,7 +169,7 @@ paths = ["re:^https://github\\.com/"]
 		{
 			name: "dispatch WebFetch allow",
 			input: HookInput{
-				ToolName: "WebFetch",
+				ToolName: ToolWebFetch,
 				ToolInput: struct {
 					Command  string `json:"command"`
 					FilePath string `json:"file_path"`
@@ -170,7 +182,7 @@ paths = ["re:^https://github\\.com/"]
 		{
 			name: "dispatch WebFetch no URL",
 			input: HookInput{
-				ToolName: "WebFetch",
+				ToolName: ToolWebFetch,
 				ToolInput: struct {
 					Command  string `json:"command"`
 					FilePath string `json:"file_path"`
@@ -200,8 +212,8 @@ func TestWebFetchHookInputParsing(t *testing.T) {
 		t.Fatalf("json.Unmarshal failed: %v", err)
 	}
 
-	if input.ToolName != "WebFetch" {
-		t.Errorf("ToolName = %q, want %q", input.ToolName, "WebFetch")
+	if input.ToolName != ToolWebFetch {
+		t.Errorf("ToolName = %q, want %q", input.ToolName, ToolWebFetch)
 	}
 	if input.ToolInput.URL != "https://github.com/user/repo" {
 		t.Errorf("URL = %q, want %q", input.ToolInput.URL, "https://github.com/user/repo")
