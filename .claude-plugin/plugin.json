@@ -1,7 +1,7 @@
 {
   "name": "cc-allow",
   "description": "Bash command permission control for Claude Code",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "author": {
     "name": "Danny Coates"
   },
