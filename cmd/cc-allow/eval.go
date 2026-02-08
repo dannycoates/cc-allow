@@ -26,54 +26,42 @@ var defaultFileAccessTypes = map[string]string{
 
 // Result represents the evaluation result.
 type Result struct {
-	Action  string // "allow", "deny", or "ask"
+	Action  Action // ActionAllow, ActionDeny, or ActionAsk
 	Message string
 	Command string // the command that triggered this result
 	Source  string // describes what triggered this result
 }
 
 // combineActionsStrict merges two actions with strictness order: deny > ask > allow
-func combineActionsStrict(current, new string) string {
-	if current == "deny" || new == "deny" {
-		return "deny"
+func combineActionsStrict(current, new Action) Action {
+	if current == ActionDeny || new == ActionDeny {
+		return ActionDeny
 	}
-	if current == "ask" || new == "ask" {
-		return "ask"
+	if current == ActionAsk || new == ActionAsk {
+		return ActionAsk
 	}
-	return "allow"
+	return ActionAllow
 }
 
 // combineResults merges two results using strict ordering.
 func combineResults(current, new Result) Result {
 	combined := combineActionsStrict(current.Action, new.Action)
-	if combined == "deny" {
-		if new.Action == "deny" {
+	if combined == ActionDeny {
+		if new.Action == ActionDeny {
 			return new
 		}
 		return current
 	}
-	if combined == "ask" {
-		if new.Action == "ask" {
+	if combined == ActionAsk {
+		if new.Action == ActionAsk {
 			return new
 		}
 		return current
 	}
-	if new.Action == "allow" {
+	if new.Action == ActionAllow {
 		return new
 	}
 	return current
-}
-
-// actionPriority returns a priority value for tie-breaking.
-func actionPriority(action string) int {
-	switch action {
-	case "deny":
-		return 2
-	case "ask":
-		return 1
-	default:
-		return 0
-	}
 }
 
 // Evaluator applies configuration rules to extracted commands.
@@ -83,11 +71,15 @@ type Evaluator struct {
 	matchCtx     *MatchContext
 	pathResolver *pathutil.CommandResolver
 	configError  error
+	projectRoot  string
 }
 
 // NewEvaluator creates a new evaluator with the given configuration chain.
 func NewEvaluator(chain *ConfigChain) *Evaluator {
-	projectRoot := findProjectRoot()
+	projectRoot := chain.ProjectRoot
+	if projectRoot == "" {
+		projectRoot = findProjectRoot()
+	}
 
 	var configError error
 	for _, cfg := range chain.Configs {
@@ -123,6 +115,7 @@ func NewEvaluator(chain *ConfigChain) *Evaluator {
 		},
 		pathResolver: pathutil.NewCommandResolver(allowedPaths),
 		configError:  configError,
+		projectRoot:  projectRoot,
 	}
 }
 
@@ -130,7 +123,7 @@ func NewEvaluator(chain *ConfigChain) *Evaluator {
 func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	if e.configError != nil {
 		return Result{
-			Action:  "ask",
+			Action:  ActionAsk,
 			Message: "Config validation error: " + e.configError.Error(),
 			Source:  "config validation failed",
 		}
@@ -138,25 +131,25 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 
 	if info.ParseError != nil {
 		return Result{
-			Action:  "deny",
+			Action:  ActionDeny,
 			Message: "Parse error: " + info.ParseError.Error(),
 		}
 	}
 
 	if e.merged == nil {
-		return Result{Action: "ask", Source: "no configuration loaded"}
+		return Result{Action: ActionAsk, Source: "no configuration loaded"}
 	}
 
 	logDebug("--- Evaluating against merged config (from %d source(s)) ---", len(e.merged.Sources))
 
 	// Check constructs first
 	constructResult := e.checkConstructs(info)
-	if constructResult.Action == "deny" {
+	if constructResult.Action == ActionDeny {
 		return constructResult
 	}
 
-	result := Result{Action: "allow"}
-	if constructResult.Action == "ask" {
+	result := Result{Action: ActionAllow}
+	if constructResult.Action == ActionAsk {
 		result = constructResult
 	}
 
@@ -164,7 +157,7 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	for _, cmd := range info.Commands {
 		cmdResult := e.evaluateCommand(cmd)
 		result = combineResults(result, cmdResult)
-		if result.Action == "deny" {
+		if result.Action == ActionDeny {
 			return result
 		}
 	}
@@ -173,24 +166,24 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	for _, redir := range info.Redirects {
 		redirResult := e.evaluateRedirect(redir)
 		result = combineResults(result, redirResult)
-		if result.Action == "deny" {
+		if result.Action == ActionDeny {
 			return result
 		}
 	}
 
 	// Check heredocs
-	if e.merged.Constructs.Heredocs.Value == "allow" {
+	if e.merged.Constructs.Heredocs.Value == ActionAllow {
 		for _, hdoc := range info.Heredocs {
 			hdocResult := e.evaluateHeredoc(hdoc)
 			result = combineResults(result, hdocResult)
-			if result.Action == "deny" {
+			if result.Action == ActionDeny {
 				return result
 			}
 		}
 	}
 
 	if len(info.Commands) == 0 && len(info.Redirects) == 0 && len(info.Heredocs) == 0 {
-		return Result{Action: "ask", Source: "no executable commands in input"}
+		return Result{Action: ActionAsk, Source: "no executable commands in input"}
 	}
 
 	return result
@@ -198,20 +191,20 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 
 // checkConstructs verifies shell constructs against config policy.
 func (e *Evaluator) checkConstructs(info *ExtractedInfo) Result {
-	result := Result{Action: "allow"}
+	result := Result{Action: ActionAllow}
 
 	if info.Constructs.HasFunctionDefs {
 		tv := e.merged.Constructs.FunctionDefinitions
 		switch tv.Value {
-		case "deny":
+		case ActionDeny:
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: "Function definitions are not allowed",
 				Source:  tv.Source + ": constructs.function_definitions=deny",
 			}
-		case "ask":
+		case ActionAsk:
 			result = Result{
-				Action:  "ask",
+				Action:  ActionAsk,
 				Message: "Function definitions need approval",
 				Source:  tv.Source + ": constructs.function_definitions=ask",
 			}
@@ -221,15 +214,15 @@ func (e *Evaluator) checkConstructs(info *ExtractedInfo) Result {
 	if info.Constructs.HasBackground {
 		tv := e.merged.Constructs.Background
 		switch tv.Value {
-		case "deny":
+		case ActionDeny:
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: "Background execution (&) is not allowed",
 				Source:  tv.Source + ": constructs.background=deny",
 			}
-		case "ask":
+		case ActionAsk:
 			result = combineResults(result, Result{
-				Action:  "ask",
+				Action:  ActionAsk,
 				Message: "Background execution needs approval",
 				Source:  tv.Source + ": constructs.background=ask",
 			})
@@ -239,15 +232,15 @@ func (e *Evaluator) checkConstructs(info *ExtractedInfo) Result {
 	if info.Constructs.HasHeredocs {
 		tv := e.merged.Constructs.Heredocs
 		switch tv.Value {
-		case "deny":
+		case ActionDeny:
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: "Heredocs are not allowed",
 				Source:  tv.Source + ": constructs.heredocs=deny",
 			}
-		case "ask":
+		case ActionAsk:
 			result = combineResults(result, Result{
-				Action:  "ask",
+				Action:  ActionAsk,
 				Message: "Heredocs need approval",
 				Source:  tv.Source + ": constructs.heredocs=ask",
 			})
@@ -266,18 +259,18 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 		tv := e.merged.Policy.DynamicCommands
 		logDebug("    Command is dynamic, policy.dynamic_commands=%s", tv.Value)
 		switch tv.Value {
-		case "deny":
+		case ActionDeny:
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: "Dynamic command names are not allowed",
 				Command: cmd.Name,
 				Source:  tv.Source + ": dynamic command",
 			}
-		case "allow":
-			return Result{Action: "allow"}
+		case ActionAllow:
+			return Result{Action: ActionAllow}
 		default:
 			return Result{
-				Action:  "ask",
+				Action:  ActionAsk,
 				Command: cmd.Name,
 				Source:  tv.Source + ": dynamic command requires approval",
 			}
@@ -294,9 +287,9 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 	// Handle unresolved commands
 	if resolveResult.Unresolved {
 		tv := e.merged.Policy.UnresolvedCommands
-		if tv.Value == "deny" {
+		if tv.Value == ActionDeny {
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: "Command not found in allowed paths",
 				Command: cmd.Name,
 				Source:  tv.Source + ": unresolved command",
@@ -315,7 +308,7 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 			tmplCtx := newCommandTemplateContext(cmd, e.matchCtx)
 			msg = templateMessage(msg, tmplCtx)
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: msg,
 				Command: cmd.Name,
 				Source:  entry.Source + ": bash.deny.commands",
@@ -338,7 +331,7 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 	// Collect matching rules
 	type ruleMatch struct {
 		index       int
-		rule        TrackedRule
+		rule        TrackedRule[BashRule]
 		specificity int
 		result      Result
 	}
@@ -349,8 +342,8 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 			continue
 		}
 		if result, matched := e.matchRule(tr, cmd); matched {
-			spec := tr.BashRule.Specificity()
-			logDebug("    Rule[%d] matched: command=%q action=%s specificity=%d", i, tr.Command, tr.Action, spec)
+			spec := tr.Rule.Specificity()
+			logDebug("    Rule[%d] matched: command=%q action=%s specificity=%d", i, tr.Rule.Command, tr.Rule.Action, spec)
 			matches = append(matches, ruleMatch{
 				index:       i,
 				rule:        tr,
@@ -366,15 +359,15 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 			if matches[i].specificity != matches[j].specificity {
 				return matches[i].specificity > matches[j].specificity
 			}
-			return actionPriority(matches[i].rule.Action) > actionPriority(matches[j].rule.Action)
+			return matches[i].rule.Rule.Action.Priority() > matches[j].rule.Rule.Action.Priority()
 		})
 		winner := matches[0]
-		logDebug("    Selected rule[%d] with specificity=%d action=%s", winner.index, winner.specificity, winner.rule.Action)
+		logDebug("    Selected rule[%d] with specificity=%d action=%s", winner.index, winner.specificity, winner.rule.Rule.Action)
 
 		// Check file arguments if rule allows
-		if winner.result.Action == "allow" && e.shouldRespectFileRules(&winner.rule) {
+		if winner.result.Action == ActionAllow && e.shouldRespectFileRules(&winner.rule) {
 			fileResult := e.checkCommandFileArgs(cmd, &winner.rule)
-			if fileResult.Action != "allow" {
+			if fileResult.Action != ActionAllow {
 				return fileResult
 			}
 		}
@@ -386,19 +379,19 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 		logDebug("    No rules matched, using allow list")
 		if e.shouldRespectFileRules(nil) {
 			fileResult := e.checkCommandFileArgs(cmd, nil)
-			if fileResult.Action != "allow" {
+			if fileResult.Action != ActionAllow {
 				return fileResult
 			}
 		}
-		return Result{Action: "allow", Source: allowSource + ": bash.allow.commands"}
+		return Result{Action: ActionAllow, Source: allowSource + ": bash.allow.commands"}
 	}
 
 	// Unresolved command ask handling
 	if resolveResult.Unresolved {
 		tv := e.merged.Policy.UnresolvedCommands
-		if tv.Value == "ask" {
+		if tv.Value == ActionAsk {
 			return Result{
-				Action:  "ask",
+				Action:  ActionAsk,
 				Message: "Command not found in allowed paths",
 				Command: cmd.Name,
 				Source:  tv.Source + ": unresolved command requires approval",
@@ -410,9 +403,9 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 	tv := e.merged.Policy.Default
 	logDebug("    No rules matched, using policy.default=%s", tv.Value)
 
-	if tv.Value == "allow" && e.shouldRespectFileRules(nil) {
+	if tv.Value == ActionAllow && e.shouldRespectFileRules(nil) {
 		fileResult := e.checkCommandFileArgs(cmd, nil)
-		if fileResult.Action != "allow" {
+		if fileResult.Action != ActionAllow {
 			return fileResult
 		}
 	}
@@ -447,8 +440,8 @@ func (e *Evaluator) matchCommandName(name, resolvedPath, pattern string) bool {
 }
 
 // matchRule checks if a rule matches the command.
-func (e *Evaluator) matchRule(tr TrackedRule, cmd Command) (Result, bool) {
-	rule := tr.BashRule
+func (e *Evaluator) matchRule(tr TrackedRule[BashRule], cmd Command) (Result, bool) {
+	rule := tr.Rule
 
 	// Check command name
 	if !e.matchRuleCommand(rule.Command, cmd) {
@@ -549,7 +542,7 @@ func (e *Evaluator) matchRule(tr TrackedRule, cmd Command) (Result, bool) {
 
 	// Rule matched
 	msg := rule.Message
-	if msg == "" && rule.Action == "deny" {
+	if msg == "" && rule.Action == ActionDeny {
 		msg = e.merged.Policy.DefaultMessage.Value
 	}
 	tmplCtx := newCommandTemplateContext(cmd, e.matchCtx)
@@ -689,9 +682,9 @@ func (e *Evaluator) evaluateBoolExprXor(expr *BoolExpr, args []string) bool {
 }
 
 // shouldRespectFileRules determines if file rules should be checked.
-func (e *Evaluator) shouldRespectFileRules(rule *TrackedRule) bool {
-	if rule != nil && rule.RespectFileRules != nil {
-		if *rule.RespectFileRules {
+func (e *Evaluator) shouldRespectFileRules(rule *TrackedRule[BashRule]) bool {
+	if rule != nil && rule.Rule.RespectFileRules != nil {
+		if *rule.Rule.RespectFileRules {
 			return e.hasFileRulesConfigured()
 		}
 		return false
@@ -718,8 +711,8 @@ func (e *Evaluator) hasFileRulesConfigured() bool {
 }
 
 // checkCommandFileArgs checks file arguments against file rules.
-func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule) Result {
-	result := Result{Action: "allow"}
+func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule[BashRule]) Result {
+	result := Result{Action: ActionAllow}
 
 	args := cmd.Args
 	if len(args) > 0 {
@@ -745,11 +738,11 @@ func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule) Result 
 		absPath := pathutil.ResolvePath(arg, cmd.EffectiveCwd, e.matchCtx.PathVars.Home)
 		fileResult := checkFilePathAgainstRules(e.merged, accessType, absPath, e.matchCtx)
 		fileResult.Command = cmd.Name
-		if fileResult.Action == "deny" {
+		if fileResult.Action == ActionDeny {
 			fileResult.Message = fmt.Sprintf("File argument denied: %s (arg %d)", arg, i)
 		}
 		result = combineResults(result, fileResult)
-		if result.Action == "deny" {
+		if result.Action == ActionDeny {
 			return result
 		}
 	}
@@ -757,9 +750,9 @@ func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule) Result 
 }
 
 // getFileAccessType returns the file access type for a command.
-func (e *Evaluator) getFileAccessType(cmdName string, rule *TrackedRule) string {
-	if rule != nil && rule.FileAccessType != "" {
-		return rule.FileAccessType
+func (e *Evaluator) getFileAccessType(cmdName string, rule *TrackedRule[BashRule]) string {
+	if rule != nil && rule.Rule.FileAccessType != "" {
+		return rule.Rule.FileAccessType
 	}
 	if accessType, ok := defaultFileAccessTypes[cmdName]; ok {
 		return accessType
@@ -792,22 +785,22 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 	logDebug("  Evaluating redirect to %q", redir.Target)
 
 	if redir.IsFdRedirect {
-		return Result{Action: "allow"}
+		return Result{Action: ActionAllow}
 	}
 
 	if redir.IsDynamic {
 		tv := e.merged.Policy.DynamicCommands
 		switch tv.Value {
-		case "deny":
+		case ActionDeny:
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: "Dynamic redirect targets are not allowed",
 				Source:  tv.Source + ": dynamic redirect",
 			}
-		case "allow":
-			return Result{Action: "allow"}
+		case ActionAllow:
+			return Result{Action: ActionAllow}
 		default:
-			return Result{Action: "ask", Source: tv.Source + ": dynamic redirect requires approval"}
+			return Result{Action: ActionAsk, Source: tv.Source + ": dynamic redirect requires approval"}
 		}
 	}
 
@@ -817,7 +810,7 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 			continue
 		}
 		if result, matched := e.matchRedirectRule(tr, redir); matched {
-			logDebug("    Matched redirect rule[%d]: action=%s", i, tr.Action)
+			logDebug("    Matched redirect rule[%d]: action=%s", i, tr.Rule.Action)
 			return result
 		}
 	}
@@ -830,11 +823,11 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 		}
 		absPath := pathutil.ResolvePath(redir.Target, e.matchCtx.PathVars.Cwd, e.matchCtx.PathVars.Home)
 		fileResult := checkFilePathAgainstRules(e.merged, accessType, absPath, e.matchCtx)
-		if fileResult.Action == "deny" {
+		if fileResult.Action == ActionDeny {
 			fileResult.Message = "Redirect target denied: " + redir.Target
 			return fileResult
 		}
-		if fileResult.Action == "allow" {
+		if fileResult.Action == ActionAllow {
 			return fileResult
 		}
 	}
@@ -847,8 +840,8 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 }
 
 // matchRedirectRule checks if a redirect rule matches.
-func (e *Evaluator) matchRedirectRule(tr TrackedRedirectRule, redir Redirect) (Result, bool) {
-	rule := tr.RedirectRule
+func (e *Evaluator) matchRedirectRule(tr TrackedRule[RedirectRule], redir Redirect) (Result, bool) {
+	rule := tr.Rule
 
 	if rule.Append != nil && *rule.Append != redir.Append {
 		return Result{}, false
@@ -865,7 +858,7 @@ func (e *Evaluator) matchRedirectRule(tr TrackedRedirectRule, redir Redirect) (R
 	}
 
 	msg := rule.Message
-	if msg == "" && rule.Action == "deny" {
+	if msg == "" && rule.Action == ActionDeny {
 		msg = e.merged.Policy.DefaultMessage.Value
 	}
 	tmplCtx := newRedirectTemplateContext(redir, e.matchCtx)
@@ -887,17 +880,17 @@ func (e *Evaluator) evaluateHeredoc(hdoc Heredoc) Result {
 			continue
 		}
 		if result, matched := e.matchHeredocRule(tr, hdoc); matched {
-			logDebug("    Matched heredoc rule[%d]: action=%s", i, tr.Action)
+			logDebug("    Matched heredoc rule[%d]: action=%s", i, tr.Rule.Action)
 			return result
 		}
 	}
 
-	return Result{Action: "allow"}
+	return Result{Action: ActionAllow}
 }
 
 // matchHeredocRule checks if a heredoc rule matches.
-func (e *Evaluator) matchHeredocRule(tr TrackedHeredocRule, hdoc Heredoc) (Result, bool) {
-	rule := tr.HeredocRule
+func (e *Evaluator) matchHeredocRule(tr TrackedRule[HeredocRule], hdoc Heredoc) (Result, bool) {
+	rule := tr.Rule
 
 	if rule.Content != nil {
 		if !e.evaluateBoolExpr(rule.Content, []string{hdoc.Body}) {
@@ -906,7 +899,7 @@ func (e *Evaluator) matchHeredocRule(tr TrackedHeredocRule, hdoc Heredoc) (Resul
 	}
 
 	msg := rule.Message
-	if msg == "" && rule.Action == "deny" {
+	if msg == "" && rule.Action == ActionDeny {
 		msg = e.merged.Policy.DefaultMessage.Value
 	}
 	tmplCtx := newHeredocTemplateContext(hdoc, e.matchCtx)
@@ -935,7 +928,7 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx 
 			tmplCtx := newFileTemplateContext(toolName, path, ctx)
 			msg = templateMessage(msg, tmplCtx)
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: msg,
 				Source:  entry.Source + ": " + strings.ToLower(toolName) + ".deny.paths",
 			}
@@ -950,7 +943,7 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx 
 		}
 		if p.MatchWithContext(path, ctx) {
 			return Result{
-				Action: "allow",
+				Action: ActionAllow,
 				Source: entry.Source + ": " + strings.ToLower(toolName) + ".allow.paths",
 			}
 		}
@@ -972,14 +965,13 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx 
 }
 
 // evaluateFileTool evaluates a file tool request.
-func evaluateFileTool(chain *ConfigChain, toolName, filePath string) Result {
-	merged := chain.Merged
+func (e *Evaluator) evaluateFileTool(toolName, filePath string) Result {
+	merged := e.chain.Merged
 	if merged == nil {
-		return Result{Action: "ask", Source: "no configuration loaded"}
+		return Result{Action: ActionAsk, Source: "no configuration loaded"}
 	}
 
-	projectRoot := findProjectRoot()
-	pathVars := pathutil.NewPathVars(projectRoot)
+	pathVars := pathutil.NewPathVars(e.projectRoot)
 	ctx := &MatchContext{
 		PathVars: pathVars,
 		Merged:   merged,
@@ -991,20 +983,19 @@ func evaluateFileTool(chain *ConfigChain, toolName, filePath string) Result {
 
 // evaluateWebFetchTool evaluates a WebFetch URL request.
 // Unlike evaluateFileTool, this does NOT call ResolvePath -- URLs are not filesystem paths.
-func evaluateWebFetchTool(chain *ConfigChain, url string) Result {
-	merged := chain.Merged
+func (e *Evaluator) evaluateWebFetchTool(url string) Result {
+	merged := e.chain.Merged
 	if merged == nil {
-		return Result{Action: "ask", Source: "no configuration loaded"}
+		return Result{Action: ActionAsk, Source: "no configuration loaded"}
 	}
 
 	// Step 1: Check local URL pattern rules (reuse file pattern infrastructure)
-	projectRoot := findProjectRoot()
-	pathVars := pathutil.NewPathVars(projectRoot)
+	pathVars := pathutil.NewPathVars(e.projectRoot)
 	ctx := &MatchContext{PathVars: pathVars, Merged: merged}
 	localResult := checkFilePathAgainstRules(merged, "WebFetch", url, ctx)
 
 	// If local rules gave a definitive answer (allow or deny), use it
-	if localResult.Action == "allow" || localResult.Action == "deny" {
+	if localResult.Action == ActionAllow || localResult.Action == ActionDeny {
 		return localResult
 	}
 
@@ -1015,13 +1006,13 @@ func evaluateWebFetchTool(chain *ConfigChain, url string) Result {
 		if err != nil {
 			logDebug("Safe Browsing API error: %v", err)
 			return Result{
-				Action:  "ask",
+				Action:  ActionAsk,
 				Message: fmt.Sprintf("Safe Browsing API error: %v", err),
 				Source:  "safe-browsing-api",
 			}
 		} else if !safe {
 			return Result{
-				Action:  "deny",
+				Action:  ActionDeny,
 				Message: fmt.Sprintf("URL flagged by Google Safe Browsing: %s", threatType),
 				Source:  "safe-browsing-api",
 			}
@@ -1117,14 +1108,14 @@ func mergedConfigContainsVar(m *MergedConfig, varName string) bool {
 
 	// Check rules
 	for _, tr := range m.Rules {
-		if ruleContainsVar(&tr.BashRule, varName) {
+		if ruleContainsVar(&tr.Rule, varName) {
 			return true
 		}
 	}
 
 	// Check redirects
 	for _, rr := range m.Redirects {
-		for _, p := range rr.Paths {
+		for _, p := range rr.Rule.Paths {
 			if strings.Contains(p, varName) {
 				return true
 			}
@@ -1133,7 +1124,7 @@ func mergedConfigContainsVar(m *MergedConfig, varName string) bool {
 
 	// Check heredocs
 	for _, hr := range m.Heredocs {
-		if boolExprContainsVar(hr.Content, varName) {
+		if boolExprContainsVar(hr.Rule.Content, varName) {
 			return true
 		}
 	}

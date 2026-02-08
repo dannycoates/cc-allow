@@ -5,36 +5,18 @@ package main
 
 import "maps"
 
-// actionStrictness returns the strictness level of an action.
-// Higher values are stricter: deny(2) > ask(1) > allow(0).
-func actionStrictness(action string) int {
-	switch action {
-	case "deny":
-		return 2
-	case "ask":
-		return 1
-	case "allow":
-		return 0
-	default:
-		return -1 // unset or invalid
-	}
-}
-
-// isStricter returns true if newVal is stricter than currentVal.
-func isStricter(newVal, currentVal string) bool {
-	return actionStrictness(newVal) > actionStrictness(currentVal)
-}
-
 // mergeTrackedAction merges an action field, keeping the stricter value.
-func mergeTrackedAction(current Tracked[string], newVal, newSource string) Tracked[string] {
+// Accepts a raw string from TOML config and converts to Action.
+func mergeTrackedAction(current Tracked[Action], newVal string, newSource string) Tracked[Action] {
 	if newVal == "" {
 		return current
 	}
+	action := Action(newVal)
 	if !current.IsSet() {
-		return Tracked[string]{Value: newVal, Source: newSource}
+		return Tracked[Action]{Value: action, Source: newSource}
 	}
-	if isStricter(newVal, current.Value) {
-		return Tracked[string]{Value: newVal, Source: newSource}
+	if action.Priority() > current.Value.Priority() {
+		return Tracked[Action]{Value: action, Source: newSource}
 	}
 	return current
 }
@@ -67,9 +49,9 @@ func newEmptyMergedConfig() *MergedConfig {
 			Deny:           make(map[string][]TrackedFilePatternEntry),
 		},
 		Aliases:   make(map[string]Alias),
-		Rules:     []TrackedRule{},
-		Redirects: []TrackedRedirectRule{},
-		Heredocs:  []TrackedHeredocRule{},
+		Rules:     []TrackedRule[BashRule]{},
+		Redirects: []TrackedRule[RedirectRule]{},
+		Heredocs:  []TrackedRule[HeredocRule]{},
 	}
 }
 
@@ -106,7 +88,7 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 		// Remove allow-action rules from earlier configs
 		filtered := merged.Rules[:0]
 		for _, r := range merged.Rules {
-			if r.Action != "allow" {
+			if r.Rule.Action != ActionAllow {
 				filtered = append(filtered, r)
 			}
 		}
@@ -192,13 +174,13 @@ func mergeFileToolConfig(merged *MergedFilesConfig, toolName string, cfg *FileTo
 // applyMergedDefaults fills in system defaults for unset fields.
 func applyMergedDefaults(merged *MergedConfig) {
 	if !merged.Policy.Default.IsSet() {
-		merged.Policy.Default = Tracked[string]{Value: "ask", Source: "(default)"}
+		merged.Policy.Default = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
 	}
 	if !merged.Policy.DynamicCommands.IsSet() {
-		merged.Policy.DynamicCommands = Tracked[string]{Value: "ask", Source: "(default)"}
+		merged.Policy.DynamicCommands = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
 	}
 	if !merged.Policy.UnresolvedCommands.IsSet() {
-		merged.Policy.UnresolvedCommands = Tracked[string]{Value: "ask", Source: "(default)"}
+		merged.Policy.UnresolvedCommands = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
 	}
 	if !merged.Policy.DefaultMessage.IsSet() {
 		merged.Policy.DefaultMessage = Tracked[string]{Value: "Command not allowed", Source: "(default)"}
@@ -207,19 +189,19 @@ func applyMergedDefaults(merged *MergedConfig) {
 		merged.Policy.RespectFileRules = Tracked[bool]{Value: true, Source: "(default)"}
 	}
 	if !merged.Constructs.Subshells.IsSet() {
-		merged.Constructs.Subshells = Tracked[string]{Value: "ask", Source: "(default)"}
+		merged.Constructs.Subshells = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
 	}
 	if !merged.Constructs.FunctionDefinitions.IsSet() {
-		merged.Constructs.FunctionDefinitions = Tracked[string]{Value: "ask", Source: "(default)"}
+		merged.Constructs.FunctionDefinitions = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
 	}
 	if !merged.Constructs.Background.IsSet() {
-		merged.Constructs.Background = Tracked[string]{Value: "ask", Source: "(default)"}
+		merged.Constructs.Background = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
 	}
 	if !merged.Constructs.Heredocs.IsSet() {
-		merged.Constructs.Heredocs = Tracked[string]{Value: "allow", Source: "(default)"}
+		merged.Constructs.Heredocs = Tracked[Action]{Value: ActionAllow, Source: "(default)"}
 	}
 	if !merged.Files.Default.IsSet() {
-		merged.Files.Default = Tracked[string]{Value: "ask", Source: "(default)"}
+		merged.Files.Default = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
 	}
 	if _, ok := merged.Files.DefaultMessage["Read"]; !ok {
 		merged.Files.DefaultMessage["Read"] = Tracked[string]{Value: "File read requires approval: {{.FilePath}}", Source: "(default)"}
@@ -384,17 +366,17 @@ func slicesEqual(a, b []string) bool {
 }
 
 // mergeRules merges new rules into existing rules with shadowing detection.
-func mergeRules(merged []TrackedRule, newRules []BashRule, newSource string) []TrackedRule {
+func mergeRules(merged []TrackedRule[BashRule], newRules []BashRule, newSource string) []TrackedRule[BashRule] {
 	for _, newRule := range newRules {
-		tr := TrackedRule{BashRule: newRule, Source: newSource}
+		tr := TrackedRule[BashRule]{Rule: newRule, Source: newSource}
 
 		// Check for shadowing
 		for i, existing := range merged {
 			if existing.Shadowed {
 				continue
 			}
-			if rulesExactMatch(existing.BashRule, newRule) {
-				if isStricter(newRule.Action, existing.BashRule.Action) {
+			if rulesExactMatch(existing.Rule, newRule) {
+				if newRule.Action.Priority() > existing.Rule.Action.Priority() {
 					tr.Shadowing = existing.Source
 					merged[i].Shadowed = true
 				} else {
@@ -419,16 +401,16 @@ func redirectRulesExactMatch(a, b RedirectRule) bool {
 }
 
 // mergeRedirectRules merges redirect rules with shadowing detection.
-func mergeRedirectRules(merged []TrackedRedirectRule, newRules []RedirectRule, newSource string) []TrackedRedirectRule {
+func mergeRedirectRules(merged []TrackedRule[RedirectRule], newRules []RedirectRule, newSource string) []TrackedRule[RedirectRule] {
 	for _, newRule := range newRules {
-		tr := TrackedRedirectRule{RedirectRule: newRule, Source: newSource}
+		tr := TrackedRule[RedirectRule]{Rule: newRule, Source: newSource}
 
 		for i, existing := range merged {
 			if existing.Shadowed {
 				continue
 			}
-			if redirectRulesExactMatch(existing.RedirectRule, newRule) {
-				if isStricter(newRule.Action, existing.RedirectRule.Action) {
+			if redirectRulesExactMatch(existing.Rule, newRule) {
+				if newRule.Action.Priority() > existing.Rule.Action.Priority() {
 					tr.Shadowing = existing.Source
 					merged[i].Shadowed = true
 				} else {
@@ -442,16 +424,10 @@ func mergeRedirectRules(merged []TrackedRedirectRule, newRules []RedirectRule, n
 	return merged
 }
 
-// heredocRulesExactMatch returns true if two heredoc rules have identical patterns.
-func heredocRulesExactMatch(a, b HeredocRule) bool {
-	// Compare content patterns - simplified for now
-	return false // No exact match detection for heredocs
-}
-
 // mergeHeredocRules merges heredoc rules with shadowing detection.
-func mergeHeredocRules(merged []TrackedHeredocRule, newRules []HeredocRule, newSource string) []TrackedHeredocRule {
+func mergeHeredocRules(merged []TrackedRule[HeredocRule], newRules []HeredocRule, newSource string) []TrackedRule[HeredocRule] {
 	for _, newRule := range newRules {
-		tr := TrackedHeredocRule{HeredocRule: newRule, Source: newSource}
+		tr := TrackedRule[HeredocRule]{Rule: newRule, Source: newSource}
 		// Heredoc rules don't shadow each other currently
 		merged = append(merged, tr)
 	}

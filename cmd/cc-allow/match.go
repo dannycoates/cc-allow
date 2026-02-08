@@ -24,6 +24,23 @@ const (
 	PatternRef  // reference to another config value (e.g., ref:read.allow.paths)
 )
 
+func (pt PatternType) String() string {
+	switch pt {
+	case PatternRegex:
+		return "regex"
+	case PatternLiteral:
+		return "literal"
+	case PatternPath:
+		return "path"
+	case PatternFlag:
+		return "flag"
+	case PatternRef:
+		return "ref"
+	default:
+		return fmt.Sprintf("PatternType(%d)", int(pt))
+	}
+}
+
 // MatchContext provides context needed for path pattern matching and ref resolution.
 type MatchContext struct {
 	PathVars *pathutil.PathVars

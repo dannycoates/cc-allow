@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -92,7 +93,8 @@ func TestSubshellPipeContext(t *testing.T) {
 				t.Fatalf("Parse error: %v", err)
 			}
 
-			info := ExtractFromFile(f)
+			cwd, _ := os.Getwd()
+			info := ExtractFromFile(f, cwd)
 
 			// Find the command we want to check
 			var found *Command

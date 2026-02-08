@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
@@ -37,33 +38,35 @@ func (d *ToolDispatcher) Dispatch(input HookInput) Result {
 	case "Bash", "":
 		return d.evaluateBash(input)
 	default:
-		return Result{Action: "ask", Source: "unknown tool: " + input.ToolName}
+		return Result{Action: ActionAsk, Source: "unknown tool: " + input.ToolName}
 	}
 }
 
 func (d *ToolDispatcher) evaluateFile(input HookInput) Result {
 	if input.ToolInput.FilePath == "" {
-		return Result{Action: "ask", Source: "no file path"}
+		return Result{Action: ActionAsk, Source: "no file path"}
 	}
 	logDebug("File tool: %s path=%q", input.ToolName, input.ToolInput.FilePath)
-	result := evaluateFileTool(d.chain, input.ToolName, input.ToolInput.FilePath)
+	eval := NewEvaluator(d.chain)
+	result := eval.evaluateFileTool(input.ToolName, input.ToolInput.FilePath)
 	logDebug("File result: action=%q message=%q source=%q", result.Action, result.Message, result.Source)
 	return result
 }
 
 func (d *ToolDispatcher) evaluateWebFetch(input HookInput) Result {
 	if input.ToolInput.URL == "" {
-		return Result{Action: "ask", Source: "no URL"}
+		return Result{Action: ActionAsk, Source: "no URL"}
 	}
 	logDebug("WebFetch tool: url=%q", input.ToolInput.URL)
-	result := evaluateWebFetchTool(d.chain, input.ToolInput.URL)
+	eval := NewEvaluator(d.chain)
+	result := eval.evaluateWebFetchTool(input.ToolInput.URL)
 	logDebug("WebFetch result: action=%q message=%q source=%q", result.Action, result.Message, result.Source)
 	return result
 }
 
 func (d *ToolDispatcher) evaluateBash(input HookInput) Result {
 	if input.ToolInput.Command == "" {
-		return Result{Action: "ask", Source: "no command"}
+		return Result{Action: ActionAsk, Source: "no command"}
 	}
 	logDebug("Input command: %q", input.ToolInput.Command)
 
@@ -71,11 +74,12 @@ func (d *ToolDispatcher) evaluateBash(input HookInput) Result {
 	parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
 	f, err := parser.Parse(strings.NewReader(input.ToolInput.Command), "")
 	if err != nil {
-		return Result{Action: "ask", Source: "parse error: " + err.Error()}
+		return Result{Action: ActionAsk, Source: "parse error: " + err.Error()}
 	}
 
 	// Extract and evaluate
-	info := ExtractFromFile(f)
+	cwd, _ := os.Getwd()
+	info := ExtractFromFile(f, cwd)
 	logDebugExtractedInfo(info)
 
 	eval := NewEvaluator(d.chain)

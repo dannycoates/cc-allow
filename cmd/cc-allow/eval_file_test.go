@@ -10,7 +10,7 @@ func TestEvalFileTool(t *testing.T) {
 		config     string
 		tool       string
 		filePath   string
-		wantAction string
+		wantAction Action
 	}{
 		{
 			name: "allow read in project root",
@@ -21,7 +21,7 @@ paths = ["path:/project/**"]
 `,
 			tool:       "Read",
 			filePath:   "/project/src/main.go",
-			wantAction: "allow",
+			wantAction: ActionAllow,
 		},
 		{
 			name: "deny read outside project",
@@ -35,7 +35,7 @@ paths = ["path:/etc/**"]
 `,
 			tool:       "Read",
 			filePath:   "/etc/passwd",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "deny wins over allow",
@@ -49,7 +49,7 @@ paths = ["path:/secret/**"]
 `,
 			tool:       "Read",
 			filePath:   "/secret/key.pem",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "default ask when no match",
@@ -63,7 +63,7 @@ paths = ["path:/allowed/**"]
 `,
 			tool:       "Read",
 			filePath:   "/other/file.txt",
-			wantAction: "ask",
+			wantAction: ActionAsk,
 		},
 		{
 			name: "default deny when configured",
@@ -77,7 +77,7 @@ paths = ["path:/allowed/**"]
 `,
 			tool:       "Read",
 			filePath:   "/other/file.txt",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "write tool separate from read",
@@ -91,7 +91,7 @@ paths = ["path:/**"]
 `,
 			tool:       "Write",
 			filePath:   "/project/file.txt",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "edit tool allow",
@@ -102,7 +102,7 @@ paths = ["path:/project/**"]
 `,
 			tool:       "Edit",
 			filePath:   "/project/src/main.go",
-			wantAction: "allow",
+			wantAction: ActionAllow,
 		},
 		{
 			name: "glob pattern .env files",
@@ -113,7 +113,7 @@ paths = ["path:**/.env*"]
 `,
 			tool:       "Read",
 			filePath:   "/project/.env",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "glob pattern nested .env",
@@ -124,7 +124,7 @@ paths = ["path:**/.env*"]
 `,
 			tool:       "Read",
 			filePath:   "/project/config/.env.local",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "regex pattern for extensions",
@@ -135,7 +135,7 @@ paths = ["re:.*\\.(key|pem|p12)$"]
 `,
 			tool:       "Read",
 			filePath:   "/home/user/.ssh/id_rsa.pem",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 	}
 
@@ -151,7 +151,7 @@ paths = ["re:.*\\.(key|pem|p12)$"]
 				Merged:  MergeConfigs([]*Config{cfg}),
 			}
 
-			result := evaluateFileTool(chain, tt.tool, tt.filePath)
+			result := NewEvaluator(chain).evaluateFileTool(tt.tool, tt.filePath)
 			if result.Action != tt.wantAction {
 				t.Errorf("evaluateFileTool(%s, %s) = %q, want %q (source: %s)",
 					tt.tool, tt.filePath, result.Action, tt.wantAction, result.Source)
@@ -197,25 +197,25 @@ paths = ["path:/secrets/**"]
 		name       string
 		tool       string
 		filePath   string
-		wantAction string
+		wantAction Action
 	}{
 		{
 			name:       "global allow works",
 			tool:       "Read",
 			filePath:   "/home/user/file.txt",
-			wantAction: "allow",
+			wantAction: ActionAllow,
 		},
 		{
 			name:       "project deny overrides global allow",
 			tool:       "Read",
 			filePath:   "/secrets/key.txt",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := evaluateFileTool(chain, tt.tool, tt.filePath)
+			result := NewEvaluator(chain).evaluateFileTool(tt.tool, tt.filePath)
 			if result.Action != tt.wantAction {
 				t.Errorf("evaluateFileTool(%s, %s) = %q, want %q",
 					tt.tool, tt.filePath, result.Action, tt.wantAction)
@@ -241,8 +241,8 @@ message = "Cannot write to system files"
 		Merged:  MergeConfigs([]*Config{cfg}),
 	}
 
-	result := evaluateFileTool(chain, "Write", "/etc/hosts")
-	if result.Action != "deny" {
+	result := NewEvaluator(chain).evaluateFileTool("Write", "/etc/hosts")
+	if result.Action != ActionDeny {
 		t.Errorf("expected deny, got %s", result.Action)
 	}
 	if result.Message != "Cannot write to system files" {
@@ -267,8 +267,8 @@ default_message = "File read requires approval: {{.FilePath}}"
 		Merged:  MergeConfigs([]*Config{cfg}),
 	}
 
-	result := evaluateFileTool(chain, "Read", "/some/unknown/file.txt")
-	if result.Action != "ask" {
+	result := NewEvaluator(chain).evaluateFileTool("Read", "/some/unknown/file.txt")
+	if result.Action != ActionAsk {
 		t.Errorf("expected ask, got %s", result.Action)
 	}
 	expectedMsg := "File read requires approval: /some/unknown/file.txt"

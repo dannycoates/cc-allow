@@ -44,11 +44,6 @@ type FuncDef struct {
 	Name string
 }
 
-// BackgroundCmd represents a background command (&).
-type BackgroundCmd struct {
-	Command *Command
-}
-
 // Constructs holds all detected shell constructs.
 type Constructs struct {
 	HasFunctionDefs bool
@@ -72,9 +67,8 @@ type walkState struct {
 	effectiveCwd string
 }
 
-// newWalkState creates a new walkState initialized with the current working directory.
-func newWalkState() *walkState {
-	cwd, _ := os.Getwd()
+// newWalkState creates a new walkState initialized with the given working directory.
+func newWalkState(cwd string) *walkState {
 	return &walkState{effectiveCwd: cwd}
 }
 
@@ -111,9 +105,10 @@ func resolveCdTarget(args []string, currentCwd string) string {
 }
 
 // ExtractFromFile extracts all relevant information from a parsed file.
-func ExtractFromFile(f *syntax.File) *ExtractedInfo {
+// cwd is the working directory used to resolve relative paths in cd commands.
+func ExtractFromFile(f *syntax.File, cwd string) *ExtractedInfo {
 	info := &ExtractedInfo{}
-	state := newWalkState()
+	state := newWalkState(cwd)
 
 	// First pass: find function definitions
 	syntax.Walk(f, func(node syntax.Node) bool {

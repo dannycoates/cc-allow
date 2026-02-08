@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -33,7 +32,7 @@ type heredocWithScore struct {
 }
 
 // runFmt validates configs and displays rules sorted by specificity.
-func runFmt(configPath string) {
+func runFmt(configPath string) ExitCode {
 	paths := findFmtConfigFiles(configPath)
 
 	if len(paths) == 0 {
@@ -45,7 +44,7 @@ func runFmt(configPath string) {
 		if configPath != "" {
 			fmt.Printf("  - %s (explicit)\n", configPath)
 		}
-		os.Exit(1)
+		return ExitError
 	}
 
 	var allRules []ruleWithScore
@@ -154,7 +153,7 @@ func runFmt(configPath string) {
 
 	if hasError {
 		fmt.Println("\nValidation failed with errors.")
-		os.Exit(1)
+		return ExitError
 	}
 
 	// Print rules sorted by specificity
@@ -199,6 +198,7 @@ func runFmt(configPath string) {
 	}
 
 	fmt.Println("\n\nValidation passed.")
+	return ExitAllow
 }
 
 func findFmtConfigFiles(explicitPath string) []string {

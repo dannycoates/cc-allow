@@ -17,7 +17,7 @@ func TestEvalWebFetchTool(t *testing.T) {
 		name       string
 		config     string
 		url        string
-		wantAction string
+		wantAction Action
 	}{
 		{
 			name: "allow github URL",
@@ -27,7 +27,7 @@ version = "2.0"
 paths = ["re:^https://github\\.com/"]
 `,
 			url:        "https://github.com/user/repo",
-			wantAction: "allow",
+			wantAction: ActionAllow,
 		},
 		{
 			name: "deny localhost URL",
@@ -37,7 +37,7 @@ version = "2.0"
 paths = ["re:^https?://localhost"]
 `,
 			url:        "http://localhost:8080/api",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "deny 127.0.0.1 URL",
@@ -47,7 +47,7 @@ version = "2.0"
 paths = ["re:^https?://127\\.0\\.0\\.1"]
 `,
 			url:        "http://127.0.0.1/secret",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "deny wins over allow",
@@ -60,7 +60,7 @@ paths = ["re:^https://"]
 paths = ["re:^https://evil\\.com"]
 `,
 			url:        "https://evil.com/phishing",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "default ask when no match",
@@ -72,7 +72,7 @@ default = "ask"
 paths = ["re:^https://github\\.com/"]
 `,
 			url:        "https://unknown-site.com/page",
-			wantAction: "ask",
+			wantAction: ActionAsk,
 		},
 		{
 			name: "default deny when configured",
@@ -84,7 +84,7 @@ default = "deny"
 paths = ["re:^https://github\\.com/"]
 `,
 			url:        "https://unknown-site.com/page",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name: "multiple allow patterns",
@@ -98,7 +98,7 @@ paths = [
 ]
 `,
 			url:        "https://pkg.go.dev/fmt",
-			wantAction: "allow",
+			wantAction: ActionAllow,
 		},
 		{
 			name: "no config defaults to ask",
@@ -106,7 +106,7 @@ paths = [
 version = "2.0"
 `,
 			url:        "https://example.com",
-			wantAction: "ask",
+			wantAction: ActionAsk,
 		},
 	}
 
@@ -122,7 +122,7 @@ version = "2.0"
 				Merged:  MergeConfigs([]*Config{cfg}),
 			}
 
-			result := evaluateWebFetchTool(chain, tt.url)
+			result := NewEvaluator(chain).evaluateWebFetchTool(tt.url)
 			if result.Action != tt.wantAction {
 				t.Errorf("evaluateWebFetchTool(%s) = %q, want %q (source: %s)",
 					tt.url, result.Action, tt.wantAction, result.Source)
@@ -152,7 +152,7 @@ paths = ["re:^https://github\\.com/"]
 	tests := []struct {
 		name       string
 		input      HookInput
-		wantAction string
+		wantAction Action
 	}{
 		{
 			name: "dispatch WebFetch allow",
@@ -165,7 +165,7 @@ paths = ["re:^https://github\\.com/"]
 					Prompt   string `json:"prompt"`
 				}{URL: "https://github.com/user/repo"},
 			},
-			wantAction: "allow",
+			wantAction: ActionAllow,
 		},
 		{
 			name: "dispatch WebFetch no URL",
@@ -178,7 +178,7 @@ paths = ["re:^https://github\\.com/"]
 					Prompt   string `json:"prompt"`
 				}{URL: ""},
 			},
-			wantAction: "ask",
+			wantAction: ActionAsk,
 		},
 	}
 
@@ -290,23 +290,23 @@ paths = ["re:^https://evil\\.com"]
 	tests := []struct {
 		name       string
 		url        string
-		wantAction string
+		wantAction Action
 	}{
 		{
 			name:       "global allow works",
 			url:        "https://example.com",
-			wantAction: "allow",
+			wantAction: ActionAllow,
 		},
 		{
 			name:       "project deny overrides global allow",
 			url:        "https://evil.com/phishing",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := evaluateWebFetchTool(chain, tt.url)
+			result := NewEvaluator(chain).evaluateWebFetchTool(tt.url)
 			if result.Action != tt.wantAction {
 				t.Errorf("evaluateWebFetchTool(%s) = %q, want %q",
 					tt.url, result.Action, tt.wantAction)
@@ -590,28 +590,28 @@ api_key = %q
 	tests := []struct {
 		name       string
 		url        string
-		wantAction string
+		wantAction Action
 	}{
 		{
 			name:       "safe URL allowed by pattern",
 			url:        "https://google.com",
-			wantAction: "allow",
+			wantAction: ActionAllow,
 		},
 		{
 			name:       "malware URL denied by Safe Browsing",
 			url:        "https://testsafebrowsing.appspot.com/s/malware.html",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 		{
 			name:       "phishing URL denied by Safe Browsing",
 			url:        "https://testsafebrowsing.appspot.com/s/phishing.html",
-			wantAction: "deny",
+			wantAction: ActionDeny,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := evaluateWebFetchTool(chain, tt.url)
+			result := NewEvaluator(chain).evaluateWebFetchTool(tt.url)
 			if result.Action != tt.wantAction {
 				t.Errorf("evaluateWebFetchTool(%q) action = %q, want %q (source: %s, message: %s)",
 					tt.url, result.Action, tt.wantAction, result.Source, result.Message)
@@ -648,8 +648,8 @@ api_key = %q
 	}
 
 	// This URL would be flagged by Safe Browsing, but local allow rule matches first
-	result := evaluateWebFetchTool(chain, "https://testsafebrowsing.appspot.com/s/malware.html")
-	if result.Action != "allow" {
+	result := NewEvaluator(chain).evaluateWebFetchTool("https://testsafebrowsing.appspot.com/s/malware.html")
+	if result.Action != ActionAllow {
 		t.Errorf("expected allow (local rule precedence), got %q (source: %s)", result.Action, result.Source)
 	}
 }
@@ -671,8 +671,8 @@ message = "HTTPS only please"
 		Merged:  MergeConfigs([]*Config{cfg}),
 	}
 
-	result := evaluateWebFetchTool(chain, "http://example.com")
-	if result.Action != "deny" {
+	result := NewEvaluator(chain).evaluateWebFetchTool("http://example.com")
+	if result.Action != ActionDeny {
 		t.Errorf("expected deny, got %s", result.Action)
 	}
 	if result.Message != "HTTPS only please" {

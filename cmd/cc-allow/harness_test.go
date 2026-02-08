@@ -207,7 +207,7 @@ func TestHarness(t *testing.T) {
 			testName := fmt.Sprintf("%s/%s", rulesetName, cmd.Name)
 			t.Run(testName, func(t *testing.T) {
 				result := evalBash(t, cfg, bash)
-				if result.Action != expectedAction {
+				if result.Action != Action(expectedAction) {
 					// Truncate long bash strings in error output
 					displayBash := bash
 					if len(displayBash) > 100 {
@@ -242,7 +242,7 @@ func TestHarness(t *testing.T) {
 			testName := fmt.Sprintf("%s/%s", rulesetName, file.Name)
 			t.Run(testName, func(t *testing.T) {
 				result := evalFile(t, cfg, file.Tool, file.Path)
-				if result.Action != expectedAction {
+				if result.Action != Action(expectedAction) {
 					t.Errorf("tool=%s path=%q\nexpected %s, got %s (source: %s)",
 						file.Tool, file.Path, expectedAction, result.Action, result.Source)
 					if result.Message != "" {
@@ -277,7 +277,7 @@ func TestHarness(t *testing.T) {
 			testName := fmt.Sprintf("%s/%s", rulesetName, wf.Name)
 			t.Run(testName, func(t *testing.T) {
 				result := evalWebFetch(t, cfg, wf.URL)
-				if result.Action != expectedAction {
+				if result.Action != Action(expectedAction) {
 					t.Errorf("url=%q\nexpected %s, got %s (source: %s)",
 						wf.URL, expectedAction, result.Action, result.Source)
 					if result.Message != "" {
@@ -303,12 +303,13 @@ func evalBash(t *testing.T, cfg *Config, bash string) Result {
 	if err != nil {
 		// Return the parse error result
 		return Result{
-			Action:  "deny",
+			Action:  ActionDeny,
 			Message: fmt.Sprintf("Parse error: %v", err),
 		}
 	}
 
-	info := ExtractFromFile(f)
+	cwd, _ := os.Getwd()
+	info := ExtractFromFile(f, cwd)
 	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
 	eval := NewEvaluator(chain)
 	return eval.Evaluate(info)
@@ -317,13 +318,13 @@ func evalBash(t *testing.T, cfg *Config, bash string) Result {
 func evalFile(t *testing.T, cfg *Config, tool, path string) Result {
 	t.Helper()
 	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
-	return evaluateFileTool(chain, tool, path)
+	return NewEvaluator(chain).evaluateFileTool(tool, path)
 }
 
 func evalWebFetch(t *testing.T, cfg *Config, url string) Result {
 	t.Helper()
 	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
-	return evaluateWebFetchTool(chain, url)
+	return NewEvaluator(chain).evaluateWebFetchTool(url)
 }
 
 // loadHarnessAPIKey walks up from the test directory to find the project config

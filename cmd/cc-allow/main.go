@@ -43,14 +43,6 @@ type HookSpecificOutput struct {
 	AdditionalContext        string `json:"additionalContext,omitempty"`
 }
 
-// Exit codes per Claude Code hooks documentation
-const (
-	ExitAllow = 0 // Success, command explicitly allowed
-	ExitAsk   = 1 // Non-blocking, ask user via Claude Code's default behavior
-	ExitDeny  = 2 // Blocking error, command explicitly denied
-	ExitError = 3 // Processing error (parse failure, config error, etc.)
-)
-
 func main() {
 	configPath := flag.String("config", "", "path to TOML configuration file (adds to config chain)")
 	agentType := flag.String("agent", "", "agent type to load config for (looks for .config/cc-allow/<agent>.toml)")
@@ -71,7 +63,7 @@ func main() {
 	// --agent and --config are mutually exclusive
 	if *agentType != "" && *configPath != "" {
 		fmt.Fprintln(os.Stderr, "Error: --agent and --config cannot be used together")
-		os.Exit(ExitError)
+		os.Exit(int(ExitError))
 	}
 
 	// Resolve --agent to a config path
@@ -111,7 +103,7 @@ func main() {
 	}
 	if modeCount > 1 {
 		fmt.Fprintln(os.Stderr, "Error: only one of --bash, --read, --write, --edit, --fetch can be specified")
-		os.Exit(ExitError)
+		os.Exit(int(ExitError))
 	}
 
 	switch {
@@ -119,11 +111,11 @@ func main() {
 		fmt.Printf("cc-allow %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
 	case *initMode:
-		runInit()
+		os.Exit(int(runInit()))
 	case *fmtMode:
-		runFmt(*configPath)
+		os.Exit(int(runFmt(*configPath)))
 	default:
-		runEval(*configPath, *hookMode, *debugMode, toolMode)
+		os.Exit(int(runEval(*configPath, *hookMode, *debugMode, toolMode)))
 	}
 }
 
@@ -131,17 +123,15 @@ func main() {
 // In hook mode, it reads JSON from stdin and outputs JSON.
 // In pipe mode, it reads the input directly from stdin.
 // toolMode specifies the tool type: "Bash", "Read", "Write", "Edit", or "" (defaults to Bash).
-func runEval(configPath string, hookMode, debugMode bool, toolMode string) {
+func runEval(configPath string, hookMode, debugMode bool, toolMode string) ExitCode {
 	// Load configuration chain from standard locations + explicit path
 	chain, err := LoadConfigChain(configPath)
 	if err != nil {
 		if hookMode {
-			outputHookConfigError(err)
-		} else {
-			fmt.Fprintln(os.Stderr, formatConfigError(err))
-			os.Exit(ExitError)
+			return outputHookConfigError(err)
 		}
-		return
+		fmt.Fprintln(os.Stderr, formatConfigError(err))
+		return ExitError
 	}
 
 	// Initialize debug logging (after config load so we can use configured path)
@@ -161,7 +151,7 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) {
 	input, err := buildInput(hookMode, toolMode)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(ExitError)
+		return ExitError
 	}
 
 	// Dispatch
@@ -170,10 +160,9 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) {
 
 	// Output
 	if hookMode {
-		outputHookResult(result, migrationContext)
-	} else {
-		outputPlainResult(result)
+		return outputHookResult(result, migrationContext)
 	}
+	return outputPlainResult(result)
 }
 
 // buildInput constructs a HookInput from stdin based on mode.
@@ -211,23 +200,23 @@ func buildInput(hookMode bool, toolMode string) (HookInput, error) {
 	return input, nil
 }
 
-func outputHookResult(result Result, additionalContext string) {
+func outputHookResult(result Result, additionalContext string) ExitCode {
 	var output HookOutput
 	output.HookSpecificOutput.HookEventName = "PreToolUse"
 
 	switch result.Action {
-	case "allow":
-		output.HookSpecificOutput.PermissionDecision = "allow"
+	case ActionAllow:
+		output.HookSpecificOutput.PermissionDecision = string(ActionAllow)
 		output.HookSpecificOutput.PermissionDecisionReason = "Allowed by cc-allow policy"
-	case "deny":
-		output.HookSpecificOutput.PermissionDecision = "deny"
+	case ActionDeny:
+		output.HookSpecificOutput.PermissionDecision = string(ActionDeny)
 		if result.Message != "" {
 			output.HookSpecificOutput.PermissionDecisionReason = result.Message
 		} else {
 			output.HookSpecificOutput.PermissionDecisionReason = "Denied by cc-allow policy"
 		}
-	default: // "ask" - defer to Claude Code's default behavior
-		output.HookSpecificOutput.PermissionDecision = "ask"
+	default: // ActionAsk - defer to Claude Code's default behavior
+		output.HookSpecificOutput.PermissionDecision = string(ActionAsk)
 		reason := "No cc-allow rules matched"
 		if result.Message != "" {
 			reason = result.Message
@@ -245,18 +234,18 @@ func outputHookResult(result Result, additionalContext string) {
 	}
 
 	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
-		os.Exit(ExitError)
+		return ExitError
 	}
-	os.Exit(0)
+	return ExitAllow
 }
 
 // outputHookConfigError outputs a hook error response for config loading failures.
 // For version-related errors (legacy v1 config), it includes migration guidance in additionalContext.
 // For validation errors, it offers to help fix the config.
-func outputHookConfigError(err error) {
+func outputHookConfigError(err error) ExitCode {
 	var output HookOutput
 	output.HookSpecificOutput.HookEventName = "PreToolUse"
-	output.HookSpecificOutput.PermissionDecision = "ask"
+	output.HookSpecificOutput.PermissionDecision = string(ActionAsk)
 
 	// Format the error message based on error type
 	var cfgErr *ConfigError
@@ -292,9 +281,9 @@ func outputHookConfigError(err error) {
 	}
 
 	if err := json.NewEncoder(os.Stdout).Encode(output); err != nil {
-		os.Exit(ExitError)
+		return ExitError
 	}
-	os.Exit(0)
+	return ExitAllow
 }
 
 // extractConfigPath extracts the config file path from a config error.
@@ -306,11 +295,11 @@ func extractConfigPath(err error) string {
 	return ""
 }
 
-func outputPlainResult(result Result) {
+func outputPlainResult(result Result) ExitCode {
 	switch result.Action {
-	case "allow":
-		os.Exit(ExitAllow)
-	case "deny":
+	case ActionAllow:
+		// No output for allow
+	case ActionDeny:
 		if result.Message != "" {
 			if result.Source != "" {
 				fmt.Fprintf(os.Stderr, "Deny: %s (%s)\n", result.Message, result.Source)
@@ -318,8 +307,7 @@ func outputPlainResult(result Result) {
 				fmt.Fprintln(os.Stderr, result.Message)
 			}
 		}
-		os.Exit(ExitDeny)
-	default: // "ask" or empty
+	default: // ActionAsk or empty
 		reason := "no rules matched"
 		if result.Message != "" {
 			reason = result.Message
@@ -331,8 +319,8 @@ func outputPlainResult(result Result) {
 		} else {
 			fmt.Fprintf(os.Stderr, "Ask: %s\n", reason)
 		}
-		os.Exit(ExitAsk)
 	}
+	return result.Action.ExitCode()
 }
 
 // formatConfigError formats a config error for human-readable output.
@@ -480,19 +468,19 @@ func logDebugExtractedInfo(info *ExtractedInfo) {
 
 // Init mode - create project config file
 
-func runInit() {
+func runInit() ExitCode {
 	// 1. Find project root
 	root := findProjectRoot()
 	if root == "" {
 		fmt.Fprintln(os.Stderr, "Could not determine project root (no .config/cc-allow.toml, .claude/, or .git/ found)")
-		os.Exit(1)
+		return ExitError
 	}
 
 	// 2. Check if config already exists at new location
 	configPath := filepath.Join(root, ".config", "cc-allow.toml")
 	if _, err := os.Stat(configPath); err == nil {
 		fmt.Printf("Config already exists: %s\n", configPath)
-		os.Exit(0)
+		return ExitAllow
 	}
 
 	// 3. Check legacy location and warn
@@ -500,14 +488,14 @@ func runInit() {
 	if _, err := os.Stat(legacyPath); err == nil {
 		fmt.Printf("Config exists at legacy location: %s\n", legacyPath)
 		fmt.Printf("Move it to the new location: mv %s %s\n", legacyPath, configPath)
-		os.Exit(0)
+		return ExitAllow
 	}
 
 	// 4. Ensure .config directory exists
 	configDir := filepath.Join(root, ".config")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create .config directory: %v\n", err)
-		os.Exit(1)
+		return ExitError
 	}
 
 	// 5. Choose template based on user config existence
@@ -521,8 +509,9 @@ func runInit() {
 	// 6. Write config
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write config: %v\n", err)
-		os.Exit(1)
+		return ExitError
 	}
 
 	fmt.Printf("Created %s\n", configPath)
+	return ExitAllow
 }

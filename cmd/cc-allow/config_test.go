@@ -383,7 +383,7 @@ args.any = ["flags:r"]
 				rules := cfg.getParsedRules()
 				found := false
 				for _, rule := range rules {
-					if rule.Command == "rm" && rule.Action == "deny" {
+					if rule.Command == "rm" && rule.Action == ActionDeny {
 						found = true
 						if rule.Args.Any == nil {
 							t.Error("expected args.any to be set")
@@ -407,7 +407,7 @@ args.any = ["--force"]
 				rules := cfg.getParsedRules()
 				found := false
 				for _, rule := range rules {
-					if rule.Command == "git" && rule.Action == "deny" && len(rule.Subcommands) == 1 && rule.Subcommands[0] == "push" {
+					if rule.Command == "git" && rule.Action == ActionDeny && len(rule.Subcommands) == 1 && rule.Subcommands[0] == "push" {
 						found = true
 					}
 				}
@@ -426,7 +426,7 @@ version = "2.0"
 				rules := cfg.getParsedRules()
 				found := false
 				for _, rule := range rules {
-					if rule.Command == "docker" && rule.Action == "allow" {
+					if rule.Command == "docker" && rule.Action == ActionAllow {
 						if len(rule.Subcommands) == 2 && rule.Subcommands[0] == "compose" && rule.Subcommands[1] == "up" {
 							found = true
 						}

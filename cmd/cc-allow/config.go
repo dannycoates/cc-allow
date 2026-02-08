@@ -104,7 +104,7 @@ type BashAllowDeny struct {
 type BashRule struct {
 	Command          string      // command name (from TOML key)
 	Subcommands      []string    // subcommand path (e.g., ["status"] for [[bash.allow.git.status]])
-	Action           string      // "allow", "deny", or "ask"
+	Action           Action      // ActionAllow, ActionDeny, or ActionAsk
 	Message          string      `toml:"message"`            // custom message
 	Args             ArgsMatch   `toml:"args"`               // argument matching
 	Pipe             PipeContext `toml:"pipe"`               // pipe context rules
@@ -357,7 +357,7 @@ type RedirectsConfig struct {
 
 // RedirectRule controls output/input redirection.
 type RedirectRule struct {
-	Action  string   `toml:"-"`       // "allow" or "deny" (derived from section)
+	Action  Action   `toml:"-"`       // ActionAllow or ActionDeny (derived from section)
 	Message string   `toml:"message"` // custom message
 	Paths   []string `toml:"paths"`   // path patterns to match
 	Append  *bool    `toml:"append"`  // if set, only applies to >> (append mode)
@@ -371,7 +371,7 @@ type HeredocsConfig struct {
 
 // HeredocRule controls heredoc (<<EOF) handling.
 type HeredocRule struct {
-	Action  string    `toml:"-"` // "allow" or "deny" (derived from section)
+	Action  Action    `toml:"-"` // ActionAllow or ActionDeny (derived from section)
 	Message string    `toml:"message"`
 	Content *BoolExpr `toml:"content"` // content matching using boolean expressions
 }
@@ -420,25 +420,9 @@ func (t Tracked[T]) IsSet() bool {
 	return t.Source != ""
 }
 
-// TrackedRule wraps a BashRule with source tracking and shadowing info.
-type TrackedRule struct {
-	BashRule
-	Source    string
-	Shadowed  bool
-	Shadowing string
-}
-
-// TrackedRedirectRule wraps a RedirectRule with source tracking.
-type TrackedRedirectRule struct {
-	RedirectRule
-	Source    string
-	Shadowed  bool
-	Shadowing string
-}
-
-// TrackedHeredocRule wraps a HeredocRule with source tracking.
-type TrackedHeredocRule struct {
-	HeredocRule
+// TrackedRule wraps a rule of any type with source tracking and shadowing info.
+type TrackedRule[T any] struct {
+	Rule      T
 	Source    string
 	Shadowed  bool
 	Shadowing string
@@ -460,7 +444,7 @@ type TrackedFilePatternEntry struct {
 
 // MergedFilesConfig holds merged file tool settings with source tracking.
 type MergedFilesConfig struct {
-	Default        Tracked[string]
+	Default        Tracked[Action]
 	DefaultMessage map[string]Tracked[string]            // per-tool default messages: "Read", "Edit", "Write"
 	Allow          map[string][]TrackedFilePatternEntry // keys are "Read", "Edit", "Write"
 	Deny           map[string][]TrackedFilePatternEntry
@@ -468,10 +452,10 @@ type MergedFilesConfig struct {
 
 // MergedPolicy holds policy settings with source tracking.
 type MergedPolicy struct {
-	Default             Tracked[string]
-	DynamicCommands     Tracked[string]
+	Default             Tracked[Action]
+	DynamicCommands     Tracked[Action]
 	DefaultMessage      Tracked[string]
-	UnresolvedCommands  Tracked[string]
+	UnresolvedCommands  Tracked[Action]
 	RespectFileRules    Tracked[bool]
 	AllowedPaths        []string
 	AllowedPathsSources []string
@@ -484,10 +468,10 @@ type MergedRedirectsConfig struct {
 
 // MergedConstructs holds constructs settings with source tracking.
 type MergedConstructs struct {
-	Subshells           Tracked[string]
-	FunctionDefinitions Tracked[string]
-	Background          Tracked[string]
-	Heredocs            Tracked[string]
+	Subshells           Tracked[Action]
+	FunctionDefinitions Tracked[Action]
+	Background          Tracked[Action]
+	Heredocs            Tracked[Action]
 }
 
 // MergedConfig represents the result of merging all configs in the chain.
@@ -499,9 +483,9 @@ type MergedConfig struct {
 	RedirectsPolicy MergedRedirectsConfig
 	CommandsDeny    []TrackedCommandEntry
 	CommandsAllow   []TrackedCommandEntry
-	Rules           []TrackedRule
-	Redirects       []TrackedRedirectRule
-	Heredocs        []TrackedHeredocRule
+	Rules           []TrackedRule[BashRule]
+	Redirects       []TrackedRule[RedirectRule]
+	Heredocs        []TrackedRule[HeredocRule]
 	Aliases         map[string]Alias // merged aliases from all configs
 	SafeBrowsing    SafeBrowsingConfig
 	Debug           DebugConfig
@@ -512,6 +496,7 @@ type ConfigChain struct {
 	Configs        []*Config
 	Merged         *MergedConfig
 	MigrationHints []string // legacy config paths that should be moved to .config/
+	ProjectRoot    string   // cached project root to avoid redundant filesystem traversals
 }
 
 // Legacy config markers for v1 detection

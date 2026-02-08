@@ -1,76 +1,10 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"strconv"
-	"strings"
 
 	"github.com/BurntSushi/toml"
 )
-
-// loadConfig reads and parses a TOML configuration file without applying defaults.
-func loadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("%w: %s", ErrConfigNotFound, path)
-		}
-		return nil, fmt.Errorf("%w: %s: %w", ErrConfigRead, path, err)
-	}
-	cfg, err := parseConfig(string(data))
-	if err != nil {
-		return nil, WrapConfigError(path, err)
-	}
-	cfg.Path = path
-	return cfg, nil
-}
-
-// parseConfig parses a TOML configuration string without applying defaults.
-func parseConfig(data string) (*Config, error) {
-	cfg, err := parseConfigInternal(data)
-	if err != nil {
-		return nil, err
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
-// LoadConfigWithDefaults reads and parses a TOML configuration file with defaults applied.
-func LoadConfigWithDefaults(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("%w: %s", ErrConfigNotFound, path)
-		}
-		return nil, fmt.Errorf("%w: %s: %w", ErrConfigRead, path, err)
-	}
-	cfg, err := ParseConfigWithDefaults(string(data))
-	if err != nil {
-		return nil, WrapConfigError(path, err)
-	}
-	cfg.Path = path
-	return cfg, nil
-}
-
-// ParseConfigWithDefaults parses a TOML configuration string with defaults applied.
-func ParseConfigWithDefaults(data string) (*Config, error) {
-	cfg, err := parseConfigInternal(data)
-	if err != nil {
-		return nil, err
-	}
-	if cfg.Path == "" {
-		cfg.Path = "(inline)"
-	}
-	applyDefaults(cfg)
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
 
 // parseConfigInternal parses TOML and extracts nested command rules.
 func parseConfigInternal(data string) (*Config, error) {
@@ -319,57 +253,13 @@ func parseWebFetchConfigFromRaw(raw map[string]any) WebFetchConfig {
 	return cfg
 }
 
-// validateConfigVersion checks the version and detects legacy format.
-func validateConfigVersion(version string, raw map[string]any) error {
-	// Check for legacy v1 format
-	if isLegacyV1Config(raw) {
-		return LegacyConfigError{Path: "(inline)"}
-	}
-
-	// Empty version is allowed for v2 if no legacy markers
-	if version == "" {
-		return nil
-	}
-
-	// Parse major.minor
-	parts := strings.Split(version, ".")
-	if len(parts) != 2 {
-		return fmt.Errorf("invalid version format %q: expected major.minor (e.g., \"2.0\")", version)
-	}
-
-	major, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return fmt.Errorf("invalid version major %q: %w", parts[0], err)
-	}
-
-	minor, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return fmt.Errorf("invalid version minor %q: %w", parts[1], err)
-	}
-
-	// v1.x configs should have been caught by legacy detection
-	if major < ConfigVersionMajor {
-		return fmt.Errorf("config version %q uses legacy format\nSee https://github.com/anthropics/cc-allow/docs/config-v2.md for migration guide", version)
-	}
-
-	// Check if version is too new
-	if major > ConfigVersionMajor {
-		return fmt.Errorf("config version %q is not supported (max supported: %d.%d)", version, ConfigVersionMajor, ConfigVersionMinor)
-	}
-	if major == ConfigVersionMajor && minor > ConfigVersionMinor {
-		return fmt.Errorf("config version %q is not supported (max supported: %d.%d)", version, ConfigVersionMajor, ConfigVersionMinor)
-	}
-
-	return nil
-}
-
 // parseBashRules extracts rules from [bash.allow.X], [bash.deny.X], and [bash.ask.X] tables.
 func parseBashRules(bashRaw map[string]any) ([]BashRule, error) {
 	var rules []BashRule
 
 	// Parse [bash.allow] section
 	if allowRaw, ok := bashRaw["allow"].(map[string]any); ok {
-		allowRules, err := parseActionSection(allowRaw, "allow", []string{})
+		allowRules, err := parseActionSection(allowRaw, ActionAllow, []string{})
 		if err != nil {
 			return nil, fmt.Errorf("allow: %w", err)
 		}
@@ -378,7 +268,7 @@ func parseBashRules(bashRaw map[string]any) ([]BashRule, error) {
 
 	// Parse [bash.deny] section
 	if denyRaw, ok := bashRaw["deny"].(map[string]any); ok {
-		denyRules, err := parseActionSection(denyRaw, "deny", []string{})
+		denyRules, err := parseActionSection(denyRaw, ActionDeny, []string{})
 		if err != nil {
 			return nil, fmt.Errorf("deny: %w", err)
 		}
@@ -387,7 +277,7 @@ func parseBashRules(bashRaw map[string]any) ([]BashRule, error) {
 
 	// Parse [bash.ask] section
 	if askRaw, ok := bashRaw["ask"].(map[string]any); ok {
-		askRules, err := parseActionSection(askRaw, "ask", []string{})
+		askRules, err := parseActionSection(askRaw, ActionAsk, []string{})
 		if err != nil {
 			return nil, fmt.Errorf("ask: %w", err)
 		}
@@ -398,7 +288,7 @@ func parseBashRules(bashRaw map[string]any) ([]BashRule, error) {
 }
 
 // parseActionSection recursively walks an action section to find command rules.
-func parseActionSection(node map[string]any, action string, path []string) ([]BashRule, error) {
+func parseActionSection(node map[string]any, action Action, path []string) ([]BashRule, error) {
 	var rules []BashRule
 
 	for key, value := range node {
@@ -488,7 +378,7 @@ func looksLikeRuleTable(m map[string]any) bool {
 }
 
 // parseRuleFromTable converts a TOML table to a BashRule.
-func parseRuleFromTable(action string, path []string, table map[string]any) (BashRule, error) {
+func parseRuleFromTable(action Action, path []string, table map[string]any) (BashRule, error) {
 	if len(path) == 0 {
 		return BashRule{}, fmt.Errorf("empty command path")
 	}
@@ -663,7 +553,7 @@ func parseRedirectRules(raw map[string]any) ([]RedirectRule, error) {
 
 	// Parse [[bash.redirects.allow]]
 	for i, table := range toTableSlice(raw["allow"]) {
-		rule, err := parseRedirectRule("allow", table)
+		rule, err := parseRedirectRule(ActionAllow, table)
 		if err != nil {
 			return nil, fmt.Errorf("allow[%d]: %w", i, err)
 		}
@@ -672,7 +562,7 @@ func parseRedirectRules(raw map[string]any) ([]RedirectRule, error) {
 
 	// Parse [[bash.redirects.deny]]
 	for i, table := range toTableSlice(raw["deny"]) {
-		rule, err := parseRedirectRule("deny", table)
+		rule, err := parseRedirectRule(ActionDeny, table)
 		if err != nil {
 			return nil, fmt.Errorf("deny[%d]: %w", i, err)
 		}
@@ -683,7 +573,7 @@ func parseRedirectRules(raw map[string]any) ([]RedirectRule, error) {
 }
 
 // parseRedirectRule parses a single redirect rule.
-func parseRedirectRule(action string, table map[string]any) (RedirectRule, error) {
+func parseRedirectRule(action Action, table map[string]any) (RedirectRule, error) {
 	rule := RedirectRule{Action: action}
 
 	if msg, ok := table["message"].(string); ok {
@@ -711,7 +601,7 @@ func parseHeredocRules(raw map[string]any) ([]HeredocRule, error) {
 
 	// Parse [[bash.heredocs.allow]]
 	for i, table := range toTableSlice(raw["allow"]) {
-		rule, err := parseHeredocRule("allow", table)
+		rule, err := parseHeredocRule(ActionAllow, table)
 		if err != nil {
 			return nil, fmt.Errorf("allow[%d]: %w", i, err)
 		}
@@ -720,7 +610,7 @@ func parseHeredocRules(raw map[string]any) ([]HeredocRule, error) {
 
 	// Parse [[bash.heredocs.deny]]
 	for i, table := range toTableSlice(raw["deny"]) {
-		rule, err := parseHeredocRule("deny", table)
+		rule, err := parseHeredocRule(ActionDeny, table)
 		if err != nil {
 			return nil, fmt.Errorf("deny[%d]: %w", i, err)
 		}
@@ -731,7 +621,7 @@ func parseHeredocRules(raw map[string]any) ([]HeredocRule, error) {
 }
 
 // parseHeredocRule parses a single heredoc rule.
-func parseHeredocRule(action string, table map[string]any) (HeredocRule, error) {
+func parseHeredocRule(action Action, table map[string]any) (HeredocRule, error) {
 	rule := HeredocRule{Action: action}
 
 	if msg, ok := table["message"].(string); ok {
@@ -747,605 +637,4 @@ func parseHeredocRule(action string, table map[string]any) (HeredocRule, error) 
 	}
 
 	return rule, nil
-}
-
-// applyDefaults sets default values for unset fields.
-func applyDefaults(cfg *Config) {
-	if cfg.Bash.Default == "" {
-		cfg.Bash.Default = "ask"
-	}
-	if cfg.Bash.DynamicCommands == "" {
-		cfg.Bash.DynamicCommands = "ask"
-	}
-	if cfg.Bash.UnresolvedCommands == "" {
-		cfg.Bash.UnresolvedCommands = "ask"
-	}
-	if cfg.Bash.DefaultMessage == "" {
-		cfg.Bash.DefaultMessage = "Command not allowed"
-	}
-	if cfg.Bash.Constructs.Subshells == "" {
-		cfg.Bash.Constructs.Subshells = "ask"
-	}
-	if cfg.Bash.Constructs.FunctionDefinitions == "" {
-		cfg.Bash.Constructs.FunctionDefinitions = "ask"
-	}
-	if cfg.Bash.Constructs.Background == "" {
-		cfg.Bash.Constructs.Background = "ask"
-	}
-	if cfg.Bash.Constructs.Heredocs == "" {
-		cfg.Bash.Constructs.Heredocs = "allow"
-	}
-	if cfg.Read.Default == "" {
-		cfg.Read.Default = "ask"
-	}
-	if cfg.Write.Default == "" {
-		cfg.Write.Default = "ask"
-	}
-	if cfg.Edit.Default == "" {
-		cfg.Edit.Default = "ask"
-	}
-}
-
-// isValidAction checks if a string is a valid action value.
-func isValidAction(action string) bool {
-	switch action {
-	case "allow", "deny", "ask", "":
-		return true
-	default:
-		return false
-	}
-}
-
-// validateAction checks that an action value is valid, returning an error if not.
-func validateAction(action, field string) error {
-	if !isValidAction(action) {
-		return &ConfigValidationError{
-			Location: field,
-			Value:    action,
-			Message:  "invalid action (must be \"allow\", \"deny\", or \"ask\")",
-		}
-	}
-	return nil
-}
-
-// validateAllowMode checks that an allow mode value is valid.
-func validateAllowMode(mode, field string) error {
-	if mode != "" && mode != "merge" && mode != "replace" {
-		return &ConfigValidationError{
-			Location: field,
-			Value:    mode,
-			Message:  "invalid mode (must be \"merge\" or \"replace\")",
-		}
-	}
-	return nil
-}
-
-// Validate checks that all patterns in the config are valid.
-// Returns a ConfigValidationError with location and value context on failure.
-func (cfg *Config) Validate() error {
-	// Validate action values
-	if err := validateAction(cfg.Bash.Default, "bash.default"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Bash.DynamicCommands, "bash.dynamic_commands"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Bash.UnresolvedCommands, "bash.unresolved_commands"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Bash.Constructs.Subshells, "bash.constructs.subshells"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Bash.Constructs.Background, "bash.constructs.background"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Bash.Constructs.FunctionDefinitions, "bash.constructs.function_definitions"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Bash.Constructs.Heredocs, "bash.constructs.heredocs"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Read.Default, "read.default"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Write.Default, "write.default"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.Edit.Default, "edit.default"); err != nil {
-		return err
-	}
-	if err := validateAction(cfg.WebFetch.Default, "webfetch.default"); err != nil {
-		return err
-	}
-	// Validate allow mode values
-	if err := validateAllowMode(cfg.Bash.Allow.Mode, "bash.allow.mode"); err != nil {
-		return err
-	}
-	if err := validateAllowMode(cfg.Read.Allow.Mode, "read.allow.mode"); err != nil {
-		return err
-	}
-	if err := validateAllowMode(cfg.Write.Allow.Mode, "write.allow.mode"); err != nil {
-		return err
-	}
-	if err := validateAllowMode(cfg.Edit.Allow.Mode, "edit.allow.mode"); err != nil {
-		return err
-	}
-	if err := validateAllowMode(cfg.WebFetch.Allow.Mode, "webfetch.allow.mode"); err != nil {
-		return err
-	}
-
-	// Validate aliases
-	for name, alias := range cfg.Aliases {
-		if strings.HasPrefix(name, "path:") || strings.HasPrefix(name, "re:") ||
-			strings.HasPrefix(name, "flags:") || strings.HasPrefix(name, "alias:") ||
-			strings.HasPrefix(name, "ref:") {
-			return &ConfigValidationError{
-				Location: fmt.Sprintf("aliases.%s", name),
-				Value:    name,
-				Message:  "alias name cannot start with a reserved prefix (path:, re:, flags:, alias:, ref:)",
-			}
-		}
-		// Aliases cannot reference other aliases (prevents circular references)
-		for i, pattern := range alias.Patterns {
-			if strings.HasPrefix(pattern, "alias:") {
-				return &ConfigValidationError{
-					Location: fmt.Sprintf("aliases.%s[%d]", name, i),
-					Value:    pattern,
-					Message:  "aliases cannot reference other aliases",
-				}
-			}
-		}
-	}
-
-	// Validate bash.allow.commands patterns
-	for i, cmd := range cfg.Bash.Allow.Commands {
-		if _, err := ParsePattern(cmd); err != nil {
-			return &ConfigValidationError{
-				Location: fmt.Sprintf("bash.allow.commands[%d]", i),
-				Value:    cmd,
-				Message:  "invalid pattern",
-				Cause:    err,
-			}
-		}
-	}
-
-	// Validate bash.deny.commands patterns
-	for i, cmd := range cfg.Bash.Deny.Commands {
-		if _, err := ParsePattern(cmd); err != nil {
-			return &ConfigValidationError{
-				Location: fmt.Sprintf("bash.deny.commands[%d]", i),
-				Value:    cmd,
-				Message:  "invalid pattern",
-				Cause:    err,
-			}
-		}
-	}
-
-	// Validate parsed rules
-	for i, rule := range cfg.getParsedRules() {
-		ruleLocation := formatRuleLocation(rule, i)
-		if _, err := ParsePattern(rule.Command); err != nil {
-			return &ConfigValidationError{
-				Location: ruleLocation,
-				Value:    rule.Command,
-				Message:  "invalid command pattern",
-				Cause:    err,
-			}
-		}
-		if err := validateArgsMatch(rule.Args, ruleLocation); err != nil {
-			return err
-		}
-	}
-
-	// Validate redirect rules
-	for i, rule := range cfg.getParsedRedirects() {
-		for j, path := range rule.Paths {
-			if _, err := ParsePattern(path); err != nil {
-				return &ConfigValidationError{
-					Location: fmt.Sprintf("bash.redirects.%s[%d].paths[%d]", rule.Action, i, j),
-					Value:    path,
-					Message:  "invalid pattern",
-					Cause:    err,
-				}
-			}
-		}
-	}
-
-	// Validate heredoc rules
-	for i, rule := range cfg.getParsedHeredocs() {
-		if err := validateBoolExpr(rule.Content, fmt.Sprintf("bash.heredocs.%s[%d].content", rule.Action, i)); err != nil {
-			return err
-		}
-	}
-
-	// Validate file tool patterns
-	if err := validateFilePatterns(cfg.Read.Allow.Paths, "read.allow.paths"); err != nil {
-		return err
-	}
-	if err := validateFilePatterns(cfg.Read.Deny.Paths, "read.deny.paths"); err != nil {
-		return err
-	}
-	if err := validateFilePatterns(cfg.Write.Allow.Paths, "write.allow.paths"); err != nil {
-		return err
-	}
-	if err := validateFilePatterns(cfg.Write.Deny.Paths, "write.deny.paths"); err != nil {
-		return err
-	}
-	if err := validateFilePatterns(cfg.Edit.Allow.Paths, "edit.allow.paths"); err != nil {
-		return err
-	}
-	if err := validateFilePatterns(cfg.Edit.Deny.Paths, "edit.deny.paths"); err != nil {
-		return err
-	}
-	if err := validateFilePatterns(cfg.WebFetch.Allow.Paths, "webfetch.allow.paths"); err != nil {
-		return err
-	}
-	if err := validateFilePatterns(cfg.WebFetch.Deny.Paths, "webfetch.deny.paths"); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// formatRuleLocation creates a human-readable location string for a bash rule.
-func formatRuleLocation(rule BashRule, index int) string {
-	parts := []string{"bash", rule.Action, rule.Command}
-	parts = append(parts, rule.Subcommands...)
-	return strings.Join(parts, ".")
-}
-
-// validateFilePatterns validates a slice of file path patterns.
-func validateFilePatterns(paths []string, location string) error {
-	for i, path := range paths {
-		if _, err := ParsePattern(path); err != nil {
-			return &ConfigValidationError{
-				Location: fmt.Sprintf("%s[%d]", location, i),
-				Value:    path,
-				Message:  "invalid pattern",
-				Cause:    err,
-			}
-		}
-	}
-	return nil
-}
-
-// validateArgsMatch validates patterns in an ArgsMatch.
-func validateArgsMatch(args ArgsMatch, context string) error {
-	if err := validateBoolExpr(args.Any, context+".args.any"); err != nil {
-		return err
-	}
-	if err := validateBoolExpr(args.All, context+".args.all"); err != nil {
-		return err
-	}
-	if err := validateBoolExpr(args.Not, context+".args.not"); err != nil {
-		return err
-	}
-	if err := validateBoolExpr(args.Xor, context+".args.xor"); err != nil {
-		return err
-	}
-	for key, fp := range args.Position {
-		for i, pattern := range fp.Patterns {
-			if _, err := ParsePattern(pattern); err != nil {
-				return &ConfigValidationError{
-					Location: fmt.Sprintf("%s.args.position[%s][%d]", context, key, i),
-					Value:    pattern,
-					Message:  "invalid pattern",
-					Cause:    err,
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// validateBoolExpr validates patterns in a BoolExpr.
-func validateBoolExpr(expr *BoolExpr, context string) error {
-	if expr == nil {
-		return nil
-	}
-	for i, pattern := range expr.Patterns {
-		if _, err := ParsePattern(pattern); err != nil {
-			return &ConfigValidationError{
-				Location: fmt.Sprintf("%s[%d]", context, i),
-				Value:    pattern,
-				Message:  "invalid pattern",
-				Cause:    err,
-			}
-		}
-	}
-	if expr.IsSequence {
-		for key, fp := range expr.Sequence {
-			for i, pattern := range fp.Patterns {
-				if _, err := ParsePattern(pattern); err != nil {
-					return &ConfigValidationError{
-						Location: fmt.Sprintf("%s.sequence[%s][%d]", context, key, i),
-						Value:    pattern,
-						Message:  "invalid pattern",
-						Cause:    err,
-					}
-				}
-			}
-		}
-	}
-	for i, child := range expr.Any {
-		if err := validateBoolExpr(child, fmt.Sprintf("%s.any[%d]", context, i)); err != nil {
-			return err
-		}
-	}
-	for i, child := range expr.All {
-		if err := validateBoolExpr(child, fmt.Sprintf("%s.all[%d]", context, i)); err != nil {
-			return err
-		}
-	}
-	if err := validateBoolExpr(expr.Not, context+".not"); err != nil {
-		return err
-	}
-	for i, child := range expr.Xor {
-		if err := validateBoolExpr(child, fmt.Sprintf("%s.xor[%d]", context, i)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// resolveAliasesInConfig expands all alias: patterns.
-func resolveAliasesInConfig(cfg *Config) error {
-	if cfg.Aliases == nil {
-		cfg.Aliases = make(map[string]Alias)
-	}
-
-	expandPatterns := func(patterns []string) ([]string, error) {
-		var result []string
-		for _, p := range patterns {
-			expanded, err := expandAlias(p, cfg.Aliases)
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, expanded...)
-		}
-		return result, nil
-	}
-
-	// Expand in bash.allow.commands
-	if expanded, err := expandPatterns(cfg.Bash.Allow.Commands); err != nil {
-		return fmt.Errorf("bash.allow.commands: %w", err)
-	} else {
-		cfg.Bash.Allow.Commands = expanded
-	}
-
-	// Expand in bash.deny.commands
-	if expanded, err := expandPatterns(cfg.Bash.Deny.Commands); err != nil {
-		return fmt.Errorf("bash.deny.commands: %w", err)
-	} else {
-		cfg.Bash.Deny.Commands = expanded
-	}
-
-	// Expand in parsed rules
-	for i := range cfg.parsedRules {
-		if err := expandAliasesInArgsMatch(&cfg.parsedRules[i].Args, cfg.Aliases); err != nil {
-			return fmt.Errorf("rule[%d] args: %w", i, err)
-		}
-	}
-
-	// Expand in parsed redirect rules
-	for i := range cfg.parsedRedirects {
-		expanded, err := expandPatternsSlice(cfg.parsedRedirects[i].Paths, cfg.Aliases)
-		if err != nil {
-			return fmt.Errorf("redirect[%d] paths: %w", i, err)
-		}
-		cfg.parsedRedirects[i].Paths = expanded
-	}
-
-	// Expand in parsed heredoc rules
-	for i := range cfg.parsedHeredocs {
-		if cfg.parsedHeredocs[i].Content != nil {
-			if err := expandAliasesInBoolExpr(cfg.parsedHeredocs[i].Content, cfg.Aliases); err != nil {
-				return fmt.Errorf("heredoc[%d] content: %w", i, err)
-			}
-		}
-	}
-
-	// Expand in file tools
-	for _, tool := range []struct {
-		name   string
-		config *FileToolConfig
-	}{
-		{"read", &cfg.Read},
-		{"write", &cfg.Write},
-		{"edit", &cfg.Edit},
-	} {
-		if expanded, err := expandPatterns(tool.config.Allow.Paths); err != nil {
-			return fmt.Errorf("%s.allow.paths: %w", tool.name, err)
-		} else {
-			tool.config.Allow.Paths = expanded
-		}
-		if expanded, err := expandPatterns(tool.config.Deny.Paths); err != nil {
-			return fmt.Errorf("%s.deny.paths: %w", tool.name, err)
-		} else {
-			tool.config.Deny.Paths = expanded
-		}
-	}
-
-	return nil
-}
-
-// expandAliasesInArgsMatch expands aliases in an ArgsMatch struct.
-func expandAliasesInArgsMatch(args *ArgsMatch, aliases map[string]Alias) error {
-	if args.Any != nil {
-		if err := expandAliasesInBoolExpr(args.Any, aliases); err != nil {
-			return fmt.Errorf("any: %w", err)
-		}
-	}
-	if args.All != nil {
-		if err := expandAliasesInBoolExpr(args.All, aliases); err != nil {
-			return fmt.Errorf("all: %w", err)
-		}
-	}
-	if args.Not != nil {
-		if err := expandAliasesInBoolExpr(args.Not, aliases); err != nil {
-			return fmt.Errorf("not: %w", err)
-		}
-	}
-	if args.Xor != nil {
-		if err := expandAliasesInBoolExpr(args.Xor, aliases); err != nil {
-			return fmt.Errorf("xor: %w", err)
-		}
-	}
-	for key, fp := range args.Position {
-		expanded, err := expandPatternsSlice(fp.Patterns, aliases)
-		if err != nil {
-			return fmt.Errorf("position[%s]: %w", key, err)
-		}
-		args.Position[key] = FlexiblePattern{Patterns: expanded}
-	}
-	return nil
-}
-
-// expandAliasesInBoolExpr expands aliases in a BoolExpr tree.
-func expandAliasesInBoolExpr(expr *BoolExpr, aliases map[string]Alias) error {
-	if expr == nil {
-		return nil
-	}
-	// Expand flat patterns
-	if len(expr.Patterns) > 0 {
-		expanded, err := expandPatternsSlice(expr.Patterns, aliases)
-		if err != nil {
-			return err
-		}
-		expr.Patterns = expanded
-	}
-	// Expand sequence patterns
-	for key, fp := range expr.Sequence {
-		expanded, err := expandPatternsSlice(fp.Patterns, aliases)
-		if err != nil {
-			return fmt.Errorf("sequence[%s]: %w", key, err)
-		}
-		expr.Sequence[key] = FlexiblePattern{Patterns: expanded}
-	}
-	// Recurse into nested expressions
-	for _, child := range expr.Any {
-		if err := expandAliasesInBoolExpr(child, aliases); err != nil {
-			return err
-		}
-	}
-	for _, child := range expr.All {
-		if err := expandAliasesInBoolExpr(child, aliases); err != nil {
-			return err
-		}
-	}
-	if err := expandAliasesInBoolExpr(expr.Not, aliases); err != nil {
-		return err
-	}
-	for _, child := range expr.Xor {
-		if err := expandAliasesInBoolExpr(child, aliases); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// expandPatternsSlice expands aliases in a slice of patterns.
-func expandPatternsSlice(patterns []string, aliases map[string]Alias) ([]string, error) {
-	var result []string
-	for _, p := range patterns {
-		expanded, err := expandAlias(p, aliases)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, expanded...)
-	}
-	return result, nil
-}
-
-// expandAlias expands a single pattern if it's an alias reference.
-// Aliases cannot reference other aliases (validated at parse time),
-// so this is a simple one-level expansion.
-func expandAlias(pattern string, aliases map[string]Alias) ([]string, error) {
-	if !strings.HasPrefix(pattern, "alias:") {
-		return []string{pattern}, nil
-	}
-
-	aliasName := strings.TrimPrefix(pattern, "alias:")
-	alias, ok := aliases[aliasName]
-	if !ok {
-		return nil, fmt.Errorf("undefined alias: %s", aliasName)
-	}
-
-	return alias.Patterns, nil
-}
-
-// DefaultConfig returns a minimal default configuration.
-func DefaultConfig() *Config {
-	cfg := &Config{
-		Path: "(default)",
-		Bash: BashConfig{
-			Default:            "ask",
-			DynamicCommands:    "ask",
-			UnresolvedCommands: "ask",
-			DefaultMessage:     "Command not allowed",
-			Constructs: ConstructsConfig{
-				Subshells:           "ask",
-				FunctionDefinitions: "ask",
-				Background:          "ask",
-				Heredocs:            "allow",
-			},
-		},
-		Read:  FileToolConfig{Default: "ask"},
-		Write: FileToolConfig{Default: "ask"},
-		Edit:  FileToolConfig{Default: "ask"},
-	}
-	return cfg
-}
-
-// LoadConfigChain loads configs from standard locations plus an optional explicit path.
-func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
-	chain := &ConfigChain{}
-
-	// 1. Load global config
-	if globalPath := findGlobalConfig(); globalPath != "" {
-		cfg, err := loadConfig(globalPath)
-		if err != nil {
-			return nil, err
-		}
-		chain.Configs = append(chain.Configs, cfg)
-	}
-
-	// 2. Load project configs
-	discovery := findProjectConfigs()
-	if discovery.ProjectConfig != "" {
-		cfg, err := loadConfig(discovery.ProjectConfig)
-		if err != nil {
-			return nil, err
-		}
-		chain.Configs = append(chain.Configs, cfg)
-	}
-	if discovery.LocalConfig != "" {
-		cfg, err := loadConfig(discovery.LocalConfig)
-		if err != nil {
-			return nil, err
-		}
-		chain.Configs = append(chain.Configs, cfg)
-	}
-
-	// Propagate migration hints for legacy .claude/ paths
-	chain.MigrationHints = discovery.LegacyPaths
-
-	// 3. Load explicit config
-	if explicitPath != "" {
-		cfg, err := loadConfig(explicitPath)
-		if err != nil {
-			return nil, err
-		}
-		chain.Configs = append(chain.Configs, cfg)
-	}
-
-	// If no configs found, use default
-	if len(chain.Configs) == 0 {
-		chain.Configs = append(chain.Configs, DefaultConfig())
-	}
-
-	// Merge all configs
-	chain.Merged = MergeConfigs(chain.Configs)
-
-	return chain, nil
 }

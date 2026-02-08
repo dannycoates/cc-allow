@@ -34,13 +34,17 @@ func findGlobalConfig() string {
 // Only searches within the project boundary (up to and including project root).
 // Returns empty if project root is $HOME (global config there is handled separately).
 func findProjectConfigs() ProjectConfigResult {
+	return findProjectConfigsWithRoot(findProjectRoot())
+}
+
+// findProjectConfigsWithRoot is like findProjectConfigs but accepts a pre-computed project root
+// to avoid redundant filesystem traversals.
+func findProjectConfigsWithRoot(projectRoot string) ProjectConfigResult {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return ProjectConfigResult{}
 	}
 
-	// Find project root to bound the search
-	projectRoot := findProjectRoot()
 	if projectRoot == "" {
 		// No project root found - no project configs to find
 		return ProjectConfigResult{}
@@ -96,13 +100,17 @@ func findProjectConfigs() ProjectConfigResult {
 // Returns the path if found, or empty string if not found.
 // Returns empty if project root is $HOME (global config location).
 func findAgentConfig(agent string) string {
+	return findAgentConfigWithRoot(agent, findProjectRoot())
+}
+
+// findAgentConfigWithRoot is like findAgentConfig but accepts a pre-computed project root
+// to avoid redundant filesystem traversals.
+func findAgentConfigWithRoot(agent string, projectRoot string) string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
 
-	// Find project root to bound the search
-	projectRoot := findProjectRoot()
 	if projectRoot == "" {
 		return ""
 	}
