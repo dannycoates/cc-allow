@@ -11,17 +11,17 @@ import (
 )
 
 // defaultFileAccessTypes maps known commands to their default file access type.
-var defaultFileAccessTypes = map[string]string{
+var defaultFileAccessTypes = map[string]ToolName{
 	// Read commands
-	"cat": "Read", "less": "Read", "more": "Read", "head": "Read", "tail": "Read",
-	"grep": "Read", "egrep": "Read", "fgrep": "Read", "find": "Read", "file": "Read",
-	"wc": "Read", "diff": "Read", "cmp": "Read", "stat": "Read", "od": "Read",
-	"xxd": "Read", "hexdump": "Read", "strings": "Read",
+	"cat": ToolRead, "less": ToolRead, "more": ToolRead, "head": ToolRead, "tail": ToolRead,
+	"grep": ToolRead, "egrep": ToolRead, "fgrep": ToolRead, "find": ToolRead, "file": ToolRead,
+	"wc": ToolRead, "diff": ToolRead, "cmp": ToolRead, "stat": ToolRead, "od": ToolRead,
+	"xxd": ToolRead, "hexdump": ToolRead, "strings": ToolRead,
 	// Write commands
-	"rm": "Write", "rmdir": "Write", "touch": "Write", "mkdir": "Write",
-	"chmod": "Write", "chown": "Write", "chgrp": "Write", "ln": "Write", "unlink": "Write",
+	"rm": ToolWrite, "rmdir": ToolWrite, "touch": ToolWrite, "mkdir": ToolWrite,
+	"chmod": ToolWrite, "chown": ToolWrite, "chgrp": ToolWrite, "ln": ToolWrite, "unlink": ToolWrite,
 	// Edit commands
-	"sed": "Edit",
+	"sed": ToolEdit,
 }
 
 // Result represents the evaluation result.
@@ -750,7 +750,7 @@ func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule[BashRule
 }
 
 // getFileAccessType returns the file access type for a command.
-func (e *Evaluator) getFileAccessType(cmdName string, rule *TrackedRule[BashRule]) string {
+func (e *Evaluator) getFileAccessType(cmdName string, rule *TrackedRule[BashRule]) ToolName {
 	if rule != nil && rule.Rule.FileAccessType != "" {
 		return rule.Rule.FileAccessType
 	}
@@ -761,7 +761,7 @@ func (e *Evaluator) getFileAccessType(cmdName string, rule *TrackedRule[BashRule
 }
 
 // isPathArgument checks if an argument appears to be a file path.
-func (e *Evaluator) isPathArgument(arg, cwd, accessType string) bool {
+func (e *Evaluator) isPathArgument(arg, cwd string, accessType ToolName) bool {
 	if strings.HasPrefix(arg, "-") {
 		return false
 	}
@@ -771,7 +771,7 @@ func (e *Evaluator) isPathArgument(arg, cwd, accessType string) bool {
 	if pathutil.HasFileExtension(arg) {
 		absPath := pathutil.ResolvePath(arg, cwd, e.matchCtx.PathVars.Home)
 		switch accessType {
-		case "Write":
+		case ToolWrite:
 			return pathutil.DirExists(filepath.Dir(absPath))
 		default:
 			return pathutil.FileExists(absPath)
@@ -817,9 +817,9 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 
 	// Check file rules if enabled
 	if e.merged.RedirectsPolicy.RespectFileRules.Value && e.hasFileRulesConfigured() {
-		accessType := "Write"
+		accessType := ToolWrite
 		if redir.IsInput {
-			accessType = "Read"
+			accessType = ToolRead
 		}
 		absPath := pathutil.ResolvePath(redir.Target, e.matchCtx.PathVars.Cwd, e.matchCtx.PathVars.Home)
 		fileResult := checkFilePathAgainstRules(e.merged, accessType, absPath, e.matchCtx)
@@ -913,7 +913,7 @@ func (e *Evaluator) matchHeredocRule(tr TrackedRule[HeredocRule], hdoc Heredoc) 
 }
 
 // checkFilePathAgainstRules checks a file path against file tool rules.
-func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx *MatchContext) Result {
+func checkFilePathAgainstRules(merged *MergedConfig, toolName ToolName, path string, ctx *MatchContext) Result {
 	// Check deny patterns first
 	for _, entry := range merged.Files.Deny[toolName] {
 		p, err := ParsePattern(entry.Pattern)
@@ -930,7 +930,7 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx 
 			return Result{
 				Action:  ActionDeny,
 				Message: msg,
-				Source:  entry.Source + ": " + strings.ToLower(toolName) + ".deny.paths",
+				Source:  entry.Source + ": " + strings.ToLower(string(toolName)) + ".deny.paths",
 			}
 		}
 	}
@@ -944,15 +944,15 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx 
 		if p.MatchWithContext(path, ctx) {
 			return Result{
 				Action: ActionAllow,
-				Source: entry.Source + ": " + strings.ToLower(toolName) + ".allow.paths",
+				Source: entry.Source + ": " + strings.ToLower(string(toolName)) + ".allow.paths",
 			}
 		}
 	}
 
 	// Default
 	result := Result{
-		Action: merged.Files.Default.Value,
-		Source: merged.Files.Default.Source + ": " + strings.ToLower(toolName) + " default",
+		Action: merged.Files.Default[toolName].Value,
+		Source: merged.Files.Default[toolName].Source + ": " + strings.ToLower(string(toolName)) + " default",
 	}
 
 	// Apply default message if configured for this tool
@@ -965,7 +965,7 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName, path string, ctx 
 }
 
 // evaluateFileTool evaluates a file tool request.
-func (e *Evaluator) evaluateFileTool(toolName, filePath string) Result {
+func (e *Evaluator) evaluateFileTool(toolName ToolName, filePath string) Result {
 	merged := e.chain.Merged
 	if merged == nil {
 		return Result{Action: ActionAsk, Source: "no configuration loaded"}
@@ -992,7 +992,7 @@ func (e *Evaluator) evaluateWebFetchTool(url string) Result {
 	// Step 1: Check local URL pattern rules (reuse file pattern infrastructure)
 	pathVars := pathutil.NewPathVars(e.projectRoot)
 	ctx := &MatchContext{PathVars: pathVars, Merged: merged}
-	localResult := checkFilePathAgainstRules(merged, "WebFetch", url, ctx)
+	localResult := checkFilePathAgainstRules(merged, ToolWebFetch, url, ctx)
 
 	// If local rules gave a definitive answer (allow or deny), use it
 	if localResult.Action == ActionAllow || localResult.Action == ActionDeny {

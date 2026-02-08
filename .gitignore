@@ -5,3 +5,4 @@ dist/
 cc-allow.log
 *.local.*
 .claude/plans
+debug-logs/

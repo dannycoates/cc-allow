@@ -40,6 +40,17 @@ func (a Action) Priority() int {
 	}
 }
 
+// ToolName identifies a Claude Code tool type.
+type ToolName string
+
+const (
+	ToolBash     ToolName = "Bash"
+	ToolRead     ToolName = "Read"
+	ToolWrite    ToolName = "Write"
+	ToolEdit     ToolName = "Edit"
+	ToolWebFetch ToolName = "WebFetch"
+)
+
 // ExitCode represents the process exit code for a permission decision.
 type ExitCode int
 

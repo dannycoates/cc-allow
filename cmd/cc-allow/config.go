@@ -109,7 +109,7 @@ type BashRule struct {
 	Args             ArgsMatch   `toml:"args"`               // argument matching
 	Pipe             PipeContext `toml:"pipe"`               // pipe context rules
 	RespectFileRules *bool       `toml:"respect_file_rules"` // override bash.respect_file_rules
-	FileAccessType   string      `toml:"file_access_type"`   // override inferred file access type
+	FileAccessType   ToolName    `toml:"file_access_type"`   // override inferred file access type
 }
 
 // ArgsMatch provides argument matching using boolean expressions.
@@ -444,10 +444,10 @@ type TrackedFilePatternEntry struct {
 
 // MergedFilesConfig holds merged file tool settings with source tracking.
 type MergedFilesConfig struct {
-	Default        Tracked[Action]
-	DefaultMessage map[string]Tracked[string]            // per-tool default messages: "Read", "Edit", "Write"
-	Allow          map[string][]TrackedFilePatternEntry // keys are "Read", "Edit", "Write"
-	Deny           map[string][]TrackedFilePatternEntry
+	Default        map[ToolName]Tracked[Action]
+	DefaultMessage map[ToolName]Tracked[string]
+	Allow          map[ToolName][]TrackedFilePatternEntry
+	Deny           map[ToolName][]TrackedFilePatternEntry
 }
 
 // MergedPolicy holds policy settings with source tracking.

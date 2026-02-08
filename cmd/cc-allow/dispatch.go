@@ -9,8 +9,8 @@ import (
 
 // HookInput represents the JSON input from Claude Code hooks
 type HookInput struct {
-	SessionID string `json:"session_id"`
-	ToolName  string `json:"tool_name"`
+	SessionID string   `json:"session_id"`
+	ToolName  ToolName `json:"tool_name"`
 	ToolInput struct {
 		Command  string `json:"command"`   // Bash tool
 		FilePath string `json:"file_path"` // Read, Edit, Write tools
@@ -32,14 +32,14 @@ func NewToolDispatcher(chain *ConfigChain) *ToolDispatcher {
 // Dispatch routes the hook input to the appropriate tool evaluator
 func (d *ToolDispatcher) Dispatch(input HookInput) Result {
 	switch input.ToolName {
-	case "Read", "Edit", "Write":
+	case ToolRead, ToolEdit, ToolWrite:
 		return d.evaluateFile(input)
-	case "WebFetch":
+	case ToolWebFetch:
 		return d.evaluateWebFetch(input)
-	case "Bash", "":
+	case ToolBash, "":
 		return d.evaluateBash(input)
 	default:
-		return Result{Action: ActionAsk, Source: "unknown tool: " + input.ToolName}
+		return Result{Action: ActionAsk, Source: "unknown tool: " + string(input.ToolName)}
 	}
 }
 

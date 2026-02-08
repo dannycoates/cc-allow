@@ -44,9 +44,10 @@ func newEmptyMergedConfig() *MergedConfig {
 		CommandsDeny:  []TrackedCommandEntry{},
 		CommandsAllow: []TrackedCommandEntry{},
 		Files: MergedFilesConfig{
-			DefaultMessage: make(map[string]Tracked[string]),
-			Allow:          make(map[string][]TrackedFilePatternEntry),
-			Deny:           make(map[string][]TrackedFilePatternEntry),
+			Default:        make(map[ToolName]Tracked[Action]),
+			DefaultMessage: make(map[ToolName]Tracked[string]),
+			Allow:          make(map[ToolName][]TrackedFilePatternEntry),
+			Deny:           make(map[ToolName][]TrackedFilePatternEntry),
 		},
 		Aliases:   make(map[string]Alias),
 		Rules:     []TrackedRule[BashRule]{},
@@ -116,12 +117,12 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	merged.Heredocs = mergeHeredocRules(merged.Heredocs, cfg.getParsedHeredocs(), source)
 
 	// Merge file tool configs
-	mergeFileToolConfig(&merged.Files, "Read", &cfg.Read, source)
-	mergeFileToolConfig(&merged.Files, "Write", &cfg.Write, source)
-	mergeFileToolConfig(&merged.Files, "Edit", &cfg.Edit, source)
+	mergeFileToolConfig(&merged.Files, ToolRead, &cfg.Read, source)
+	mergeFileToolConfig(&merged.Files, ToolWrite, &cfg.Write, source)
+	mergeFileToolConfig(&merged.Files, ToolEdit, &cfg.Edit, source)
 
 	// Merge WebFetch URL patterns (reuses file tool merge infrastructure)
-	mergeFileToolConfig(&merged.Files, "WebFetch", &cfg.WebFetch.FileToolConfig, source)
+	mergeFileToolConfig(&merged.Files, ToolWebFetch, &cfg.WebFetch.FileToolConfig, source)
 
 	// Merge Safe Browsing settings (strictest wins: once enabled, stays enabled)
 	if cfg.WebFetch.SafeBrowsing.Enabled {
@@ -141,9 +142,9 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 }
 
 // mergeFileToolConfig merges a file tool config into the merged files config.
-func mergeFileToolConfig(merged *MergedFilesConfig, toolName string, cfg *FileToolConfig, source string) {
+func mergeFileToolConfig(merged *MergedFilesConfig, toolName ToolName, cfg *FileToolConfig, source string) {
 	// Merge default (stricter wins)
-	merged.Default = mergeTrackedAction(merged.Default, cfg.Default, source)
+	merged.Default[toolName] = mergeTrackedAction(merged.Default[toolName], cfg.Default, source)
 
 	// Merge default message per tool (later configs override)
 	if cfg.DefaultMessage != "" {
@@ -200,20 +201,22 @@ func applyMergedDefaults(merged *MergedConfig) {
 	if !merged.Constructs.Heredocs.IsSet() {
 		merged.Constructs.Heredocs = Tracked[Action]{Value: ActionAllow, Source: "(default)"}
 	}
-	if !merged.Files.Default.IsSet() {
-		merged.Files.Default = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
+	for _, tool := range []ToolName{ToolRead, ToolWrite, ToolEdit, ToolWebFetch} {
+		if !merged.Files.Default[tool].IsSet() {
+			merged.Files.Default[tool] = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
+		}
 	}
-	if _, ok := merged.Files.DefaultMessage["Read"]; !ok {
-		merged.Files.DefaultMessage["Read"] = Tracked[string]{Value: "File read requires approval: {{.FilePath}}", Source: "(default)"}
+	if _, ok := merged.Files.DefaultMessage[ToolRead]; !ok {
+		merged.Files.DefaultMessage[ToolRead] = Tracked[string]{Value: "File read requires approval: {{.FilePath}}", Source: "(default)"}
 	}
-	if _, ok := merged.Files.DefaultMessage["Write"]; !ok {
-		merged.Files.DefaultMessage["Write"] = Tracked[string]{Value: "File write requires approval: {{.FilePath}}", Source: "(default)"}
+	if _, ok := merged.Files.DefaultMessage[ToolWrite]; !ok {
+		merged.Files.DefaultMessage[ToolWrite] = Tracked[string]{Value: "File write requires approval: {{.FilePath}}", Source: "(default)"}
 	}
-	if _, ok := merged.Files.DefaultMessage["Edit"]; !ok {
-		merged.Files.DefaultMessage["Edit"] = Tracked[string]{Value: "File edit requires approval: {{.FilePath}}", Source: "(default)"}
+	if _, ok := merged.Files.DefaultMessage[ToolEdit]; !ok {
+		merged.Files.DefaultMessage[ToolEdit] = Tracked[string]{Value: "File edit requires approval: {{.FilePath}}", Source: "(default)"}
 	}
-	if _, ok := merged.Files.DefaultMessage["WebFetch"]; !ok {
-		merged.Files.DefaultMessage["WebFetch"] = Tracked[string]{Value: "URL fetch requires approval: {{.FilePath}}", Source: "(default)"}
+	if _, ok := merged.Files.DefaultMessage[ToolWebFetch]; !ok {
+		merged.Files.DefaultMessage[ToolWebFetch] = Tracked[string]{Value: "URL fetch requires approval: {{.FilePath}}", Source: "(default)"}
 	}
 	if !merged.RedirectsPolicy.RespectFileRules.IsSet() {
 		merged.RedirectsPolicy.RespectFileRules = Tracked[bool]{Value: false, Source: "(default)"}

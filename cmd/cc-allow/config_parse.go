@@ -419,7 +419,7 @@ func parseRuleFromTable(action Action, path []string, table map[string]any) (Bas
 
 	// Extract file_access_type
 	if fat, ok := table["file_access_type"].(string); ok {
-		rule.FileAccessType = fat
+		rule.FileAccessType = ToolName(fat)
 	}
 
 	return rule, nil

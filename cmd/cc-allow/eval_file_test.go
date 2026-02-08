@@ -8,7 +8,7 @@ func TestEvalFileTool(t *testing.T) {
 	tests := []struct {
 		name       string
 		config     string
-		tool       string
+		tool       ToolName
 		filePath   string
 		wantAction Action
 	}{
@@ -19,7 +19,7 @@ version = "2.0"
 [read.allow]
 paths = ["path:/project/**"]
 `,
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/project/src/main.go",
 			wantAction: ActionAllow,
 		},
@@ -33,7 +33,7 @@ paths = ["path:/project/**"]
 [read.deny]
 paths = ["path:/etc/**"]
 `,
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/etc/passwd",
 			wantAction: ActionDeny,
 		},
@@ -47,7 +47,7 @@ paths = ["path:/**"]
 [read.deny]
 paths = ["path:/secret/**"]
 `,
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/secret/key.pem",
 			wantAction: ActionDeny,
 		},
@@ -61,7 +61,7 @@ default = "ask"
 [read.allow]
 paths = ["path:/allowed/**"]
 `,
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/other/file.txt",
 			wantAction: ActionAsk,
 		},
@@ -75,7 +75,7 @@ default = "deny"
 [read.allow]
 paths = ["path:/allowed/**"]
 `,
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/other/file.txt",
 			wantAction: ActionDeny,
 		},
@@ -89,7 +89,7 @@ paths = ["path:/**"]
 [write.deny]
 paths = ["path:/**"]
 `,
-			tool:       "Write",
+			tool:       ToolWrite,
 			filePath:   "/project/file.txt",
 			wantAction: ActionDeny,
 		},
@@ -100,7 +100,7 @@ version = "2.0"
 [edit.allow]
 paths = ["path:/project/**"]
 `,
-			tool:       "Edit",
+			tool:       ToolEdit,
 			filePath:   "/project/src/main.go",
 			wantAction: ActionAllow,
 		},
@@ -111,7 +111,7 @@ version = "2.0"
 [read.deny]
 paths = ["path:**/.env*"]
 `,
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/project/.env",
 			wantAction: ActionDeny,
 		},
@@ -122,7 +122,7 @@ version = "2.0"
 [read.deny]
 paths = ["path:**/.env*"]
 `,
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/project/config/.env.local",
 			wantAction: ActionDeny,
 		},
@@ -133,7 +133,7 @@ version = "2.0"
 [read.deny]
 paths = ["re:.*\\.(key|pem|p12)$"]
 `,
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/home/user/.ssh/id_rsa.pem",
 			wantAction: ActionDeny,
 		},
@@ -195,19 +195,19 @@ paths = ["path:/secrets/**"]
 
 	tests := []struct {
 		name       string
-		tool       string
+		tool       ToolName
 		filePath   string
 		wantAction Action
 	}{
 		{
 			name:       "global allow works",
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/home/user/file.txt",
 			wantAction: ActionAllow,
 		},
 		{
 			name:       "project deny overrides global allow",
-			tool:       "Read",
+			tool:       ToolRead,
 			filePath:   "/secrets/key.txt",
 			wantAction: ActionDeny,
 		},
@@ -241,7 +241,7 @@ message = "Cannot write to system files"
 		Merged:  MergeConfigs([]*Config{cfg}),
 	}
 
-	result := NewEvaluator(chain).evaluateFileTool("Write", "/etc/hosts")
+	result := NewEvaluator(chain).evaluateFileTool(ToolWrite, "/etc/hosts")
 	if result.Action != ActionDeny {
 		t.Errorf("expected deny, got %s", result.Action)
 	}
@@ -267,7 +267,7 @@ default_message = "File read requires approval: {{.FilePath}}"
 		Merged:  MergeConfigs([]*Config{cfg}),
 	}
 
-	result := NewEvaluator(chain).evaluateFileTool("Read", "/some/unknown/file.txt")
+	result := NewEvaluator(chain).evaluateFileTool(ToolRead, "/some/unknown/file.txt")
 	if result.Action != ActionAsk {
 		t.Errorf("expected ask, got %s", result.Action)
 	}

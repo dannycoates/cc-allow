@@ -148,9 +148,9 @@ func newHeredocTemplateContext(hdoc Heredoc, matchCtx *MatchContext) TemplateCon
 }
 
 // newFileTemplateContext creates a context for file tool evaluation.
-func newFileTemplateContext(toolName, filePath string, matchCtx *MatchContext) TemplateContext {
+func newFileTemplateContext(toolName ToolName, filePath string, matchCtx *MatchContext) TemplateContext {
 	ctx := TemplateContext{
-		Tool:     toolName,
+		Tool:     string(toolName),
 		FilePath: filePath,
 	}
 	if matchCtx != nil && matchCtx.PathVars != nil {
