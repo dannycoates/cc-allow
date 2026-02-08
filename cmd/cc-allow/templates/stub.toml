@@ -129,7 +129,7 @@ version = "2.0"
 # message = "Protect shell config files"
 
 # [debug]
-# log_file = "/tmp/cc-allow.log"  # debug log output
+# log_dir = "/tmp/cc-allow-debug"  # directory for per-session debug logs
 
 # [webfetch]
 # default = "allow"

@@ -80,7 +80,7 @@ func configFromRaw(raw map[string]any) (*Config, error) {
 
 	// Extract debug config
 	if debugRaw, ok := raw["debug"].(map[string]any); ok {
-		cfg.Debug.LogFile, _ = debugRaw["log_file"].(string)
+		cfg.Debug.LogDir, _ = debugRaw["log_dir"].(string)
 	}
 
 	return cfg, nil

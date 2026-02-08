@@ -405,7 +405,7 @@ type SafeBrowsingConfig struct {
 
 // DebugConfig controls debug logging behavior.
 type DebugConfig struct {
-	LogFile string `toml:"log_file"` // path to debug log file
+	LogDir string `toml:"log_dir"` // directory for per-session debug logs
 }
 
 // Tracked holds a value of any type along with the config file path that set it.

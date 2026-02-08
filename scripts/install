@@ -33,6 +33,6 @@ if [ ! -x "$CC_ALLOW_BIN" ]; then
   chmod +x "$CC_ALLOW_BIN"
 fi
 
-# Initialize project config
+# Initialize project config (pipe hook JSON so --init can check source)
 mkdir -p "$PROJECT_DIR/.config/cc-allow"
-"$CC_ALLOW_BIN" --init
+"$CC_ALLOW_BIN" --init --hook

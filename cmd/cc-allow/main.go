@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"mvdan.cc/sh/v3/syntax"
 )
@@ -28,8 +29,9 @@ var (
 	date    = "unknown"
 )
 
-// Debug logger (nil when debug mode is off)
-var debugLog *log.Logger
+// Debug loggers (nil when debug mode is off)
+var debugStderr *log.Logger
+var debugFile *os.File
 
 // HookOutput represents the JSON output for Claude Code hooks
 type HookOutput struct {
@@ -48,7 +50,7 @@ func main() {
 	agentType := flag.String("agent", "", "agent type to load config for (looks for .config/cc-allow/<agent>.toml)")
 	hookMode := flag.Bool("hook", false, "parse Claude Code hook JSON input (extracts tool_input.command)")
 	showVersion := flag.Bool("version", false, "print version and exit")
-	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and $TMPDIR/cc-allow.log")
+	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and per-session JSONL log files")
 	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
 	initMode := flag.Bool("init", false, "create project config at .config/cc-allow.toml")
 
@@ -111,7 +113,7 @@ func main() {
 		fmt.Printf("cc-allow %s (commit: %s, built: %s)\n", version, commit, date)
 		os.Exit(0)
 	case *initMode:
-		os.Exit(int(runInit()))
+		os.Exit(int(runInit(*hookMode)))
 	case *fmtMode:
 		os.Exit(int(runFmt(*configPath)))
 	default:
@@ -134,9 +136,16 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) ExitC
 		return ExitError
 	}
 
-	// Initialize debug logging (after config load so we can use configured path)
+	// Build input (before debug init so we have session ID)
+	input, err := buildInput(hookMode, toolMode)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return ExitError
+	}
+
+	// Initialize debug logging (after config load and input parse so we have session ID)
 	if debugMode {
-		logPath := getDebugLogPath(chain)
+		logPath := getDebugLogPath(chain, input.SessionID)
 		initDebugLog(logPath)
 	}
 	logDebugConfigChain(chain)
@@ -147,16 +156,12 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode string) ExitC
 		migrationContext = buildMigrationMessage(chain.MigrationHints)
 	}
 
-	// Build input
-	input, err := buildInput(hookMode, toolMode)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return ExitError
-	}
-
 	// Dispatch
 	dispatcher := NewToolDispatcher(chain)
 	result := dispatcher.Dispatch(input)
+
+	// Structured debug log entry
+	logDebugEval(input, result)
 
 	// Output
 	if hookMode {
@@ -401,56 +406,65 @@ func wordPartsToString(wps []syntax.WordPart) string {
 // Debug logging helpers
 
 func initDebugLog(logPath string) {
-	writers := []io.Writer{os.Stderr}
+	debugStderr = log.New(os.Stderr, "[cc-allow] ", log.Ltime)
 
-	// Also write to log file
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err == nil {
-		writers = append(writers, f)
+		debugFile = f
 		fmt.Fprintf(os.Stderr, "[debug] Log file: %s\n", logPath)
 	}
-
-	debugLog = log.New(io.MultiWriter(writers...), "[cc-allow] ", log.Ltime)
 }
 
 // getDebugLogPath returns the debug log path from config chain, or default.
-func getDebugLogPath(chain *ConfigChain) string {
-	// Check each config in order for a configured log_file
+func getDebugLogPath(chain *ConfigChain, sessionID string) string {
+	// Find configured log_dir
+	var dir string
 	for _, cfg := range chain.Configs {
-		if cfg.Debug.LogFile != "" {
-			return cfg.Debug.LogFile
+		if cfg.Debug.LogDir != "" {
+			dir = cfg.Debug.LogDir
 		}
 	}
-	// Default to temp directory
-	return filepath.Join(os.TempDir(), "cc-allow.log")
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "cc-allow-debug")
+	}
+	os.MkdirAll(dir, 0755)
+
+	// Per-session log file if session ID available
+	if sessionID != "" {
+		return filepath.Join(dir, sessionID+".log")
+	}
+	return filepath.Join(dir, "cc-allow.log")
 }
 
 func logDebug(format string, args ...any) {
-	if debugLog != nil {
-		debugLog.Printf(format, args...)
+	if debugStderr == nil {
+		return
 	}
+	debugStderr.Printf(format+"\n", args...)
+}
+
+// logDebugEntry writes a structured JSONL entry to the debug log file.
+func logDebugEntry(v any) {
+	if debugFile == nil {
+		return
+	}
+	entry, _ := json.Marshal(v)
+	debugFile.Write(append(entry, '\n'))
 }
 
 func logDebugConfigChain(chain *ConfigChain) {
-	if debugLog == nil {
+	if debugStderr == nil {
 		return
 	}
 	logDebug("Config chain: %d config(s) loaded", len(chain.Configs))
 	for i, cfg := range chain.Configs {
-		logDebug("  [%d] %s", i, cfg.Path)
-		logDebug("      bash: default=%s, dynamic_commands=%s", cfg.Bash.Default, cfg.Bash.DynamicCommands)
-		if len(cfg.Bash.Deny.Commands) > 0 {
-			logDebug("      bash.deny.commands: %s", strings.Join(cfg.Bash.Deny.Commands, ", "))
-		}
-		if len(cfg.Bash.Allow.Commands) > 0 {
-			logDebug("      bash.allow.commands: %s", strings.Join(cfg.Bash.Allow.Commands, ", "))
-		}
-		logDebug("      %d rule(s), %d redirect(s), %d heredoc(s)", len(cfg.getParsedRules()), len(cfg.getParsedRedirects()), len(cfg.getParsedHeredocs()))
+		logDebug("  [%d] %s (%d rules, %d redirects, %d heredocs)",
+			i, cfg.Path, len(cfg.getParsedRules()), len(cfg.getParsedRedirects()), len(cfg.getParsedHeredocs()))
 	}
 }
 
 func logDebugExtractedInfo(info *ExtractedInfo) {
-	if debugLog == nil {
+	if debugStderr == nil {
 		return
 	}
 	logDebug("Extracted info:")
@@ -466,9 +480,67 @@ func logDebugExtractedInfo(info *ExtractedInfo) {
 	logDebug("  Constructs: hasFuncDefs=%v hasBackground=%v", info.Constructs.HasFunctionDefs, info.Constructs.HasBackground)
 }
 
+// logDebugEval writes a structured evaluation entry to both stderr and JSONL.
+func logDebugEval(input HookInput, result Result) {
+	if debugStderr == nil {
+		return
+	}
+
+	// Determine the input value for display
+	var inputValue string
+	switch input.ToolName {
+	case "Read", "Write", "Edit":
+		inputValue = input.ToolInput.FilePath
+	case "WebFetch":
+		inputValue = input.ToolInput.URL
+	default:
+		inputValue = input.ToolInput.Command
+	}
+
+	// Stderr: concise text summary
+	logDebug("=> %s %s action=%s source=%q", input.ToolName, inputValue, result.Action, result.Source)
+	if result.Message != "" {
+		logDebug("   message=%q", result.Message)
+	}
+
+	// JSONL: structured entry
+	type logEntry struct {
+		Ts      string `json:"ts"`
+		Tool    string `json:"tool"`
+		Input   string `json:"input"`
+		Action  string `json:"action"`
+		Source  string `json:"source,omitempty"`
+		Command string `json:"command,omitempty"`
+		Message string `json:"message,omitempty"`
+	}
+	logDebugEntry(logEntry{
+		Ts:      time.Now().Format(time.RFC3339Nano),
+		Tool:    input.ToolName,
+		Input:   inputValue,
+		Action:  string(result.Action),
+		Source:  result.Source,
+		Command: result.Command,
+		Message: result.Message,
+	})
+}
+
 // Init mode - create project config file
 
-func runInit() ExitCode {
+func runInit(hookMode bool) ExitCode {
+	// In hook mode, read SessionStart JSON and only init on "startup"
+	if hookMode {
+		var event struct {
+			Source string `json:"source"`
+		}
+		if err := json.NewDecoder(os.Stdin).Decode(&event); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to parse hook JSON: %v\n", err)
+			return ExitError
+		}
+		if event.Source != "startup" {
+			return ExitAllow
+		}
+	}
+
 	// 1. Find project root
 	root := findProjectRoot()
 	if root == "" {

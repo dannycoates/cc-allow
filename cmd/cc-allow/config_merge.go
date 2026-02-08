@@ -135,8 +135,8 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	maps.Copy(merged.Aliases, cfg.Aliases)
 
 	// Debug config
-	if cfg.Debug.LogFile != "" {
-		merged.Debug.LogFile = cfg.Debug.LogFile
+	if cfg.Debug.LogDir != "" {
+		merged.Debug.LogDir = cfg.Debug.LogDir
 	}
 }
 

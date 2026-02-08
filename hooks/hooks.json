@@ -2,7 +2,6 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup",
         "hooks": [
           {
             "type": "command",
@@ -13,7 +12,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Read|Write|Edit",
+        "matcher": "Bash|Read|Write|Edit|WebFetch",
         "hooks": [
           {
             "type": "command",

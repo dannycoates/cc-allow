@@ -9,6 +9,7 @@ import (
 
 // HookInput represents the JSON input from Claude Code hooks
 type HookInput struct {
+	SessionID string `json:"session_id"`
 	ToolName  string `json:"tool_name"`
 	ToolInput struct {
 		Command  string `json:"command"`   // Bash tool
@@ -46,30 +47,22 @@ func (d *ToolDispatcher) evaluateFile(input HookInput) Result {
 	if input.ToolInput.FilePath == "" {
 		return Result{Action: ActionAsk, Source: "no file path"}
 	}
-	logDebug("File tool: %s path=%q", input.ToolName, input.ToolInput.FilePath)
 	eval := NewEvaluator(d.chain)
-	result := eval.evaluateFileTool(input.ToolName, input.ToolInput.FilePath)
-	logDebug("File result: action=%q message=%q source=%q", result.Action, result.Message, result.Source)
-	return result
+	return eval.evaluateFileTool(input.ToolName, input.ToolInput.FilePath)
 }
 
 func (d *ToolDispatcher) evaluateWebFetch(input HookInput) Result {
 	if input.ToolInput.URL == "" {
 		return Result{Action: ActionAsk, Source: "no URL"}
 	}
-	logDebug("WebFetch tool: url=%q", input.ToolInput.URL)
 	eval := NewEvaluator(d.chain)
-	result := eval.evaluateWebFetchTool(input.ToolInput.URL)
-	logDebug("WebFetch result: action=%q message=%q source=%q", result.Action, result.Message, result.Source)
-	return result
+	return eval.evaluateWebFetchTool(input.ToolInput.URL)
 }
 
 func (d *ToolDispatcher) evaluateBash(input HookInput) Result {
 	if input.ToolInput.Command == "" {
 		return Result{Action: ActionAsk, Source: "no command"}
 	}
-	logDebug("Input command: %q", input.ToolInput.Command)
-
 	// Parse bash AST
 	parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
 	f, err := parser.Parse(strings.NewReader(input.ToolInput.Command), "")
@@ -83,8 +76,5 @@ func (d *ToolDispatcher) evaluateBash(input HookInput) Result {
 	logDebugExtractedInfo(info)
 
 	eval := NewEvaluator(d.chain)
-	result := eval.Evaluate(info)
-	logDebug("Result: action=%q message=%q command=%q source=%q",
-		result.Action, result.Message, result.Command, result.Source)
-	return result
+	return eval.Evaluate(info)
 }
