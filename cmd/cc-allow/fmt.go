@@ -149,6 +149,46 @@ func runFmt(configPath string) ExitCode {
 				}
 			}
 		}
+
+		// Display Glob config
+		if cfg.Glob.Default != "" || len(cfg.Glob.Allow.Paths) > 0 || len(cfg.Glob.Deny.Paths) > 0 {
+			fmt.Println("    Glob:")
+			if cfg.Glob.Default != "" {
+				fmt.Printf("      default = %q\n", cfg.Glob.Default)
+			}
+			if len(cfg.Glob.Allow.Paths) > 0 {
+				fmt.Printf("      allow: %d pattern(s)\n", len(cfg.Glob.Allow.Paths))
+				for _, p := range cfg.Glob.Allow.Paths {
+					fmt.Printf("        %s\n", p)
+				}
+			}
+			if len(cfg.Glob.Deny.Paths) > 0 {
+				fmt.Printf("      deny: %d pattern(s)\n", len(cfg.Glob.Deny.Paths))
+				for _, p := range cfg.Glob.Deny.Paths {
+					fmt.Printf("        %s\n", p)
+				}
+			}
+		}
+
+		// Display Grep config
+		if cfg.Grep.Default != "" || len(cfg.Grep.Allow.Paths) > 0 || len(cfg.Grep.Deny.Paths) > 0 {
+			fmt.Println("    Grep:")
+			if cfg.Grep.Default != "" {
+				fmt.Printf("      default = %q\n", cfg.Grep.Default)
+			}
+			if len(cfg.Grep.Allow.Paths) > 0 {
+				fmt.Printf("      allow: %d pattern(s)\n", len(cfg.Grep.Allow.Paths))
+				for _, p := range cfg.Grep.Allow.Paths {
+					fmt.Printf("        %s\n", p)
+				}
+			}
+			if len(cfg.Grep.Deny.Paths) > 0 {
+				fmt.Printf("      deny: %d pattern(s)\n", len(cfg.Grep.Deny.Paths))
+				for _, p := range cfg.Grep.Deny.Paths {
+					fmt.Printf("        %s\n", p)
+				}
+			}
+		}
 	}
 
 	if hasError {

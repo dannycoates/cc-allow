@@ -318,7 +318,13 @@ func evalBash(t *testing.T, cfg *Config, bash string) Result {
 func evalFile(t *testing.T, cfg *Config, tool ToolName, path string) Result {
 	t.Helper()
 	chain := &ConfigChain{Configs: []*Config{cfg}, Merged: MergeConfigs([]*Config{cfg})}
-	return NewEvaluator(chain).evaluateFileTool(tool, path)
+	eval := NewEvaluator(chain)
+	switch tool {
+	case ToolGlob, ToolGrep:
+		return eval.evaluateSearchTool(tool, path)
+	default:
+		return eval.evaluateFileTool(tool, path)
+	}
 }
 
 func evalWebFetch(t *testing.T, cfg *Config, url string) Result {

@@ -21,6 +21,8 @@ type Config struct {
 	Read    FileToolConfig   `toml:"read"`    // read tool configuration
 	Write   FileToolConfig   `toml:"write"`   // write tool configuration
 	Edit     FileToolConfig   `toml:"edit"`     // edit tool configuration
+	Glob     FileToolConfig   `toml:"glob"`     // glob tool configuration
+	Grep     FileToolConfig   `toml:"grep"`     // grep tool configuration
 	WebFetch WebFetchConfig   `toml:"webfetch"` // webfetch tool configuration
 	Debug    DebugConfig      `toml:"debug"`    // debug settings
 
@@ -376,12 +378,13 @@ type HeredocRule struct {
 	Content *BoolExpr `toml:"content"` // content matching using boolean expressions
 }
 
-// FileToolConfig holds configuration for read/write/edit tools.
+// FileToolConfig holds configuration for read/write/edit/glob/grep tools.
 type FileToolConfig struct {
-	Default        string        `toml:"default"`         // default action: "allow", "deny", or "ask"
-	DefaultMessage string        `toml:"default_message"` // message when default action is triggered
-	Allow          FileAllowDeny `toml:"allow"`
-	Deny           FileAllowDeny `toml:"deny"`
+	Default          string        `toml:"default"`            // default action: "allow", "deny", or "ask"
+	DefaultMessage   string        `toml:"default_message"`    // message when default action is triggered
+	RespectFileRules *bool         `toml:"respect_file_rules"` // check read rules for search path (glob/grep)
+	Allow            FileAllowDeny `toml:"allow"`
+	Deny             FileAllowDeny `toml:"deny"`
 }
 
 // FileAllowDeny holds path lists for allow/deny.
@@ -444,10 +447,11 @@ type TrackedFilePatternEntry struct {
 
 // MergedFilesConfig holds merged file tool settings with source tracking.
 type MergedFilesConfig struct {
-	Default        map[ToolName]Tracked[Action]
-	DefaultMessage map[ToolName]Tracked[string]
-	Allow          map[ToolName][]TrackedFilePatternEntry
-	Deny           map[ToolName][]TrackedFilePatternEntry
+	Default          map[ToolName]Tracked[Action]
+	DefaultMessage   map[ToolName]Tracked[string]
+	RespectFileRules map[ToolName]Tracked[bool]
+	Allow            map[ToolName][]TrackedFilePatternEntry
+	Deny             map[ToolName][]TrackedFilePatternEntry
 }
 
 // MergedPolicy holds policy settings with source tracking.

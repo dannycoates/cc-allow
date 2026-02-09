@@ -49,6 +49,8 @@ const (
 	ToolWrite    ToolName = "Write"
 	ToolEdit     ToolName = "Edit"
 	ToolWebFetch ToolName = "WebFetch"
+	ToolGlob     ToolName = "Glob"
+	ToolGrep     ToolName = "Grep"
 )
 
 // ExitCode represents the process exit code for a permission decision.

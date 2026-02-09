@@ -16,6 +16,8 @@ type HookInput struct {
 		FilePath string `json:"file_path"` // Read, Edit, Write tools
 		URL      string `json:"url"`       // WebFetch tool
 		Prompt   string `json:"prompt"`    // WebFetch tool
+		Pattern string `json:"pattern"` // Glob and Grep tools
+		Path    string `json:"path"`    // Glob and Grep tools (search directory)
 	} `json:"tool_input"`
 }
 
@@ -36,6 +38,8 @@ func (d *ToolDispatcher) Dispatch(input HookInput) Result {
 		return d.evaluateFile(input)
 	case ToolWebFetch:
 		return d.evaluateWebFetch(input)
+	case ToolGlob, ToolGrep:
+		return d.evaluateSearch(input)
 	case ToolBash, "":
 		return d.evaluateBash(input)
 	default:
@@ -57,6 +61,16 @@ func (d *ToolDispatcher) evaluateWebFetch(input HookInput) Result {
 	}
 	eval := NewEvaluator(d.chain)
 	return eval.evaluateWebFetchTool(input.ToolInput.URL)
+}
+
+func (d *ToolDispatcher) evaluateSearch(input HookInput) Result {
+	path := input.ToolInput.Path
+	if path == "" {
+		cwd, _ := os.Getwd()
+		path = cwd
+	}
+	eval := NewEvaluator(d.chain)
+	return eval.evaluateSearchTool(input.ToolName, path)
 }
 
 func (d *ToolDispatcher) evaluateBash(input HookInput) Result {

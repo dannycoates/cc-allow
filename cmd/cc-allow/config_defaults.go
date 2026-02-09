@@ -40,6 +40,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.Edit.Default == "" {
 		cfg.Edit.Default = "ask"
 	}
+	if cfg.Glob.Default == "" {
+		cfg.Glob.Default = "allow"
+	}
+	if cfg.Grep.Default == "" {
+		cfg.Grep.Default = "allow"
+	}
 }
 
 // DefaultConfig returns a minimal default configuration.
@@ -61,6 +67,8 @@ func DefaultConfig() *Config {
 		Read:  FileToolConfig{Default: "ask"},
 		Write: FileToolConfig{Default: "ask"},
 		Edit:  FileToolConfig{Default: "ask"},
+		Glob:  FileToolConfig{Default: "allow"},
+		Grep:  FileToolConfig{Default: "allow"},
 	}
 	return cfg
 }
@@ -130,6 +138,8 @@ func resolveAliasesInConfig(cfg *Config) error {
 		{"read", &cfg.Read},
 		{"write", &cfg.Write},
 		{"edit", &cfg.Edit},
+		{"glob", &cfg.Glob},
+		{"grep", &cfg.Grep},
 	} {
 		if expanded, err := expandPatterns(tool.config.Allow.Paths); err != nil {
 			return fmt.Errorf("%s.allow.paths: %w", tool.name, err)

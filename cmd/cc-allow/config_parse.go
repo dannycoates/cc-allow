@@ -72,6 +72,12 @@ func configFromRaw(raw map[string]any) (*Config, error) {
 	if editRaw, ok := raw["edit"].(map[string]any); ok {
 		cfg.Edit = parseFileToolConfigFromRaw(editRaw)
 	}
+	if globRaw, ok := raw["glob"].(map[string]any); ok {
+		cfg.Glob = parseFileToolConfigFromRaw(globRaw)
+	}
+	if grepRaw, ok := raw["grep"].(map[string]any); ok {
+		cfg.Grep = parseFileToolConfigFromRaw(grepRaw)
+	}
 
 	// Extract webfetch config
 	if webfetchRaw, ok := raw["webfetch"].(map[string]any); ok {
@@ -202,6 +208,9 @@ func parseFileToolConfigFromRaw(raw map[string]any) FileToolConfig {
 
 	cfg.Default, _ = raw["default"].(string)
 	cfg.DefaultMessage, _ = raw["default_message"].(string)
+	if rfr, ok := raw["respect_file_rules"].(bool); ok {
+		cfg.RespectFileRules = &rfr
+	}
 
 	if allowRaw, ok := raw["allow"].(map[string]any); ok {
 		cfg.Allow = parseFileAllowDenyFromRaw(allowRaw)

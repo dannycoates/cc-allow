@@ -44,10 +44,11 @@ func newEmptyMergedConfig() *MergedConfig {
 		CommandsDeny:  []TrackedCommandEntry{},
 		CommandsAllow: []TrackedCommandEntry{},
 		Files: MergedFilesConfig{
-			Default:        make(map[ToolName]Tracked[Action]),
-			DefaultMessage: make(map[ToolName]Tracked[string]),
-			Allow:          make(map[ToolName][]TrackedFilePatternEntry),
-			Deny:           make(map[ToolName][]TrackedFilePatternEntry),
+			Default:          make(map[ToolName]Tracked[Action]),
+			DefaultMessage:   make(map[ToolName]Tracked[string]),
+			RespectFileRules: make(map[ToolName]Tracked[bool]),
+			Allow:            make(map[ToolName][]TrackedFilePatternEntry),
+			Deny:             make(map[ToolName][]TrackedFilePatternEntry),
 		},
 		Aliases:   make(map[string]Alias),
 		Rules:     []TrackedRule[BashRule]{},
@@ -120,6 +121,8 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	mergeFileToolConfig(&merged.Files, ToolRead, &cfg.Read, source)
 	mergeFileToolConfig(&merged.Files, ToolWrite, &cfg.Write, source)
 	mergeFileToolConfig(&merged.Files, ToolEdit, &cfg.Edit, source)
+	mergeFileToolConfig(&merged.Files, ToolGlob, &cfg.Glob, source)
+	mergeFileToolConfig(&merged.Files, ToolGrep, &cfg.Grep, source)
 
 	// Merge WebFetch URL patterns (reuses file tool merge infrastructure)
 	mergeFileToolConfig(&merged.Files, ToolWebFetch, &cfg.WebFetch.FileToolConfig, source)
@@ -145,6 +148,9 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 func mergeFileToolConfig(merged *MergedFilesConfig, toolName ToolName, cfg *FileToolConfig, source string) {
 	// Merge default (stricter wins)
 	merged.Default[toolName] = mergeTrackedAction(merged.Default[toolName], cfg.Default, source)
+
+	// Merge respect_file_rules (later configs override)
+	merged.RespectFileRules[toolName] = mergeTrackedBool(merged.RespectFileRules[toolName], cfg.RespectFileRules, source)
 
 	// Merge default message per tool (later configs override)
 	if cfg.DefaultMessage != "" {
@@ -206,6 +212,11 @@ func applyMergedDefaults(merged *MergedConfig) {
 			merged.Files.Default[tool] = Tracked[Action]{Value: ActionAsk, Source: "(default)"}
 		}
 	}
+	for _, tool := range []ToolName{ToolGlob, ToolGrep} {
+		if !merged.Files.Default[tool].IsSet() {
+			merged.Files.Default[tool] = Tracked[Action]{Value: ActionAllow, Source: "(default)"}
+		}
+	}
 	if _, ok := merged.Files.DefaultMessage[ToolRead]; !ok {
 		merged.Files.DefaultMessage[ToolRead] = Tracked[string]{Value: "File read requires approval: {{.FilePath}}", Source: "(default)"}
 	}
@@ -217,6 +228,17 @@ func applyMergedDefaults(merged *MergedConfig) {
 	}
 	if _, ok := merged.Files.DefaultMessage[ToolWebFetch]; !ok {
 		merged.Files.DefaultMessage[ToolWebFetch] = Tracked[string]{Value: "URL fetch requires approval: {{.FilePath}}", Source: "(default)"}
+	}
+	if _, ok := merged.Files.DefaultMessage[ToolGlob]; !ok {
+		merged.Files.DefaultMessage[ToolGlob] = Tracked[string]{Value: "Glob search requires approval: {{.FilePath}}", Source: "(default)"}
+	}
+	if _, ok := merged.Files.DefaultMessage[ToolGrep]; !ok {
+		merged.Files.DefaultMessage[ToolGrep] = Tracked[string]{Value: "Grep search requires approval: {{.FilePath}}", Source: "(default)"}
+	}
+	for _, tool := range []ToolName{ToolGlob, ToolGrep} {
+		if !merged.Files.RespectFileRules[tool].IsSet() {
+			merged.Files.RespectFileRules[tool] = Tracked[bool]{Value: true, Source: "(default)"}
+		}
 	}
 	if !merged.RedirectsPolicy.RespectFileRules.IsSet() {
 		merged.RedirectsPolicy.RespectFileRules = Tracked[bool]{Value: false, Source: "(default)"}

@@ -161,47 +161,26 @@ paths = ["re:^https://github\\.com/"]
 
 	dispatcher := NewToolDispatcher(chain)
 
-	tests := []struct {
-		name       string
-		input      HookInput
-		wantAction Action
-	}{
-		{
-			name: "dispatch WebFetch allow",
-			input: HookInput{
-				ToolName: ToolWebFetch,
-				ToolInput: struct {
-					Command  string `json:"command"`
-					FilePath string `json:"file_path"`
-					URL      string `json:"url"`
-					Prompt   string `json:"prompt"`
-				}{URL: "https://github.com/user/repo"},
-			},
-			wantAction: ActionAllow,
-		},
-		{
-			name: "dispatch WebFetch no URL",
-			input: HookInput{
-				ToolName: ToolWebFetch,
-				ToolInput: struct {
-					Command  string `json:"command"`
-					FilePath string `json:"file_path"`
-					URL      string `json:"url"`
-					Prompt   string `json:"prompt"`
-				}{URL: ""},
-			},
-			wantAction: ActionAsk,
-		},
-	}
+	// Test dispatch WebFetch allow
+	t.Run("dispatch WebFetch allow", func(t *testing.T) {
+		var input HookInput
+		input.ToolName = ToolWebFetch
+		input.ToolInput.URL = "https://github.com/user/repo"
+		result := dispatcher.Dispatch(input)
+		if result.Action != ActionAllow {
+			t.Errorf("Dispatch() = %q, want %q", result.Action, ActionAllow)
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := dispatcher.Dispatch(tt.input)
-			if result.Action != tt.wantAction {
-				t.Errorf("Dispatch() = %q, want %q", result.Action, tt.wantAction)
-			}
-		})
-	}
+	// Test dispatch WebFetch no URL
+	t.Run("dispatch WebFetch no URL", func(t *testing.T) {
+		var input HookInput
+		input.ToolName = ToolWebFetch
+		result := dispatcher.Dispatch(input)
+		if result.Action != ActionAsk {
+			t.Errorf("Dispatch() = %q, want %q", result.Action, ActionAsk)
+		}
+	})
 }
 
 func TestWebFetchHookInputParsing(t *testing.T) {

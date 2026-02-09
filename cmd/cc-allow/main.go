@@ -60,6 +60,8 @@ func main() {
 	writeMode := flag.Bool("write", false, "check file write rules (stdin is file path)")
 	editMode := flag.Bool("edit", false, "check file edit rules (stdin is file path)")
 	fetchMode := flag.Bool("fetch", false, "check webfetch URL rules (stdin is URL)")
+	globMode := flag.Bool("glob", false, "check glob search rules (stdin is search path)")
+	grepMode := flag.Bool("grep", false, "check grep search rules (stdin is search path)")
 	flag.Parse()
 
 	// --agent and --config are mutually exclusive
@@ -103,8 +105,16 @@ func main() {
 		toolMode = ToolWebFetch
 		modeCount++
 	}
+	if *globMode {
+		toolMode = ToolGlob
+		modeCount++
+	}
+	if *grepMode {
+		toolMode = ToolGrep
+		modeCount++
+	}
 	if modeCount > 1 {
-		fmt.Fprintln(os.Stderr, "Error: only one of --bash, --read, --write, --edit, --fetch can be specified")
+		fmt.Fprintln(os.Stderr, "Error: only one of --bash, --read, --write, --edit, --fetch, --glob, --grep can be specified")
 		os.Exit(int(ExitError))
 	}
 
@@ -201,6 +211,8 @@ func buildInput(hookMode bool, toolMode ToolName) (HookInput, error) {
 		input.ToolInput.FilePath = value
 	case ToolWebFetch:
 		input.ToolInput.URL = value
+	case ToolGlob, ToolGrep:
+		input.ToolInput.Path = value
 	}
 	return input, nil
 }
@@ -493,6 +505,8 @@ func logDebugEval(input HookInput, result Result) {
 		inputValue = input.ToolInput.FilePath
 	case ToolWebFetch:
 		inputValue = input.ToolInput.URL
+	case ToolGlob, ToolGrep:
+		inputValue = input.ToolInput.Path
 	default:
 		inputValue = input.ToolInput.Command
 	}

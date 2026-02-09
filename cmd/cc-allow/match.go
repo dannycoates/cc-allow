@@ -229,7 +229,7 @@ func resolveRefPath(refPath string, merged *MergedConfig) []string {
 	}
 
 	switch parts[0] {
-	case "read", "write", "edit":
+	case "read", "write", "edit", "glob", "grep":
 		return resolveFileToolRef(parts, merged)
 	case "bash":
 		return resolveBashRef(parts, merged)

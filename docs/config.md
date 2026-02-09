@@ -1,10 +1,10 @@
 # cc-allow Configuration Guide (v2)
 
-cc-allow evaluates bash commands, file tool requests (Read, Edit, Write), and WebFetch URL requests against a set of rules and returns an exit code indicating whether the command should be allowed, denied, or passed through to default behavior.
+cc-allow evaluates bash commands, file tool requests (Read, Edit, Write), search tool requests (Glob, Grep), and WebFetch URL requests against a set of rules and returns an exit code indicating whether the command should be allowed, denied, or passed through to default behavior.
 
 ## Config Format Version
 
-This documentation covers the v2 config format. The v2 format is **tool-centric** with top-level sections for each tool type: `[bash]`, `[read]`, `[write]`, `[edit]`, `[webfetch]`.
+This documentation covers the v2 config format. The v2 format is **tool-centric** with top-level sections for each tool type: `[bash]`, `[read]`, `[write]`, `[edit]`, `[glob]`, `[grep]`, `[webfetch]`.
 
 ```toml
 version = "2.0"
@@ -345,6 +345,81 @@ content.any = [
 
 ---
 
+## Search Tool Permissions (Glob/Grep)
+
+Control Claude Code's Glob (file pattern matching) and Grep (content search) tools. These tools only have a search `path` parameter — there is no command to evaluate, so permissions are path-based.
+
+```toml
+[glob]
+respect_file_rules = true
+
+[grep]
+respect_file_rules = true
+```
+
+### `respect_file_rules`
+
+When `respect_file_rules = true` (the default), the search path is checked against `[read]` rules. This means Glob/Grep inherit the same path permissions as the Read tool — if Read denies a path, searching it is also denied.
+
+The default action for Glob/Grep is `"allow"`, so with `respect_file_rules = true` the Read rules are the sole authority over which paths can be searched.
+
+### Tool-Specific Rules
+
+You can also add Glob/Grep-specific allow/deny rules, which work the same as file tool path patterns:
+
+```toml
+[glob]
+respect_file_rules = true
+
+[glob.deny]
+paths = ["path:/var/log/**"]
+message = "Cannot search {{.FilePath}} - log directory"
+```
+
+Tool-specific deny rules are checked first. If the tool doesn't deny, and `respect_file_rules = true`, the Read rules are checked. The most restrictive result wins.
+
+### Disabling Read Rule Inheritance
+
+Set `respect_file_rules = false` to evaluate only tool-specific rules, ignoring Read rules:
+
+```toml
+[glob]
+respect_file_rules = false
+
+[glob.allow]
+paths = ["path:/**"]
+```
+
+### Hook Configuration
+
+Include `Glob` and `Grep` in the hook matcher:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{
+      "matcher": "Read|Edit|Write|Bash|WebFetch|Glob|Grep",
+      "hooks": [{"type": "command", "command": "cc-allow --hook"}]
+    }]
+  }
+}
+```
+
+### CLI Testing
+
+```bash
+# Test glob path
+echo '/etc' | ./cc-allow --glob
+
+# Test grep path
+echo '/home/user/project' | ./cc-allow --grep
+
+# Test in hook mode
+echo '{"tool_name":"Glob","tool_input":{"pattern":"**/*.go","path":"/etc"}}' | ./cc-allow --hook
+```
+
+---
+
 ## WebFetch Tool Permissions
 
 Control Claude Code's WebFetch tool with URL pattern matching and optional Google Safe Browsing integration:
@@ -417,7 +492,7 @@ To use WebFetch permissions with Claude Code, include `WebFetch` in the hook mat
 {
   "hooks": {
     "PreToolUse": [{
-      "matcher": "Read|Edit|Write|Bash|WebFetch",
+      "matcher": "Read|Edit|Write|Bash|WebFetch|Glob|Grep",
       "hooks": [{"type": "command", "command": "cc-allow --hook"}]
     }]
   }
@@ -508,7 +583,7 @@ To use file permissions with Claude Code, configure the PreToolUse hook:
 {
   "hooks": {
     "PreToolUse": [{
-      "matcher": "Read|Edit|Write|Bash|WebFetch",
+      "matcher": "Read|Edit|Write|Bash|WebFetch|Glob|Grep",
       "hooks": [{"type": "command", "command": "cc-allow --hook"}]
     }]
   }
@@ -537,6 +612,7 @@ pipe.from = ["ref:bash.deny.commands"]
 
 **Resolution:**
 - `ref:read.allow.paths` → resolves to the array at `[read.allow].paths`
+- `ref:glob.deny.paths` → resolves to `[glob.deny].paths`
 - `ref:aliases.project` → resolves to the alias value
 - `ref:bash.deny.commands` → resolves to the deny command list
 
@@ -710,7 +786,7 @@ Rule messages support Go `text/template` syntax for dynamic content:
 | `{{.FilePath}}` | string | Full path being accessed |
 | `{{.FileName}}` | string | Base name of file |
 | `{{.FileDir}}` | string | Directory of file |
-| `{{.Tool}}` | string | File tool: `Read`, `Write`, or `Edit` |
+| `{{.Tool}}` | string | Tool name: `Read`, `Write`, `Edit`, `Glob`, or `Grep` |
 
 ### Environment Fields (All Rules)
 
@@ -815,6 +891,13 @@ default_message = "File edit requires approval: {{.FilePath}}"
 [edit.allow]
 paths = ["alias:project"]
 
+# Search tools — delegate to read rules
+[glob]
+respect_file_rules = true
+
+[grep]
+respect_file_rules = true
+
 # WebFetch tool configuration
 [webfetch]
 default = "ask"
@@ -856,6 +939,10 @@ echo "Exit code: $?"
 # Test file tools
 echo '/etc/passwd' | ./cc-allow --read
 echo '$HOME/.bashrc' | ./cc-allow --write
+
+# Test search tools
+echo '/etc' | ./cc-allow --glob
+echo '/home/user/project' | ./cc-allow --grep
 
 # Test WebFetch URLs
 echo 'https://github.com/user/repo' | ./cc-allow --fetch

@@ -12,7 +12,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Read|Write|Edit|WebFetch",
+        "matcher": "Bash|Read|Write|Edit|WebFetch|Glob|Grep",
         "hooks": [
           {
             "type": "command",

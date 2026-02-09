@@ -1,11 +1,11 @@
 # cc-allow
 
-Bash command permission control for Claude Code. Parses bash commands into an AST and evaluates them against configurable rules to allow, deny, or defer to Claude Code's permission system.
+Permission control for Claude Code tools. Evaluates bash commands, file operations (Read/Write/Edit), search tools (Glob/Grep), and WebFetch URLs against configurable rules to allow, deny, or defer to Claude Code's permission system.
 
 ## Features
 
 - **AST-based parsing** - Uses `mvdan.cc/sh/v3/syntax` for accurate bash parsing
-- **Tool-centric configuration** - TOML config organized by tool type (`[bash]`, `[read]`, `[write]`, `[edit]`)
+- **Tool-centric configuration** - TOML config organized by tool type (`[bash]`, `[read]`, `[write]`, `[edit]`, `[glob]`, `[grep]`, `[webfetch]`)
 - **Specificity-based matching** - More specific rules win, regardless of order
 - **Layered configs** - Global defaults with project-level overrides
 - **Pipe security** - Block dangerous patterns like `curl | bash`
@@ -51,6 +51,13 @@ echo 'rm -rf /' | cc-allow
 echo '/etc/passwd' | cc-allow --read
 echo '/project/src/main.go' | cc-allow --write
 echo '/home/user/.bashrc' | cc-allow --edit
+
+# Evaluate search tool permissions
+echo '/etc' | cc-allow --glob
+echo '/home/user/project' | cc-allow --grep
+
+# Evaluate WebFetch URL permissions
+echo 'https://example.com' | cc-allow --fetch
 
 # With explicit config
 echo 'ls -la' | cc-allow --config ./my-rules.toml
@@ -167,6 +174,37 @@ args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
 
 This checks the source against Read rules and destination against Write rules.
 
+### Search Tool Permissions
+
+Control Claude Code's Glob and Grep tools. These only have a search path — by default they delegate to Read rules:
+
+```toml
+[glob]
+respect_file_rules = true
+
+[grep]
+respect_file_rules = true
+```
+
+With `respect_file_rules = true` (the default), the search path is checked against `[read]` rules. If Read allows a path, Glob/Grep allows it. If Read denies, searching is denied too.
+
+### WebFetch URL Permissions
+
+Control Claude Code's WebFetch tool with URL pattern matching:
+
+```toml
+[webfetch]
+default = "allow"
+
+[webfetch.deny]
+paths = ["re:^https?://localhost", "re:^file://"]
+message = "Blocked URL: {{.FilePath}}"
+
+[webfetch.safe_browsing]
+enabled = true
+api_key = "AIza..."
+```
+
 See [docs/config.md](docs/config.md) for complete configuration reference.
 
 ## CLI Reference
@@ -181,6 +219,13 @@ echo '/path/to/file' | cc-allow --read
 echo '/path/to/file' | cc-allow --write
 echo '/path/to/file' | cc-allow --edit
 
+# Search modes - evaluate search tool permissions (stdin is search path)
+echo '/path/to/search' | cc-allow --glob
+echo '/path/to/search' | cc-allow --grep
+
+# WebFetch mode - evaluate URL permissions (stdin is URL)
+echo 'https://example.com' | cc-allow --fetch
+
 # Hook mode - for Claude Code PreToolUse hooks (JSON input/output)
 cc-allow --hook < tool_input.json
 
@@ -194,11 +239,11 @@ cc-allow --debug
 
 ## How It Works
 
-1. Bash input is parsed into an AST
-2. Commands, arguments, pipes, and redirects are extracted from the AST
-3. Rules from all config layers are evaluated
-4. The most specific matching rule wins within each config
-5. If file rules are configured, command arguments are checked against them
+1. Tool request is identified (Bash, Read, Write, Edit, Glob, Grep, or WebFetch)
+2. For Bash: input is parsed into an AST; commands, arguments, pipes, and redirects are extracted
+3. For file/search/fetch tools: the path or URL is matched against tool-specific rules
+4. Rules from all config layers are evaluated; most specific matching rule wins
+5. For Bash and search tools: file rules may be checked (via `respect_file_rules`)
 6. Results are merged across configs (deny > allow > ask)
 7. Exit code indicates the final decision
 

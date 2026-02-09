@@ -1,12 +1,12 @@
 ---
 name: allow-rules
-description: Manages cc-allow.toml configuration files for bash command, file tool, and WebFetch URL permission control. Use when the user wants to add, modify, or remove allow/deny rules, redirect rules, pipe rules, or URL rules for Claude Code tools.
+description: Manages cc-allow.toml configuration files for bash command, file tool, search tool, and WebFetch URL permission control. Use when the user wants to add, modify, or remove allow/deny rules, redirect rules, pipe rules, or URL rules for Claude Code tools.
 context: fork
 ---
 
 # Managing cc-allow Rules (v2 Config Format)
 
-cc-allow evaluates bash commands, file tool requests (Read, Edit, Write), and WebFetch URL requests and returns exit codes: 0=allow, 1=ask (defer), 2=deny, 3=error.
+cc-allow evaluates bash commands, file tool requests (Read, Edit, Write), search tool requests (Glob, Grep), and WebFetch URL requests and returns exit codes: 0=allow, 1=ask (defer), 2=deny, 3=error.
 
 ## Config Format Version
 
@@ -14,7 +14,7 @@ cc-allow evaluates bash commands, file tool requests (Read, Edit, Write), and We
 version = "2.0"
 ```
 
-The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `[write]`, `[edit]`, `[webfetch]`.
+The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `[write]`, `[edit]`, `[glob]`, `[grep]`, `[webfetch]`.
 
 ## Config Locations
 
@@ -281,6 +281,36 @@ message = "Cannot write outside project"
 
 **Evaluation order**: deny → allow → default (deny always wins)
 
+## Search Tool Permissions (Glob/Grep)
+
+Glob and Grep only have a path parameter — no command to evaluate. By default they delegate to Read rules via `respect_file_rules`:
+
+```toml
+[glob]
+respect_file_rules = true
+
+[grep]
+respect_file_rules = true
+```
+
+When `respect_file_rules = true` (default), the search path is checked against `[read]` rules. The default action is `"allow"`, so Read rules are the sole authority.
+
+Optional tool-specific deny rules:
+
+```toml
+[glob.deny]
+paths = ["path:/var/log/**"]
+message = "Cannot search {{.FilePath}}"
+```
+
+Set `respect_file_rules = false` to ignore Read rules and use only tool-specific rules.
+
+**CLI testing:**
+```bash
+echo '/etc' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --glob
+echo '/home/user/project' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --grep
+```
+
 ## WebFetch Tool Permissions
 
 Control Claude Code's WebFetch tool with URL pattern matching and optional Google Safe Browsing:
@@ -341,6 +371,7 @@ args.any = ["ref:aliases.project"]
 
 **Resolution:**
 - `ref:read.allow.paths` → resolves to `[read.allow].paths`
+- `ref:glob.deny.paths` → resolves to `[glob.deny].paths`
 - `ref:aliases.project` → resolves to the alias value
 
 ## Per-Rule File Configuration
@@ -398,6 +429,8 @@ message = "Cannot write to {{.FilePath}} - system directory"
 
 **Enable Safe Browsing**: Set `[webfetch.safe_browsing] enabled = true` with `api_key`
 
+**Control search tools**: Set `[glob]`/`[grep]` with `respect_file_rules = true` (default) to inherit Read rules
+
 ## Workflow
 
 0. If no project config exists, initialize one:
@@ -421,6 +454,10 @@ message = "Cannot write to {{.FilePath}} - system directory"
    # Test file tools
    echo '/etc/passwd' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --read
    echo '$HOME/.bashrc' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --write
+
+   # Test search tools
+   echo '/etc' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --glob
+   echo '/home/user/project' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --grep
 
    # Test WebFetch URLs
    echo 'https://github.com/user/repo' | ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --fetch

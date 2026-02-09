@@ -1023,6 +1023,42 @@ func (e *Evaluator) evaluateWebFetchTool(url string) Result {
 	return localResult
 }
 
+// evaluateSearchTool evaluates a Glob or Grep tool request.
+// It checks both tool-specific rules and Read file rules (always enforced for search tools).
+func (e *Evaluator) evaluateSearchTool(toolName ToolName, searchPath string) Result {
+	merged := e.chain.Merged
+	if merged == nil {
+		return Result{Action: ActionAsk, Source: "no configuration loaded"}
+	}
+
+	pathVars := pathutil.NewPathVars(e.projectRoot)
+	ctx := &MatchContext{PathVars: pathVars, Merged: merged}
+	absPath := pathutil.ResolvePath(searchPath, pathVars.Cwd, pathVars.Home)
+
+	// Check tool-specific rules ([glob] or [grep] section)
+	toolResult := checkFilePathAgainstRules(merged, toolName, absPath, ctx)
+
+	// If tool rules deny, return immediately
+	if toolResult.Action == ActionDeny {
+		return toolResult
+	}
+
+	// Check Read file rules if respect_file_rules is enabled (default: true)
+	respectFileRules := true
+	if tracked := merged.Files.RespectFileRules[toolName]; tracked.IsSet() {
+		respectFileRules = tracked.Value
+	}
+	if respectFileRules {
+		readResult := checkFilePathAgainstRules(merged, ToolRead, absPath, ctx)
+		if readResult.Action == ActionDeny {
+			return readResult
+		}
+		return combineResults(toolResult, readResult)
+	}
+
+	return toolResult
+}
+
 // Helper functions
 
 // matchAnyArg checks if any arg matches the pattern.

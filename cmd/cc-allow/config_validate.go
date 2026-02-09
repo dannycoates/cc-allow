@@ -115,6 +115,12 @@ func (cfg *Config) Validate() error {
 	if err := validateAction(cfg.WebFetch.Default, "webfetch.default"); err != nil {
 		return err
 	}
+	if err := validateAction(cfg.Glob.Default, "glob.default"); err != nil {
+		return err
+	}
+	if err := validateAction(cfg.Grep.Default, "grep.default"); err != nil {
+		return err
+	}
 	// Validate allow mode values
 	if err := validateAllowMode(cfg.Bash.Allow.Mode, "bash.allow.mode"); err != nil {
 		return err
@@ -129,6 +135,12 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 	if err := validateAllowMode(cfg.WebFetch.Allow.Mode, "webfetch.allow.mode"); err != nil {
+		return err
+	}
+	if err := validateAllowMode(cfg.Glob.Allow.Mode, "glob.allow.mode"); err != nil {
+		return err
+	}
+	if err := validateAllowMode(cfg.Grep.Allow.Mode, "grep.allow.mode"); err != nil {
 		return err
 	}
 
@@ -239,6 +251,18 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 	if err := validateFilePatterns(cfg.WebFetch.Deny.Paths, "webfetch.deny.paths"); err != nil {
+		return err
+	}
+	if err := validateFilePatterns(cfg.Glob.Allow.Paths, "glob.allow.paths"); err != nil {
+		return err
+	}
+	if err := validateFilePatterns(cfg.Glob.Deny.Paths, "glob.deny.paths"); err != nil {
+		return err
+	}
+	if err := validateFilePatterns(cfg.Grep.Allow.Paths, "grep.allow.paths"); err != nil {
+		return err
+	}
+	if err := validateFilePatterns(cfg.Grep.Deny.Paths, "grep.deny.paths"); err != nil {
 		return err
 	}
 
