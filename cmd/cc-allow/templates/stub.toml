@@ -6,6 +6,9 @@
 
 version = "2.0"
 
+# [settings]
+# session_max_age = "7d"  # auto-delete session configs older than this
+
 # [aliases]
 # # Reusable patterns referenced with alias:name
 # test_files = ["path:$PROJECT_ROOT/test/**", "path:$PROJECT_ROOT/tests/**"]
@@ -22,8 +25,8 @@ version = "2.0"
 # function_definitions = "ask" # fn() { ... }
 # heredocs = "ask"             # cmd <<EOF
 
-# [bash.allow]
-# commands = [
+[bash.allow]
+commands = [
 #   ## Build Tools
 #   # "make", "cmake", "just", "ninja",
 #
@@ -65,7 +68,7 @@ version = "2.0"
 #
 #   ## HashiCorp Tools
 #   # "vault", "consul", "nomad",
-# ]
+]
 
 # [bash.deny]
 # commands = []

@@ -6,3 +6,4 @@ cc-allow.log
 *.local.*
 .claude/plans
 debug-logs/
+.config/cc-allow/sessions/

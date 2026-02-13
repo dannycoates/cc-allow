@@ -8,6 +8,8 @@ context: fork
 
 cc-allow evaluates bash commands, file tool requests (Read, Edit, Write), search tool requests (Glob, Grep), and WebFetch URL requests and returns exit codes: 0=allow, 1=ask (defer), 2=deny, 3=error.
 
+The current session id is ${CLAUDE_SESSION_ID}
+
 ## Config Format Version
 
 ```toml
@@ -18,13 +20,13 @@ The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `
 
 ## Config Locations
 
-1. `~/.config/cc-allow.toml` — Global defaults
-2. `<project>/.config/cc-allow.toml` — Project-specific (searches up from cwd)
-3. `<project>/.config/cc-allow/<agent>.toml` — Agent-specific configs (used with `--agent`)
+1. `~/.config/cc-allow.toml` -- Global/user defaults (loosest)
+2. `<project>/.config/cc-allow.toml` -- Project-specific (searches up from cwd)
+3. `<project>/.config/cc-allow.local.toml` -- Local overrides (gitignored)
+4. `<project>/.config/cc-allow/sessions/<session-id>.toml` -- Session-scoped (auto-cleaned)
+5. `<project>/.config/cc-allow/<agent>.toml` -- Agent-specific configs (used with `--agent`)
 
-**Agent configs**: Use `--agent <type>` to load agent-specific rules from `.config/cc-allow/<type>.toml`. This allows different permission sets for different subagent types (e.g., `playwright`, `Explore`). If the agent config doesn't exist, normal config chain applies.
-
-**Merge behavior**: All configs are evaluated and combined. deny > allow > ask. Within a config, most specific matching rule wins.
+**Merge behavior**: All configs merged. deny > allow > ask. Most specific matching rule wins.
 
 ## Config Structure
 
@@ -431,14 +433,44 @@ message = "Cannot write to {{.FilePath}} - system directory"
 
 **Control search tools**: Set `[glob]`/`[grep]` with `respect_file_rules = true` (default) to inherit Read rules
 
+## Scope Detection
+
+When the user asks to add or modify rules, determine the appropriate config scope from their phrasing:
+
+**Session** (default when no scope mentioned):
+- The current session id is ${CLAUDE_SESSION_ID}
+- Explicit: "session", "this session", "for now", "just for now", "temporarily"
+- Implicit: no scope keyword at all -- default to session
+- File: `<project>/.config/cc-allow/sessions/<session-id>.toml`
+
+**Project**:
+- Keywords: "project", "this project", "permanently", "always"
+- File: `<project>/.config/cc-allow.toml`
+
+**Global/User**:
+- Keywords: "global", "user", "all projects", "everywhere", "globally"
+- File: `~/.config/cc-allow.toml`
+
+When creating a new session config, initialize with `version = "2.0"` and create the sessions directory if needed:
+```bash
+mkdir -p <project>/.config/cc-allow/sessions
+```
+
+## Settings
+
+```toml
+[settings]
+session_max_age = "7d"    # auto-delete session configs older than this
+```
+
 ## Workflow
 
 0. If no project config exists, initialize one:
    ```bash
    ${CLAUDE_PLUGIN_ROOT}/bin/cc-allow --init
    ```
-1. Read the existing config at `.config/cc-allow.toml`
-2. Determine what change is needed
+1. Determine scope (session/project/global) from the user's request
+2. Read the appropriate config file for that scope
 3. Add new rules
 4. Write the updated config
 5. Validate with `--fmt` to check syntax and view rules by specificity:

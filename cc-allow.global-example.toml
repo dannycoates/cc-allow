@@ -7,13 +7,20 @@
 version = "2.0"
 
 # ============================================================================
+# SETTINGS
+# ============================================================================
+
+[settings]
+session_max_age = "30d"  # auto-delete session configs older than this duration
+
+# ============================================================================
 # ALIASES
 # ============================================================================
 
 [aliases]
 project = "path:$PROJECT_ROOT/**"
 claude-user-config = "path:$HOME/.claude/**"
-tmp = "path:/tmp/**"
+tmp = ["path:/tmp/**", "path:/private/tmp/**"]
 sensitive-read = ["path:$HOME/.ssh/**", "path:**/*.key", "path:**/*.pem"]
 sensitive-write = [
     "path:$HOME/.*",
@@ -365,7 +372,7 @@ message = "Cannot read {{.FileName}} - sensitive file"
 default = "ask"
 
 [edit.allow]
-paths = ["alias:project", "alias:claude-user-config"]
+paths = ["alias:project", "alias:claude-user-config", "alias:tmp"]
 
 [edit.deny]
 paths = ["path:$HOME/.*"]
@@ -389,3 +396,9 @@ default_message = "URL fetch requires approval: {{.FilePath}}"
 enabled = true
 # use your own key - not this one
 api_key = "AIzaSyBPGXa4AYD4FC3HJK7LnIKxm4fDusVuuco"
+
+[glob]
+respect_file_rules = true
+
+[grep]
+respect_file_rules = true

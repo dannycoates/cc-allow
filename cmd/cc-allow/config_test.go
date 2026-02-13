@@ -1130,7 +1130,7 @@ func TestLoadConfigChainDeduplicatesGlobalConfig(t *testing.T) {
 		t.Chdir(subdir)
 
 		// Load config chain
-		chain, err := LoadConfigChain("")
+		chain, err := LoadConfigChain("", "")
 		if err != nil {
 			t.Fatalf("LoadConfigChain() error = %v", err)
 		}
@@ -1280,6 +1280,187 @@ default = "invalid"
 	// Verify errors.Is still works
 	if !errors.Is(err, ErrInvalidConfig) {
 		t.Error("errors.Is(err, ErrInvalidConfig) should be true")
+	}
+}
+
+func TestFindSessionConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	sessionsDir := filepath.Join(tmpDir, ".config", "cc-allow", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a session config
+	sessionFile := filepath.Join(sessionsDir, "abc123.toml")
+	if err := os.WriteFile(sessionFile, []byte("version = \"2.0\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Found
+	if got := findSessionConfig("abc123", tmpDir); got != sessionFile {
+		t.Errorf("findSessionConfig(abc123) = %q, want %q", got, sessionFile)
+	}
+
+	// Not found
+	if got := findSessionConfig("nonexistent", tmpDir); got != "" {
+		t.Errorf("findSessionConfig(nonexistent) = %q, want empty", got)
+	}
+
+	// Empty session ID
+	if got := findSessionConfig("", tmpDir); got != "" {
+		t.Errorf("findSessionConfig('') = %q, want empty", got)
+	}
+
+	// Empty project root
+	if got := findSessionConfig("abc123", ""); got != "" {
+		t.Errorf("findSessionConfig with empty root = %q, want empty", got)
+	}
+
+	// Path traversal rejected
+	if got := findSessionConfig("../etc/passwd", tmpDir); got != "" {
+		t.Errorf("findSessionConfig(../etc/passwd) = %q, want empty", got)
+	}
+	if got := findSessionConfig("foo/bar", tmpDir); got != "" {
+		t.Errorf("findSessionConfig(foo/bar) = %q, want empty", got)
+	}
+	if got := findSessionConfig("foo\\bar", tmpDir); got != "" {
+		t.Errorf("findSessionConfig(foo\\bar) = %q, want empty", got)
+	}
+}
+
+func TestLoadConfigChainWithSessionConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create project config
+	configDir := filepath.Join(tmpDir, ".config")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	projectConfig := filepath.Join(configDir, "cc-allow.toml")
+	if err := os.WriteFile(projectConfig, []byte("version = \"2.0\"\n[bash]\ndefault = \"ask\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create session config
+	sessionsDir := filepath.Join(configDir, "cc-allow", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sessionConfig := filepath.Join(sessionsDir, "test-session.toml")
+	if err := os.WriteFile(sessionConfig, []byte("version = \"2.0\"\n[bash.allow]\ncommands = [\"docker\"]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set project root and cd into the project
+	t.Setenv("CC_PROJECT_DIR", tmpDir)
+	t.Chdir(tmpDir)
+
+	// Load with session
+	chain, err := LoadConfigChain("", "test-session")
+	if err != nil {
+		t.Fatalf("LoadConfigChain() error = %v", err)
+	}
+
+	if chain.SessionID != "test-session" {
+		t.Errorf("SessionID = %q, want %q", chain.SessionID, "test-session")
+	}
+
+	// Should have project + session configs
+	foundSession := false
+	for _, cfg := range chain.Configs {
+		if cfg.Path == sessionConfig {
+			foundSession = true
+		}
+	}
+	if !foundSession {
+		t.Error("session config not found in chain")
+		for i, cfg := range chain.Configs {
+			t.Logf("  config[%d]: %s", i, cfg.Path)
+		}
+	}
+
+	// Load with nonexistent session - should gracefully skip
+	chain2, err := LoadConfigChain("", "nonexistent")
+	if err != nil {
+		t.Fatalf("LoadConfigChain() with nonexistent session error = %v", err)
+	}
+	for _, cfg := range chain2.Configs {
+		if strings.Contains(cfg.Path, "nonexistent") {
+			t.Error("nonexistent session config should not be in chain")
+		}
+	}
+}
+
+func TestParseSettings(t *testing.T) {
+	toml := `
+version = "2.0"
+
+[settings]
+session_max_age = "7d"
+`
+	cfg, err := ParseConfigWithDefaults(toml)
+	if err != nil {
+		t.Fatalf("ParseConfigWithDefaults error: %v", err)
+	}
+	if cfg.Settings.SessionMaxAge != "7d" {
+		t.Errorf("Settings.SessionMaxAge = %q, want %q", cfg.Settings.SessionMaxAge, "7d")
+	}
+}
+
+func TestParseSettingsInvalidDuration(t *testing.T) {
+	toml := `
+version = "2.0"
+
+[settings]
+session_max_age = "invalid"
+`
+	_, err := ParseConfigWithDefaults(toml)
+	if err == nil {
+		t.Fatal("expected error for invalid session_max_age")
+	}
+
+	var valErr *ConfigValidationError
+	if !errors.As(err, &valErr) {
+		t.Fatalf("expected ConfigValidationError, got %T: %v", err, err)
+	}
+	if valErr.Location != "settings.session_max_age" {
+		t.Errorf("Location = %q, want %q", valErr.Location, "settings.session_max_age")
+	}
+}
+
+func TestMergeSettings(t *testing.T) {
+	cfg1 := &Config{
+		Path:    "config1.toml",
+		Version: "2.0",
+	}
+	cfg2 := &Config{
+		Path:    "config2.toml",
+		Version: "2.0",
+		Settings: SettingsConfig{
+			SessionMaxAge: "7d",
+		},
+	}
+	cfg3 := &Config{
+		Path:    "config3.toml",
+		Version: "2.0",
+		Settings: SettingsConfig{
+			SessionMaxAge: "14d",
+		},
+	}
+
+	merged := MergeConfigs([]*Config{cfg1, cfg2, cfg3})
+	if merged.Settings.SessionMaxAge != "14d" {
+		t.Errorf("merged SessionMaxAge = %q, want %q", merged.Settings.SessionMaxAge, "14d")
+	}
+
+	// Later empty value shouldn't overwrite
+	cfg4 := &Config{
+		Path:    "config4.toml",
+		Version: "2.0",
+	}
+	merged2 := MergeConfigs([]*Config{cfg2, cfg4})
+	if merged2.Settings.SessionMaxAge != "7d" {
+		t.Errorf("merged SessionMaxAge = %q, want %q (empty should not overwrite)", merged2.Settings.SessionMaxAge, "7d")
 	}
 }
 

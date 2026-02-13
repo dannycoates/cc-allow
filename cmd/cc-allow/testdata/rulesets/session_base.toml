@@ -1,0 +1,53 @@
+# Session harness: base project config
+# Some commands explicitly denied (sudo, rm) - cannot be overridden by session
+# Some commands fall through to default=ask (docker, npm install, curl) - session can add allows
+# Some commands already allowed (ls, cat, git)
+
+version = "2.0"
+
+[bash]
+default = "ask"
+dynamic_commands = "deny"
+
+[bash.constructs]
+function_definitions = "deny"
+background = "deny"
+subshells = "ask"
+
+[bash.allow]
+commands = ["ls", "cat", "echo", "grep", "git"]
+
+[bash.deny]
+commands = ["sudo", "su", "rm"]
+message = "Dangerous command denied"
+
+# npm install specifically asked (not denied) so session can override
+[[bash.ask.npm]]
+message = "npm install requires approval"
+args.position = { "0" = ["install", "i", "ci"] }
+
+[[bash.allow.npm]]
+# base allow for non-install npm commands
+
+[settings]
+session_max_age = "7d"
+
+[read]
+default = "ask"
+
+[read.allow]
+paths = ["path:/project/**"]
+
+[read.deny]
+paths = ["path:/secrets/**"]
+message = "Cannot read secret paths"
+
+[write]
+default = "ask"
+
+[write.allow]
+paths = ["path:/project/**", "path:/tmp/**"]
+
+[write.deny]
+paths = ["path:/etc/**", "path:/usr/**"]
+message = "Cannot write to system paths"

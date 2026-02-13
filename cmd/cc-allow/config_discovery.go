@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Config discovery functions for cc-allow.
@@ -137,6 +138,23 @@ func findAgentConfigWithRoot(agent string, projectRoot string) string {
 			break
 		}
 		dir = parent
+	}
+	return ""
+}
+
+// findSessionConfig looks for .config/cc-allow/sessions/<sessionID>.toml
+// at the project root. Returns the path if found, or empty string if not found.
+func findSessionConfig(sessionID string, projectRoot string) string {
+	if sessionID == "" || projectRoot == "" {
+		return ""
+	}
+	// Sanitize: reject path traversal
+	if strings.Contains(sessionID, "/") || strings.Contains(sessionID, "\\") || strings.Contains(sessionID, "..") {
+		return ""
+	}
+	path := filepath.Join(projectRoot, ".config", "cc-allow", "sessions", sessionID+".toml")
+	if _, err := os.Stat(path); err == nil {
+		return path
 	}
 	return ""
 }

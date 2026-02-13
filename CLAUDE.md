@@ -48,6 +48,7 @@ Bash Input → [main.go] Parse → [walk.go] AST Extraction → [eval.go] Rule E
 - `cmd/cc-allow/eval.go` - Rule evaluation engine, specificity scoring, result merging
 - `cmd/cc-allow/match.go` - Pattern matching (glob, regex, path patterns with negation)
 - `cmd/cc-allow/walk.go` - AST extraction: commands, args, pipes, redirects, heredocs
+- `cmd/cc-allow/session.go` - Session config cleanup and duration parsing
 - `cmd/cc-allow/fmt.go` - Config validation and display
 - `cmd/cc-allow/errors.go` - Custom error types
 - `pkg/pathutil/` - Path resolution with symlink handling and variable expansion
@@ -70,7 +71,8 @@ Bash Input → [main.go] Parse → [walk.go] AST Extraction → [eval.go] Rule E
 1. `~/.config/cc-allow.toml` - Global defaults
 2. `.config/cc-allow.toml` - Project rules (in source control)
 3. `.config/cc-allow.local.toml` - Local overrides (gitignored)
-4. `--config <path>` or `--agent <type>` - Explicit config
+4. `.config/cc-allow/sessions/<session-id>.toml` - Session rules (auto-cleaned)
+5. `--config <path>` or `--agent <type>` - Explicit config
 
 ### Agent-Specific Configs
 
@@ -97,6 +99,7 @@ The harness (`harness_test.go`) runs command sets against multiple rulesets defi
 - **Hook mode**: `cc-allow --hook` - Parses Claude Code JSON, outputs JSON response
 - **Fmt mode**: `cc-allow --fmt` - Validate and display config
 - **Init mode**: `cc-allow --init` - Create project config from template
+- **Session mode**: `cc-allow --session <id>` - Load session-scoped config from `.config/cc-allow/sessions/<id>.toml`
 - **Agent mode**: `cc-allow --agent <type>` - Load agent-specific config from `.config/cc-allow/<type>.toml`
 
 ## Debugging

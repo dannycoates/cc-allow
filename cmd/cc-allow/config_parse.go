@@ -89,6 +89,11 @@ func configFromRaw(raw map[string]any) (*Config, error) {
 		cfg.Debug.LogDir, _ = debugRaw["log_dir"].(string)
 	}
 
+	// Extract settings config
+	if settingsRaw, ok := raw["settings"].(map[string]any); ok {
+		cfg.Settings.SessionMaxAge, _ = settingsRaw["session_max_age"].(string)
+	}
+
 	return cfg, nil
 }
 

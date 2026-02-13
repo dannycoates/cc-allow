@@ -53,6 +53,7 @@ func main() {
 	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and per-session JSONL log files")
 	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
 	initMode := flag.Bool("init", false, "create project config at .config/cc-allow.toml")
+	sessionID := flag.String("session", "", "session ID for session-scoped config lookup")
 
 	// Tool-specific modes (stdin is the path or command to check)
 	bashMode := flag.Bool("bash", false, "check bash command rules (stdin is bash command)")
@@ -125,9 +126,9 @@ func main() {
 	case *initMode:
 		os.Exit(int(runInit(*hookMode)))
 	case *fmtMode:
-		os.Exit(int(runFmt(*configPath)))
+		os.Exit(int(runFmt(*configPath, *sessionID)))
 	default:
-		os.Exit(int(runEval(*configPath, *hookMode, *debugMode, toolMode)))
+		os.Exit(int(runEval(*configPath, *sessionID, *hookMode, *debugMode, toolMode)))
 	}
 }
 
@@ -135,9 +136,22 @@ func main() {
 // In hook mode, it reads JSON from stdin and outputs JSON.
 // In pipe mode, it reads the input directly from stdin.
 // toolMode specifies the tool type: "Bash", "Read", "Write", "Edit", or "" (defaults to Bash).
-func runEval(configPath string, hookMode, debugMode bool, toolMode ToolName) ExitCode {
-	// Load configuration chain from standard locations + explicit path
-	chain, err := LoadConfigChain(configPath)
+func runEval(configPath string, sessionID string, hookMode, debugMode bool, toolMode ToolName) ExitCode {
+	// 1. Build input first (need session ID from hook JSON)
+	input, err := buildInput(hookMode, toolMode)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return ExitError
+	}
+
+	// 2. Determine effective session ID: hook JSON overrides flag
+	effectiveSessionID := sessionID
+	if hookMode && input.SessionID != "" {
+		effectiveSessionID = input.SessionID
+	}
+
+	// 3. Load config chain with session ID
+	chain, err := LoadConfigChain(configPath, effectiveSessionID)
 	if err != nil {
 		if hookMode {
 			return outputHookConfigError(err)
@@ -146,16 +160,16 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode ToolName) Exi
 		return ExitError
 	}
 
-	// Build input (before debug init so we have session ID)
-	input, err := buildInput(hookMode, toolMode)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return ExitError
+	// 4. Session cleanup (best-effort)
+	if chain.Merged.Settings.SessionMaxAge != "" {
+		if maxAge, err := parseSessionMaxAge(chain.Merged.Settings.SessionMaxAge); err == nil {
+			cleanupSessionConfigs(chain.ProjectRoot, maxAge)
+		}
 	}
 
-	// Initialize debug logging (after config load and input parse so we have session ID)
+	// 5. Init debug logging
 	if debugMode {
-		logPath := getDebugLogPath(chain, input.SessionID)
+		logPath := getDebugLogPath(chain, effectiveSessionID)
 		initDebugLog(logPath)
 	}
 	logDebugConfigChain(chain)
@@ -597,7 +611,16 @@ func runInit(hookMode bool) ExitCode {
 		return ExitError
 	}
 
-	// 5. Choose template based on user config existence
+	// 5. Ensure sessions directory with .gitignore exists
+	sessionsDir := filepath.Join(root, ".config", "cc-allow", "sessions")
+	if err := os.MkdirAll(sessionsDir, 0755); err == nil {
+		gitignorePath := filepath.Join(sessionsDir, ".gitignore")
+		if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
+			os.WriteFile(gitignorePath, []byte("*\n!.gitignore\n"), 0644)
+		}
+	}
+
+	// 6. Choose template based on user config existence
 	var content string
 	if findGlobalConfig() == "" {
 		content = fullTemplate
@@ -605,7 +628,7 @@ func runInit(hookMode bool) ExitCode {
 		content = stubTemplate
 	}
 
-	// 6. Write config
+	// 7. Write config
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write config: %v\n", err)
 		return ExitError

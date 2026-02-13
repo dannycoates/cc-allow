@@ -25,6 +25,7 @@ type Config struct {
 	Grep     FileToolConfig   `toml:"grep"`     // grep tool configuration
 	WebFetch WebFetchConfig   `toml:"webfetch"` // webfetch tool configuration
 	Debug    DebugConfig      `toml:"debug"`    // debug settings
+	Settings SettingsConfig   `toml:"settings"` // general settings
 
 	// Parsed rules (populated during parsing, not from TOML)
 	parsedRules     []BashRule     `toml:"-"`
@@ -411,6 +412,11 @@ type DebugConfig struct {
 	LogDir string `toml:"log_dir"` // directory for per-session debug logs
 }
 
+// SettingsConfig holds general settings.
+type SettingsConfig struct {
+	SessionMaxAge string `toml:"session_max_age"` // e.g., "7d", "24h"
+}
+
 // Tracked holds a value of any type along with the config file path that set it.
 // The zero value represents "unset" - use IsSet() to check.
 type Tracked[T any] struct {
@@ -493,6 +499,7 @@ type MergedConfig struct {
 	Aliases         map[string]Alias // merged aliases from all configs
 	SafeBrowsing    SafeBrowsingConfig
 	Debug           DebugConfig
+	Settings        SettingsConfig
 }
 
 // ConfigChain holds multiple configs ordered from highest to lowest priority.
@@ -501,6 +508,7 @@ type ConfigChain struct {
 	Merged         *MergedConfig
 	MigrationHints []string // legacy config paths that should be moved to .config/
 	ProjectRoot    string   // cached project root to avoid redundant filesystem traversals
+	SessionID      string   // session ID for session-scoped config
 }
 
 // Legacy config markers for v1 detection

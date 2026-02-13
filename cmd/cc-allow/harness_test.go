@@ -359,6 +359,297 @@ func loadHarnessAPIKey(t *testing.T) string {
 	return ""
 }
 
+// evalBashChain evaluates a bash command against a config chain (multiple configs merged).
+func evalBashChain(t *testing.T, configs []*Config, bash string) Result {
+	t.Helper()
+
+	parser := syntax.NewParser(syntax.Variant(syntax.LangBash))
+	f, err := parser.Parse(strings.NewReader(bash), "test")
+	if err != nil {
+		return Result{
+			Action:  ActionDeny,
+			Message: fmt.Sprintf("Parse error: %v", err),
+		}
+	}
+
+	cwd, _ := os.Getwd()
+	info := ExtractFromFile(f, cwd)
+	chain := &ConfigChain{Configs: configs, Merged: MergeConfigs(configs)}
+	eval := NewEvaluator(chain)
+	return eval.Evaluate(info)
+}
+
+// evalFileChain evaluates a file tool request against a config chain.
+func evalFileChain(t *testing.T, configs []*Config, tool ToolName, path string) Result {
+	t.Helper()
+	chain := &ConfigChain{Configs: configs, Merged: MergeConfigs(configs)}
+	eval := NewEvaluator(chain)
+	switch tool {
+	case ToolGlob, ToolGrep:
+		return eval.evaluateSearchTool(tool, path)
+	default:
+		return eval.evaluateFileTool(tool, path)
+	}
+}
+
+// TestSessionHarness tests session config overlay behavior.
+// A session config is merged on top of a base project config.
+// This verifies that session rules properly extend/override the base.
+func TestSessionHarness(t *testing.T) {
+	// Load base and session configs
+	basePath := filepath.Join("testdata", "rulesets", "session_base.toml")
+	sessionPath := filepath.Join("testdata", "rulesets", "session_overlay.toml")
+
+	baseCfg, err := LoadConfigWithDefaults(basePath)
+	if err != nil {
+		t.Fatalf("Failed to load session_base.toml: %v", err)
+	}
+	sessionCfg, err := LoadConfigWithDefaults(sessionPath)
+	if err != nil {
+		t.Fatalf("Failed to load session_overlay.toml: %v", err)
+	}
+
+	// Test with base config only (no session)
+	baseOnly := []*Config{baseCfg}
+	// Test with base + session overlay
+	withSession := []*Config{baseCfg, sessionCfg}
+
+	// =========================================================================
+	// Bash command tests
+	// =========================================================================
+	bashTests := []struct {
+		name           string
+		bash           string
+		baseExpected   Action
+		mergedExpected Action
+	}{
+		// Commands allowed by base stay allowed with session
+		{
+			name:           "ls stays allowed",
+			bash:           "ls -la",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+		{
+			name:           "echo stays allowed",
+			bash:           "echo hello",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+		{
+			name:           "git stays allowed",
+			bash:           "git status",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+
+		// Commands denied by base stay denied (deny always wins across configs)
+		{
+			name:           "sudo stays denied",
+			bash:           "sudo rm -rf /",
+			baseExpected:   ActionDeny,
+			mergedExpected: ActionDeny,
+		},
+		{
+			name:           "rm stays denied",
+			bash:           "rm file.txt",
+			baseExpected:   ActionDeny,
+			mergedExpected: ActionDeny,
+		},
+
+		// Docker: ask by base (not in any list), session adds to allow commands
+		{
+			name:           "docker ask by base, allowed by session",
+			bash:           "docker run hello-world",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAllow,
+		},
+		{
+			name:           "docker ps ask by base, allowed by session",
+			bash:           "docker ps",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAllow,
+		},
+		{
+			name:           "docker compose ask by base, allowed by session",
+			bash:           "docker compose up -d",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAllow,
+		},
+
+		// curl: ask by base, session adds to allow commands
+		{
+			name:           "curl ask by base, allowed by session",
+			bash:           "curl https://example.com",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAllow,
+		},
+
+		// npm install: explicit ask rule in base cannot be overridden by session allow
+		// (ask > allow at equal specificity - this is a security invariant)
+		{
+			name:           "npm install ask stays ask (explicit ask beats session allow)",
+			bash:           "npm install lodash",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAsk,
+		},
+		{
+			name:           "npm i ask stays ask (explicit ask beats session allow)",
+			bash:           "npm i express",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAsk,
+		},
+		{
+			name:           "npm ci ask stays ask (explicit ask beats session allow)",
+			bash:           "npm ci",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAsk,
+		},
+
+		// npm non-install: allowed by base (base allow rule), stays allowed
+		{
+			name:           "npm list stays allowed",
+			bash:           "npm list",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+		{
+			name:           "npm test stays allowed",
+			bash:           "npm test",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+
+		// Commands not in any list remain ask
+		{
+			name:           "unknown command stays ask",
+			bash:           "unknown-command arg",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAsk,
+		},
+
+		// Dynamic commands stay denied (policy-level, session doesn't override)
+		{
+			name:           "dynamic command stays denied",
+			bash:           "$CMD arg1",
+			baseExpected:   ActionDeny,
+			mergedExpected: ActionDeny,
+		},
+	}
+
+	for _, tt := range bashTests {
+		t.Run("base/"+tt.name, func(t *testing.T) {
+			result := evalBashChain(t, baseOnly, tt.bash)
+			if result.Action != tt.baseExpected {
+				t.Errorf("bash=%q\nbase expected %s, got %s", tt.bash, tt.baseExpected, result.Action)
+				if result.Message != "" {
+					t.Logf("message: %s", result.Message)
+				}
+			}
+		})
+		t.Run("session/"+tt.name, func(t *testing.T) {
+			result := evalBashChain(t, withSession, tt.bash)
+			if result.Action != tt.mergedExpected {
+				t.Errorf("bash=%q\nsession expected %s, got %s", tt.bash, tt.mergedExpected, result.Action)
+				if result.Message != "" {
+					t.Logf("message: %s", result.Message)
+				}
+			}
+		})
+	}
+
+	// =========================================================================
+	// File tool tests
+	// =========================================================================
+	fileTests := []struct {
+		name           string
+		tool           ToolName
+		path           string
+		baseExpected   Action
+		mergedExpected Action
+	}{
+		// /project/** allowed by base, stays allowed
+		{
+			name:           "read project file stays allowed",
+			tool:           ToolRead,
+			path:           "/project/src/main.go",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+		// /secrets/** denied by base, stays denied
+		{
+			name:           "read /secrets stays denied",
+			tool:           ToolRead,
+			path:           "/secrets/api-key.txt",
+			baseExpected:   ActionDeny,
+			mergedExpected: ActionDeny,
+		},
+		// /home/user/**: ask by base, session adds to allow paths
+		{
+			name:           "read /home/user ask by base, allowed by session",
+			tool:           ToolRead,
+			path:           "/home/user/docs/notes.txt",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAllow,
+		},
+		// Write to /etc stays denied (session doesn't touch write rules)
+		{
+			name:           "write /etc stays denied",
+			tool:           ToolWrite,
+			path:           "/etc/hosts",
+			baseExpected:   ActionDeny,
+			mergedExpected: ActionDeny,
+		},
+		// Write to /project allowed by base, stays allowed
+		{
+			name:           "write project stays allowed",
+			tool:           ToolWrite,
+			path:           "/project/output.txt",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+		// Write to random path stays ask (no session override for write)
+		{
+			name:           "write random path stays ask",
+			tool:           ToolWrite,
+			path:           "/var/data/output.csv",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAsk,
+		},
+	}
+
+	for _, tt := range fileTests {
+		t.Run("base/"+tt.name, func(t *testing.T) {
+			result := evalFileChain(t, baseOnly, tt.tool, tt.path)
+			if result.Action != tt.baseExpected {
+				t.Errorf("tool=%s path=%q\nbase expected %s, got %s (source: %s)", tt.tool, tt.path, tt.baseExpected, result.Action, result.Source)
+			}
+		})
+		t.Run("session/"+tt.name, func(t *testing.T) {
+			result := evalFileChain(t, withSession, tt.tool, tt.path)
+			if result.Action != tt.mergedExpected {
+				t.Errorf("tool=%s path=%q\nsession expected %s, got %s (source: %s)", tt.tool, tt.path, tt.mergedExpected, result.Action, result.Source)
+			}
+		})
+	}
+
+	// =========================================================================
+	// Settings merge test - session overrides base value
+	// =========================================================================
+	t.Run("settings/session_max_age overridden by session", func(t *testing.T) {
+		merged := MergeConfigs(withSession)
+		if merged.Settings.SessionMaxAge != "3d" {
+			t.Errorf("SessionMaxAge = %q, want %q (session should override base)", merged.Settings.SessionMaxAge, "3d")
+		}
+	})
+	t.Run("settings/session_max_age from base only", func(t *testing.T) {
+		merged := MergeConfigs(baseOnly)
+		if merged.Settings.SessionMaxAge != "7d" {
+			t.Errorf("SessionMaxAge = %q, want %q", merged.Settings.SessionMaxAge, "7d")
+		}
+	})
+}
+
 // TestHarnessRulesetLoading verifies all rulesets can be loaded
 func TestHarnessRulesetLoading(t *testing.T) {
 	harnessPath := filepath.Join("testdata", "harness.toml")

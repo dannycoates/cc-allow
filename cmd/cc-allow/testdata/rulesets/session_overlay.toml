@@ -1,0 +1,19 @@
+# Session harness: session overlay config
+# Temporarily allows docker and curl for this session (were "ask" before)
+# Overrides npm install ask with allow (higher specificity via session position)
+# Adds /home/user/** to read allow paths
+
+version = "2.0"
+
+[bash.allow]
+commands = ["docker", "curl"]
+
+# Allow npm install in this session (shadows the ask rule from base)
+[[bash.allow.npm]]
+args.position = { "0" = ["install", "i", "ci"] }
+
+[read.allow]
+paths = ["path:/home/user/**"]
+
+[settings]
+session_max_age = "3d"

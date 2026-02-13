@@ -142,6 +142,11 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	if cfg.Debug.LogDir != "" {
 		merged.Debug.LogDir = cfg.Debug.LogDir
 	}
+
+	// Merge settings (later configs override)
+	if cfg.Settings.SessionMaxAge != "" {
+		merged.Settings.SessionMaxAge = cfg.Settings.SessionMaxAge
+	}
 }
 
 // mergeFileToolConfig merges a file tool config into the merged files config.

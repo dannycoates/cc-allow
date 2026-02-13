@@ -32,8 +32,8 @@ type heredocWithScore struct {
 }
 
 // runFmt validates configs and displays rules sorted by specificity.
-func runFmt(configPath string) ExitCode {
-	paths := findFmtConfigFiles(configPath)
+func runFmt(configPath string, sessionID string) ExitCode {
+	paths := findFmtConfigFiles(configPath, sessionID)
 
 	if len(paths) == 0 {
 		fmt.Println("No config files found.")
@@ -41,6 +41,7 @@ func runFmt(configPath string) ExitCode {
 		fmt.Println("  - ~/.config/cc-allow.toml (global)")
 		fmt.Println("  - <project>/.config/cc-allow.toml (project)")
 		fmt.Println("  - <project>/.config/cc-allow.local.toml (local)")
+		fmt.Println("  - <project>/.config/cc-allow/sessions/<id>.toml (session)")
 		if configPath != "" {
 			fmt.Printf("  - %s (explicit)\n", configPath)
 		}
@@ -241,19 +242,25 @@ func runFmt(configPath string) ExitCode {
 	return ExitAllow
 }
 
-func findFmtConfigFiles(explicitPath string) []string {
+func findFmtConfigFiles(explicitPath string, sessionID string) []string {
 	var paths []string
 
 	if globalPath := findGlobalConfig(); globalPath != "" {
 		paths = append(paths, globalPath)
 	}
 
-	discovery := findProjectConfigs()
+	projectRoot := findProjectRoot()
+	discovery := findProjectConfigsWithRoot(projectRoot)
 	if discovery.ProjectConfig != "" {
 		paths = append(paths, discovery.ProjectConfig)
 	}
 	if discovery.LocalConfig != "" {
 		paths = append(paths, discovery.LocalConfig)
+	}
+
+	// Session config
+	if sessionPath := findSessionConfig(sessionID, projectRoot); sessionPath != "" {
+		paths = append(paths, sessionPath)
 	}
 
 	if explicitPath != "" {

@@ -266,6 +266,17 @@ func (cfg *Config) Validate() error {
 		return err
 	}
 
+	// Validate settings
+	if cfg.Settings.SessionMaxAge != "" {
+		if _, err := parseSessionMaxAge(cfg.Settings.SessionMaxAge); err != nil {
+			return &ConfigValidationError{
+				Location: "settings.session_max_age",
+				Value:    cfg.Settings.SessionMaxAge,
+				Message:  "invalid duration (use e.g. \"7d\", \"24h\", \"168h\")",
+			}
+		}
+	}
+
 	return nil
 }
 

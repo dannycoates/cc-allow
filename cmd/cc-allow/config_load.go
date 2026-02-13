@@ -69,8 +69,9 @@ func ParseConfigWithDefaults(data string) (*Config, error) {
 }
 
 // LoadConfigChain loads configs from standard locations plus an optional explicit path.
-func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
+func LoadConfigChain(explicitPath string, sessionID string) (*ConfigChain, error) {
 	chain := &ConfigChain{}
+	chain.SessionID = sessionID
 
 	// Cache project root once for all config discovery
 	chain.ProjectRoot = findProjectRoot()
@@ -104,7 +105,16 @@ func LoadConfigChain(explicitPath string) (*ConfigChain, error) {
 	// Propagate migration hints for legacy .claude/ paths
 	chain.MigrationHints = discovery.LegacyPaths
 
-	// 3. Load explicit config
+	// 3. Load session config
+	if sessionPath := findSessionConfig(sessionID, chain.ProjectRoot); sessionPath != "" {
+		cfg, err := loadConfig(sessionPath)
+		if err != nil {
+			return nil, err
+		}
+		chain.Configs = append(chain.Configs, cfg)
+	}
+
+	// 4. Load explicit config
 	if explicitPath != "" {
 		cfg, err := loadConfig(explicitPath)
 		if err != nil {
