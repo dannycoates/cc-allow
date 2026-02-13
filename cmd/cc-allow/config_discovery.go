@@ -142,12 +142,17 @@ func findAgentConfigWithRoot(agent string, projectRoot string) string {
 }
 
 // findProjectRoot looks for the project root directory.
-// It walks up from cwd looking for:
+// If CC_PROJECT_DIR is set, it is used directly.
+// Otherwise, it walks up from cwd looking for:
 // 1. .config/cc-allow.toml file (new preferred location)
 // 2. .claude/ directory (legacy)
 // 3. .git (directory for normal repos, file for worktrees)
 // Returns empty string if none found.
 func findProjectRoot() string {
+	if envDir := os.Getenv("CC_PROJECT_DIR"); envDir != "" {
+		return envDir
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return ""

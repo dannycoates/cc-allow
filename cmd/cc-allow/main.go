@@ -160,10 +160,22 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode ToolName) Exi
 	}
 	logDebugConfigChain(chain)
 
-	// Build migration context for hook output
-	var migrationContext string
+	// Build additional context for hook output
+	var additionalContext string
 	if len(chain.MigrationHints) > 0 {
-		migrationContext = buildMigrationMessage(chain.MigrationHints)
+		additionalContext = buildMigrationMessage(chain.MigrationHints)
+	}
+
+	// Warn if cwd has drifted from project root
+	if hookMode && chain.ProjectRoot != "" {
+		if cwd, err := os.Getwd(); err == nil && cwd != chain.ProjectRoot {
+			msg := "<system-reminder>your cwd is not at your project root. cd back to " + chain.ProjectRoot + "</system-reminder>"
+			if additionalContext != "" {
+				additionalContext += "\n" + msg
+			} else {
+				additionalContext = msg
+			}
+		}
 	}
 
 	// Dispatch
@@ -172,10 +184,11 @@ func runEval(configPath string, hookMode, debugMode bool, toolMode ToolName) Exi
 
 	// Structured debug log entry
 	logDebugEval(input, result)
+	logDebug("decision: %s", result.Action)
 
 	// Output
 	if hookMode {
-		return outputHookResult(result, migrationContext)
+		return outputHookResult(result, additionalContext)
 	}
 	return outputPlainResult(result)
 }
