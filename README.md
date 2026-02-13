@@ -69,6 +69,47 @@ cc-allow --hook
 cc-allow --fmt
 ```
 
+### Managing Rules with `/allow-rules`
+
+The `/allow-rules` slash command provides a conversational interface for managing cc-allow rules. Tell it what you want in plain English and it figures out the right config changes.
+
+#### Scope detection
+
+The command determines where to write rules based on your phrasing:
+
+| Scope | Keywords | Config file |
+|-------|----------|-------------|
+| **Session** (default) | "for now", "temporarily", or no scope mentioned | `.config/cc-allow/sessions/<id>.toml` |
+| **Project** | "always", "permanently", "this project" | `.config/cc-allow.toml` |
+| **Global** | "globally", "everywhere", "all projects" | `~/.config/cc-allow.toml` |
+
+#### Examples
+
+```
+# Session-scoped (default) — allow docker for this session
+/allow-rules allow docker
+
+# Session-scoped — temporary override
+/allow-rules let me use curl for now
+
+# Project-scoped — permanent rule
+/allow-rules always allow npm install in this project
+
+# Global — applies everywhere
+/allow-rules globally deny rm -rf
+
+# Deny rules
+/allow-rules block curl | bash
+
+# File tool rules
+/allow-rules allow reading /var/log/**
+
+# Complex rules
+/allow-rules allow git push but ask for --force
+```
+
+The command reads the appropriate config, makes the change, validates with `--fmt`, and tests with a matching command to confirm.
+
 ### Exit Codes
 
 | Code | Action | Meaning |
@@ -87,7 +128,8 @@ Configs are loaded from multiple locations (loosest to strictest):
 1. `~/.config/cc-allow.toml` - Global defaults
 2. `<project>/.config/cc-allow.toml` - Project rules (in source control)
 3. `<project>/.config/cc-allow.local.toml` - Local overrides (gitignored)
-4. `--config <path>` - Explicit config
+4. `<project>/.config/cc-allow/sessions/<id>.toml` - Session-scoped (auto-cleaned)
+5. `--config <path>` - Explicit config
 
 Rules are merged across configs: **deny always wins**, allow beats ask, ask means "no opinion."
 
@@ -207,6 +249,27 @@ api_key = "AIza..."
 
 See [docs/config.md](docs/config.md) for complete configuration reference.
 
+### Session-Scoped Configs
+
+Session configs let you temporarily adjust rules for the current Claude Code session. They live in `.config/cc-allow/sessions/<session-id>.toml` and are automatically cleaned up based on `session_max_age`.
+
+```toml
+# .config/cc-allow/sessions/<id>.toml
+version = "2.0"
+
+[bash.allow]
+commands = ["docker", "curl"]
+```
+
+Session configs are loaded after project and local configs but before explicit `--config` paths. The standard merge rules apply: deny always wins, so a session can add new allows for commands that were previously "ask" but cannot override explicit deny rules from project configs.
+
+Set cleanup in your global or project config:
+
+```toml
+[settings]
+session_max_age = "30d"   # delete session configs older than 30 days
+```
+
 ## CLI Reference
 
 ```bash
@@ -232,6 +295,9 @@ cc-allow --hook < tool_input.json
 # Fmt mode - validate config and show rules by specificity
 cc-allow --fmt
 cc-allow --fmt --config ./my-rules.toml
+
+# Session mode - use session-scoped config
+echo 'docker ps' | cc-allow --session <session-id>
 
 # Debug mode
 cc-allow --debug
