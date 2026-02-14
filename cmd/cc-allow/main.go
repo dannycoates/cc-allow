@@ -54,6 +54,7 @@ func main() {
 	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
 	initMode := flag.Bool("init", false, "create project config at .config/cc-allow.toml")
 	sessionID := flag.String("session", "", "session ID for session-scoped config lookup")
+	postMode := flag.Bool("post", false, "PostToolUse mode: also scan other sessions for matching rules (requires --hook)")
 
 	// Tool-specific modes (stdin is the path or command to check)
 	bashMode := flag.Bool("bash", false, "check bash command rules (stdin is bash command)")
@@ -64,6 +65,12 @@ func main() {
 	globMode := flag.Bool("glob", false, "check glob search rules (stdin is search path)")
 	grepMode := flag.Bool("grep", false, "check grep search rules (stdin is search path)")
 	flag.Parse()
+
+	// --post requires --hook
+	if *postMode && !*hookMode {
+		fmt.Fprintln(os.Stderr, "Error: --post requires --hook")
+		os.Exit(int(ExitError))
+	}
 
 	// --agent and --config are mutually exclusive
 	if *agentType != "" && *configPath != "" {
@@ -128,7 +135,7 @@ func main() {
 	case *fmtMode:
 		os.Exit(int(runFmt(*configPath, *sessionID)))
 	default:
-		os.Exit(int(runEval(*configPath, *sessionID, *hookMode, *debugMode, toolMode)))
+		os.Exit(int(runEval(*configPath, *sessionID, *hookMode, *debugMode, *postMode, toolMode)))
 	}
 }
 
@@ -136,7 +143,7 @@ func main() {
 // In hook mode, it reads JSON from stdin and outputs JSON.
 // In pipe mode, it reads the input directly from stdin.
 // toolMode specifies the tool type: "Bash", "Read", "Write", "Edit", or "" (defaults to Bash).
-func runEval(configPath string, sessionID string, hookMode, debugMode bool, toolMode ToolName) ExitCode {
+func runEval(configPath string, sessionID string, hookMode, debugMode, postMode bool, toolMode ToolName) ExitCode {
 	// 1. Build input first (need session ID from hook JSON)
 	input, err := buildInput(hookMode, toolMode)
 	if err != nil {
@@ -199,6 +206,19 @@ func runEval(configPath string, sessionID string, hookMode, debugMode bool, tool
 	// Structured debug log entry
 	logDebugEval(input, result)
 	logDebug("decision: %s", result.Action)
+
+	// Check other sessions in post mode
+	if postMode && result.IsDefault && result.Action == ActionAsk && effectiveSessionID != "" {
+		matches := countSessionMatches(chain.ProjectRoot, effectiveSessionID, input)
+		if matches > 0 {
+			msg := buildSessionMatchContext(matches, input.ToolName, describeToolInput(input))
+			if additionalContext != "" {
+				additionalContext += "\n" + msg
+			} else {
+				additionalContext = msg
+			}
+		}
+	}
 
 	// Output
 	if hookMode {

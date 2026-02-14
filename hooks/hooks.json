@@ -27,8 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/postuse",
-            "async": true
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/postuse"
           }
         ]
       }

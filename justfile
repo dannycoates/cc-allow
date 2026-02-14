@@ -4,6 +4,8 @@ default:
 build:
     go build -o cc-allow ./cmd/cc-allow
     go build -o print-ast ./cmd/print-ast
+    mkdir -p bin
+    cp cc-allow bin/
 
 # Validate and display config rules sorted by specificity
 fmt *args:
