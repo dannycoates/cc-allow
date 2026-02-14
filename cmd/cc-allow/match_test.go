@@ -498,3 +498,58 @@ func TestFlagPatternMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestFlagPatternMatchAcrossArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		args    []string
+		want    bool
+	}{
+		// Separate flags matching combined pattern
+		{"separate -r -f matches flags:rf", "flags:rf", []string{"-r", "-f"}, true},
+		{"separate -f -r matches flags:rf", "flags:rf", []string{"-f", "-r"}, true},
+		{"separate with extra flags", "flags:rf", []string{"-r", "-v", "-f"}, true},
+		{"separate with non-flag args", "flags:rf", []string{"-r", "file.txt", "-f"}, true},
+		{"combined still works", "flags:rf", []string{"-rf"}, true},
+		{"combined with extra", "flags:rf", []string{"-vrf"}, true},
+		{"missing one flag", "flags:rf", []string{"-r", "file.txt"}, false},
+		{"missing both flags", "flags:rf", []string{"file.txt"}, false},
+		{"no args", "flags:rf", []string{}, false},
+
+		// Single char across args
+		{"single char separate", "flags:r", []string{"-r"}, true},
+		{"single char in combined", "flags:r", []string{"-rv"}, true},
+		{"single char missing", "flags:r", []string{"-f"}, false},
+
+		// Three flags across args
+		{"three separate flags", "flags:rfv", []string{"-r", "-f", "-v"}, true},
+		{"two combined one separate", "flags:rfv", []string{"-rf", "-v"}, true},
+		{"missing one of three", "flags:rfv", []string{"-r", "-f"}, false},
+
+		// Double-dash flags should NOT match across args
+		{"long flags single arg match", "flags[--]:rec", []string{"--rec"}, true},
+		{"long flags separate no match", "flags[--]:rec", []string{"--r", "--e", "--c"}, false},
+
+		// Separate flags should not confuse with --
+		{"separate ignores double-dash", "flags:rf", []string{"-r", "--force"}, false},
+		{"separate skips double-dash", "flags:rf", []string{"-r", "--force", "-f"}, true},
+
+		// Negated patterns - per-arg matching still applies
+		{"negated combined match", "!flags:rf", []string{"-rf"}, false},
+		{"negated missing one", "!flags:rf", []string{"-r", "file"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := ParsePattern(tt.pattern)
+			if err != nil {
+				t.Fatalf("ParsePattern error: %v", err)
+			}
+			got := p.MatchAnyWithContext(tt.args, nil)
+			if got != tt.want {
+				t.Errorf("MatchAnyWithContext(%v) = %v, want %v", tt.args, got, tt.want)
+			}
+		})
+	}
+}

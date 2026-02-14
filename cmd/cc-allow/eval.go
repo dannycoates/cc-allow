@@ -1070,17 +1070,14 @@ func (e *Evaluator) evaluateSearchTool(toolName ToolName, searchPath string) Res
 // Helper functions
 
 // matchAnyArg checks if any arg matches the pattern.
+// For flag patterns, this also handles matching across multiple args
+// (e.g., "flags:rf" matching ["-r", "-f"]).
 func matchAnyArg(args []string, pattern string, ctx *MatchContext) bool {
 	p, err := ParsePattern(pattern)
 	if err != nil {
 		return false
 	}
-	for _, arg := range args {
-		if p.MatchWithContext(arg, ctx) {
-			return true
-		}
-	}
-	return false
+	return p.MatchAnyWithContext(args, ctx)
 }
 
 // matchSequence uses a sliding window to find consecutive args matching the sequence.

@@ -378,17 +378,61 @@ func (p *Pattern) matchFlag(s string) bool {
 	return true
 }
 
+// matchFlagAcrossArgs checks if the required flag characters are present
+// across multiple arguments. This handles cases like "flags:rf" matching
+// separate args "-r" and "-f" in addition to combined "-rf".
+// Only applies to single-dash flags; long flags (--) must match individually.
+func (p *Pattern) matchFlagAcrossArgs(args []string) bool {
+	if p.FlagDelimiter != "-" {
+		return false
+	}
+
+	var collected strings.Builder
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "-") {
+			continue
+		}
+		if strings.HasPrefix(arg, "--") {
+			continue
+		}
+		rest := arg[1:] // skip the "-"
+		if rest == "" {
+			continue
+		}
+		collected.WriteString(rest)
+	}
+
+	if collected.Len() == 0 {
+		return false
+	}
+
+	result := collected.String()
+	for _, c := range p.FlagChars {
+		if !strings.ContainsRune(result, c) {
+			return false
+		}
+	}
+	return true
+}
+
 // MatchAny checks if any of the given strings match the pattern.
 func (p *Pattern) MatchAny(ss []string) bool {
 	return p.MatchAnyWithContext(ss, nil)
 }
 
 // MatchAnyWithContext checks if any of the given strings match the pattern.
+// For non-negated flag patterns with single-dash delimiter, also tries matching
+// across all args collectively (e.g., "flags:rf" matches ["-r", "-f"]).
 func (p *Pattern) MatchAnyWithContext(ss []string, ctx *MatchContext) bool {
 	for _, s := range ss {
 		if p.MatchWithContext(s, ctx) {
 			return true
 		}
+	}
+	// For non-negated flag patterns, try matching across all args.
+	// This handles separate flags like "-r -f" matching "flags:rf".
+	if p.Type == PatternFlag && !p.Negated {
+		return p.matchFlagAcrossArgs(ss)
 	}
 	return false
 }

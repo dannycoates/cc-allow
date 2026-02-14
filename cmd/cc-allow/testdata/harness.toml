@@ -979,6 +979,21 @@ bash = "tar -cvf archive.tar files/"
 patterns = "allow"   # flags:c matches -cvf
 
 [[command]]
+name = "flags: tar -x -f (separate flags match flags:xf)"
+bash = "tar -x -f archive.tar"
+patterns = "deny"    # flags:xf matches separate -x -f across args
+
+[[command]]
+name = "flags: tar -f -x (separate flags reordered)"
+bash = "tar -f -x archive.tar"
+patterns = "deny"    # flags:xf matches separate -f -x across args
+
+[[command]]
+name = "flags: tar -x (only one of xf, no match)"
+bash = "tar -x archive.tar"
+patterns = "ask"     # flags:xf needs both x and f
+
+[[command]]
 name = "flags: tar --extract (long flag, no match for flags:xf)"
 bash = "tar --extract -f archive.tar"
 patterns = "ask"     # --extract doesn't match flags:xf (different delimiter)
