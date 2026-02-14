@@ -10,6 +10,7 @@ dynamic_commands = "deny"  # stricter than global
 [bash.allow]
 commands = [
     "path:$PROJECT_ROOT/cc-allow",
+    "path:$PROJECT_ROOT/bin/cc-allow",
     "path:$PROJECT_ROOT/print-ast",
     "path:/tmp/cc-allow-test",
     "go", "gofmt", "golangci-lint",

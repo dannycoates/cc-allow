@@ -7,3 +7,4 @@ cc-allow.log
 .claude/plans
 debug-logs/
 .config/cc-allow/sessions/
+bin/

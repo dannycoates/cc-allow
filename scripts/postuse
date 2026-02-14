@@ -1,0 +1,75 @@
+#!/bin/bash
+set -e
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$(dirname "$0")")}"
+BIN="${PLUGIN_ROOT}/bin/cc-allow"
+if [ ! -x "$BIN" ]; then
+  BIN="${PLUGIN_ROOT}/cc-allow"  # local dev fallback
+fi
+if [ ! -x "$BIN" ]; then
+  exit 0  # no binary, exit silently (install is SessionStart's job)
+fi
+
+# Need jq to parse JSON
+if ! command -v jq &> /dev/null; then
+  exit 0
+fi
+
+# Read full PostToolUse JSON from stdin
+HOOK_JSON=$(cat)
+
+# Re-evaluate: pipe JSON to cc-allow --hook
+# Go decoder ignores extra PostToolUse fields (tool_response, hook_event_name, etc.)
+# cc-allow reads session_id from JSON and loads the session config chain automatically
+RESULT=$(echo "$HOOK_JSON" | "$BIN" --hook 2>/dev/null) || true
+DECISION=$(echo "$RESULT" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null) || true
+
+# Only act on "ask" — means user manually approved something with no matching rule
+if [ "$DECISION" != "ask" ]; then
+  exit 0
+fi
+
+# Extract fields for the prompt
+TOOL_NAME=$(echo "$HOOK_JSON" | jq -r '.tool_name // empty')
+SESSION_ID=$(echo "$HOOK_JSON" | jq -r '.session_id // empty')
+CWD=$(echo "$HOOK_JSON" | jq -r '.cwd // empty')
+
+if [ -z "$TOOL_NAME" ] || [ -z "$SESSION_ID" ]; then
+  exit 0
+fi
+
+# Build human-readable input description per tool type
+# (avoid passing large blobs like Write file content)
+case "$TOOL_NAME" in
+  Bash)
+    INPUT_DESC="command: \`$(echo "$HOOK_JSON" | jq -r '.tool_input.command // empty')\`" ;;
+  Read|Write|Edit)
+    INPUT_DESC="file path: \`$(echo "$HOOK_JSON" | jq -r '.tool_input.file_path // empty')\`" ;;
+  WebFetch)
+    INPUT_DESC="URL: \`$(echo "$HOOK_JSON" | jq -r '.tool_input.url // empty')\`" ;;
+  Glob|Grep)
+    P=$(echo "$HOOK_JSON" | jq -r '.tool_input.pattern // empty')
+    D=$(echo "$HOOK_JSON" | jq -r '.tool_input.path // empty')
+    INPUT_DESC="pattern='$P' path='$D'" ;;
+  *) exit 0 ;;
+esac
+
+PROJECT_DIR="${CWD:-$(pwd)}"
+SESSION_CONFIG="${PROJECT_DIR}/.config/cc-allow/sessions/${SESSION_ID}.toml"
+
+# Construct prompt for claude -p
+PROMPT="The user has allowed ${TOOL_NAME} ${INPUT_DESC}. Please update the session cc-allow config to allow it. The session id is ${SESSION_ID}. The session config is at ${SESSION_CONFIG}. Create the file and directories if needed (version = \"2.0\" header). Read the existing config first to avoid duplicates. The rule should not be too loose or specific. Create a rule based on the _intent_ that the user most likely expects. If there's another rule already in the config that's very similar generalize one to cover that type of invocation"
+
+# Spawn claude -p with allow-rules skill injected via system prompt
+SKILL_FILE="${PLUGIN_ROOT}/skills/allow-rules/SKILL.md"
+(
+  cd "$PROJECT_DIR"
+  claude -p "$PROMPT" \
+    --model haiku \
+    --append-system-prompt-file "$SKILL_FILE" \
+    --allowedTools "Read,Write,Edit,Bash" \
+    --max-turns 12 \
+    > /dev/null 2>&1
+) &
+
+exit 0
