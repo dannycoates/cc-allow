@@ -270,6 +270,9 @@ func outputHookResult(result Result, additionalContext string) ExitCode {
 		if result.Command != "" {
 			reason = result.Command + ": " + reason
 		}
+		if result.IsDefault {
+			reason = "default: " + reason
+		}
 		output.HookSpecificOutput.PermissionDecisionReason = reason
 	}
 

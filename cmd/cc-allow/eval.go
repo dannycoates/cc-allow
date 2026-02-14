@@ -26,10 +26,11 @@ var defaultFileAccessTypes = map[string]ToolName{
 
 // Result represents the evaluation result.
 type Result struct {
-	Action  Action // ActionAllow, ActionDeny, or ActionAsk
-	Message string
-	Command string // the command that triggered this result
-	Source  string // describes what triggered this result
+	Action    Action // ActionAllow, ActionDeny, or ActionAsk
+	Message   string
+	Command   string // the command that triggered this result
+	Source    string // describes what triggered this result
+	IsDefault bool   // true when "ask" came from default policy (no rule matched)
 }
 
 // combineActionsStrict merges two actions with strictness order: deny > ask > allow
@@ -54,6 +55,10 @@ func combineResults(current, new Result) Result {
 	}
 	if combined == ActionAsk {
 		if new.Action == ActionAsk {
+			// Both are ask — preserve IsDefault only if both are default
+			if current.Action == ActionAsk && !current.IsDefault {
+				new.IsDefault = false
+			}
 			return new
 		}
 		return current
@@ -137,7 +142,7 @@ func (e *Evaluator) Evaluate(info *ExtractedInfo) Result {
 	}
 
 	if e.merged == nil {
-		return Result{Action: ActionAsk, Source: "no configuration loaded"}
+		return Result{Action: ActionAsk, IsDefault: true, Source: "no configuration loaded"}
 	}
 
 	logDebug("--- Evaluating against merged config (from %d source(s)) ---", len(e.merged.Sources))
@@ -411,10 +416,11 @@ func (e *Evaluator) evaluateCommand(cmd Command) Result {
 	}
 
 	return Result{
-		Action:  tv.Value,
-		Message: e.merged.Policy.DefaultMessage.Value,
-		Command: cmd.Name,
-		Source:  tv.Source + ": bash.default",
+		Action:    tv.Value,
+		IsDefault: true,
+		Message:   e.merged.Policy.DefaultMessage.Value,
+		Command:   cmd.Name,
+		Source:    tv.Source + ": bash.default",
 	}
 }
 
@@ -834,8 +840,9 @@ func (e *Evaluator) evaluateRedirect(redir Redirect) Result {
 
 	tv := e.merged.Policy.Default
 	return Result{
-		Action: tv.Value,
-		Source: tv.Source + ": bash.default (redirect)",
+		Action:    tv.Value,
+		IsDefault: true,
+		Source:    tv.Source + ": bash.default (redirect)",
 	}
 }
 
@@ -951,8 +958,9 @@ func checkFilePathAgainstRules(merged *MergedConfig, toolName ToolName, path str
 
 	// Default
 	result := Result{
-		Action: merged.Files.Default[toolName].Value,
-		Source: merged.Files.Default[toolName].Source + ": " + strings.ToLower(string(toolName)) + " default",
+		Action:    merged.Files.Default[toolName].Value,
+		IsDefault: true,
+		Source:    merged.Files.Default[toolName].Source + ": " + strings.ToLower(string(toolName)) + " default",
 	}
 
 	// Apply default message if configured for this tool

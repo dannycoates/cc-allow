@@ -23,9 +23,10 @@ HOOK_JSON=$(cat)
 # cc-allow reads session_id from JSON and loads the session config chain automatically
 RESULT=$(echo "$HOOK_JSON" | "$BIN" --hook 2>/dev/null) || true
 DECISION=$(echo "$RESULT" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null) || true
+REASON=$(echo "$RESULT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null) || true
 
-# Only act on "ask" — means user manually approved something with no matching rule
-if [ "$DECISION" != "ask" ]; then
+# Only act on default "ask" — explicit ask rules are intentional
+if [ "$DECISION" != "ask" ] || [[ "$REASON" != default:* ]]; then
   exit 0
 fi
 
