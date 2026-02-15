@@ -67,6 +67,7 @@ SKILL_FILE="${PLUGIN_ROOT}/skills/allow-rules/SKILL.md"
   cd "$PROJECT_DIR"
   claude -p "$PROMPT" \
     --model haiku \
+    --settings '{"disableAllHooks":true}' \
     --append-system-prompt-file "$SKILL_FILE" \
     --allowedTools "Read,Write,Edit,Bash" \
     --max-turns 12 \
