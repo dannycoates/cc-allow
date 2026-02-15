@@ -76,6 +76,7 @@ commands = [
     "less", "more",
     "nl",
     "od", "hexdump", "xxd",
+    "read",
 
     # Text Processing & Transformation
     "grep", "egrep", "fgrep",

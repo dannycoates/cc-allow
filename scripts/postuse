@@ -55,7 +55,7 @@ case "$TOOL_NAME" in
   *) exit 0 ;;
 esac
 
-PROJECT_DIR="${CWD:-$(pwd)}"
+PROJECT_DIR="${CC_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-${CWD:-$(pwd)}}}"
 SESSION_CONFIG="${PROJECT_DIR}/.config/cc-allow/sessions/${SESSION_ID}.toml"
 
 # Construct prompt for claude -p

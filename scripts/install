@@ -18,7 +18,7 @@ PROJECT_DIR="${CLAUDE_PROJECT_DIR:-.}"
 
 if [ -n "$CLAUDE_ENV_FILE" ]; then
   printf 'export CC_ALLOW_BIN="%b"\n' $CC_ALLOW_BIN >> "$CLAUDE_ENV_FILE"
-  printf 'export CC_PROJECT_DIR="%b"\n' $PROJECT_DIR >> "CLAUDE_ENV_FILE"
+  printf 'export CC_PROJECT_DIR="%b"\n' $PROJECT_DIR >> "$CLAUDE_ENV_FILE"
 fi
 
 # Download if not already installed
