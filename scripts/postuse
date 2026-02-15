@@ -71,6 +71,7 @@ SKILL_FILE="${PLUGIN_ROOT}/skills/allow-rules/SKILL.md"
     --append-system-prompt-file "$SKILL_FILE" \
     --allowedTools "Read,Write,Edit,Bash" \
     --max-turns 12 \
+    --no-session-persistence \
     > /dev/null 2>&1
 ) &
 
