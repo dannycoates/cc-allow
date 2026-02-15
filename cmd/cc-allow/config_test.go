@@ -865,6 +865,8 @@ version = "2.0"
 }
 
 func TestFindAgentConfig(t *testing.T) {
+	t.Setenv("CC_PROJECT_DIR", "")
+
 	t.Run("finds agent config in .config/cc-allow/", func(t *testing.T) {
 		tmp := t.TempDir()
 		t.Chdir(tmp)
@@ -954,6 +956,8 @@ func TestFindAgentConfig(t *testing.T) {
 }
 
 func TestFindProjectConfigsStopsAtProjectRoot(t *testing.T) {
+	t.Setenv("CC_PROJECT_DIR", "")
+
 	// This test verifies that findProjectConfigs() only searches within
 	// the project boundary (up to project root) and doesn't walk beyond.
 
@@ -1040,10 +1044,10 @@ func TestFindProjectConfigsStopsAtProjectRoot(t *testing.T) {
 		}
 	})
 
-	t.Run("stops at project root and does not search parent directories", func(t *testing.T) {
+	t.Run("cc-allow config in parent takes priority over .git in child", func(t *testing.T) {
 		tmp := t.TempDir()
 
-		// Create a config ABOVE the project root (should NOT be found)
+		// Parent has .config/cc-allow.toml - this IS the project root for cc-allow
 		parentConfigDir := filepath.Join(tmp, ".config")
 		if err := os.MkdirAll(parentConfigDir, 0755); err != nil {
 			t.Fatal(err)
@@ -1053,19 +1057,45 @@ func TestFindProjectConfigsStopsAtProjectRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		// Create project subdir with .git marker (this is the project root)
+		// Child has .git (e.g., submodule) but no cc-allow config
 		projectDir := filepath.Join(tmp, "myproject")
 		if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0755); err != nil {
 			t.Fatal(err)
 		}
 
-		// cd into the project
+		// cd into the child project
 		t.Chdir(projectDir)
 
-		// findProjectConfigs should NOT find the parent config - it's outside project root
+		// findProjectConfigs should find the parent config because
+		// .config/cc-allow.toml is a stronger project root signal than .git
+		result := findProjectConfigs()
+		if result.ProjectConfig != parentConfig {
+			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want %q", result.ProjectConfig, parentConfig)
+		}
+	})
+
+	t.Run("stops at .git when no cc-allow config exists above", func(t *testing.T) {
+		tmp := t.TempDir()
+
+		// Parent has .git but NO cc-allow config
+		if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// Child also has .git
+		projectDir := filepath.Join(tmp, "child")
+		if err := os.MkdirAll(filepath.Join(projectDir, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// cd into the child project
+		t.Chdir(projectDir)
+
+		// findProjectConfigs should return empty - project root is child (first .git),
+		// and there's no cc-allow config at child level
 		result := findProjectConfigs()
 		if result.ProjectConfig != "" {
-			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want empty (config is above project root)", result.ProjectConfig)
+			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want empty", result.ProjectConfig)
 		}
 	})
 
@@ -1096,6 +1126,64 @@ func TestFindProjectConfigsStopsAtProjectRoot(t *testing.T) {
 			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want %q", result.ProjectConfig, subConfig)
 		}
 	})
+
+	t.Run("finds parent config and session from submodule with own .git", func(t *testing.T) {
+		// Simulates: project with .config/cc-allow.toml + .git at root,
+		// and a submodule subdirectory with its own .git.
+		// When running from the submodule, the parent's config and session
+		// should still be found.
+		tmp := t.TempDir()
+
+		// Parent project: has .git and .config/cc-allow.toml
+		if err := os.MkdirAll(filepath.Join(tmp, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		parentConfigDir := filepath.Join(tmp, ".config")
+		if err := os.MkdirAll(parentConfigDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		parentConfig := filepath.Join(parentConfigDir, "cc-allow.toml")
+		if err := os.WriteFile(parentConfig, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Session config at project root
+		sessionDir := filepath.Join(tmp, ".config", "cc-allow", "sessions")
+		if err := os.MkdirAll(sessionDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		sessionFile := filepath.Join(sessionDir, "test-session.toml")
+		if err := os.WriteFile(sessionFile, []byte("version = \"2.0\"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		// Submodule: has its own .git
+		submodule := filepath.Join(tmp, "submodule")
+		if err := os.MkdirAll(filepath.Join(submodule, ".git"), 0755); err != nil {
+			t.Fatal(err)
+		}
+
+		// cd into the submodule
+		t.Chdir(submodule)
+
+		// findProjectRoot should return the parent (has .config/cc-allow.toml)
+		projectRoot := findProjectRoot()
+		if projectRoot != tmp {
+			t.Errorf("findProjectRoot() = %q, want %q", projectRoot, tmp)
+		}
+
+		// findProjectConfigs should find the parent's config
+		result := findProjectConfigs()
+		if result.ProjectConfig != parentConfig {
+			t.Errorf("findProjectConfigs() returned ProjectConfig = %q, want %q", result.ProjectConfig, parentConfig)
+		}
+
+		// findSessionConfig should find the session at project root
+		sessionPath := findSessionConfig("test-session", projectRoot)
+		if sessionPath != sessionFile {
+			t.Errorf("findSessionConfig() = %q, want %q", sessionPath, sessionFile)
+		}
+	})
 }
 
 func TestLoadConfigChainDeduplicatesGlobalConfig(t *testing.T) {
@@ -1106,6 +1194,7 @@ func TestLoadConfigChainDeduplicatesGlobalConfig(t *testing.T) {
 		// Create a fake HOME directory
 		fakeHome := t.TempDir()
 		t.Setenv("HOME", fakeHome)
+		t.Setenv("CC_PROJECT_DIR", "")
 
 		// Create .git at HOME (simulating dotfiles repo)
 		if err := os.MkdirAll(filepath.Join(fakeHome, ".git"), 0755); err != nil {
