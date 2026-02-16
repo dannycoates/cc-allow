@@ -59,7 +59,13 @@ PROJECT_DIR="${CC_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-${CWD:-$(pwd)}}}"
 SESSION_CONFIG="${PROJECT_DIR}/.config/cc-allow/sessions/${SESSION_ID}.toml"
 
 # Construct prompt for claude -p
-PROMPT="The user has allowed ${TOOL_NAME} ${INPUT_DESC}. Please update the session cc-allow config to allow it. The session id is ${SESSION_ID}. The session config is at ${SESSION_CONFIG}. Create the file and directories if needed (version = \"2.0\" header). Read the existing config first to avoid duplicates. The rule should not be too loose or specific. Create a rule based on the _intent_ that the user most likely expects. If there's another rule already in the config that's very similar generalize one to cover that type of invocation"
+PROMPT="The user has allowed ${TOOL_NAME} ${INPUT_DESC}. Please update the session cc-allow config to allow it. The session id is ${SESSION_ID}. The session config is at ${SESSION_CONFIG}. Create the file and directories if needed (version = \"2.0\" header). Read any existing session and project configs first to avoid duplicates. The rule should not be too loose or specific. Create a rule based on the _intent_ that the user most likely expects. If there's another rule already in the config that's very similar generalize one to cover that type of invocation."
+
+case "$TOOL_NAME" in
+  Bash)
+    PROMPT="${PROMPT} If the 'ask' was caused by a file path argument (e.g. 'head -20 /some/path', 'cat ~/.config/foo'), prefer adding a [read.allow], [write.allow], or [edit.allow] file rule over bash args."
+    ;;
+esac
 
 # Spawn claude -p with allow-rules skill injected via system prompt
 SKILL_FILE="${PLUGIN_ROOT}/skills/allow-rules/SKILL.md"
