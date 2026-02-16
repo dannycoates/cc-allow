@@ -25,8 +25,11 @@ RESULT=$(echo "$HOOK_JSON" | "$BIN" --hook --post 2>/dev/null) || true
 DECISION=$(echo "$RESULT" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null) || true
 REASON=$(echo "$RESULT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null) || true
 
-# Always forward the hook result to Claude Code (it may contain additionalContext)
-echo "$RESULT"
+# Forward additionalContext to Claude Code (requires hookEventName for PostToolUse)
+ADDITIONAL=$(echo "$RESULT" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null) || true
+if [ -n "$ADDITIONAL" ]; then
+  jq -n --arg ctx "$ADDITIONAL" '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":$ctx}}'
+fi
 
 # Only act on default "ask" — explicit ask rules are intentional
 if [ "$DECISION" != "ask" ] || [[ "$REASON" != default:* ]]; then
@@ -101,6 +104,6 @@ SKILL_FILE="${PLUGIN_ROOT}/skills/allow-rules/SKILL.md"
     ATTEMPT=$((ATTEMPT + 1))
     EXTRA=" IMPORTANT: An existing rule does NOT result in an 'allow' for this ${TOOL_NAME} invocation (${INPUT_DESC}). You MUST write a rule that matches this exact invocation. Be more general with patterns if needed. Read the session config at ${SESSION_CONFIG} and fix the rule."
   done
-) &
+) </dev/null >/dev/null 2>&1 &
 
 exit 0
