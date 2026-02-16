@@ -68,17 +68,36 @@ case "$TOOL_NAME" in
 esac
 
 # Spawn claude -p with allow-rules skill injected via system prompt
+# After each attempt, re-evaluate with cc-allow to verify the rule matches.
+# If it doesn't, retry with a stronger prompt (up to 2 attempts).
 SKILL_FILE="${PLUGIN_ROOT}/skills/allow-rules/SKILL.md"
 (
   cd "$PROJECT_DIR"
-  claude -p "$PROMPT" \
-    --model haiku \
-    --settings '{"disableAllHooks":true}' \
-    --append-system-prompt-file "$SKILL_FILE" \
-    --allowedTools "Read,Write,Edit,Bash" \
-    --max-turns 12 \
-    --no-session-persistence \
-    > /dev/null 2>&1
+  MAX_RETRIES=2
+  ATTEMPT=0
+  EXTRA=""
+
+  while [ $ATTEMPT -lt $MAX_RETRIES ]; do
+    claude -p "${PROMPT}${EXTRA}" \
+      --model haiku \
+      --settings '{"disableAllHooks":true}' \
+      --append-system-prompt-file "$SKILL_FILE" \
+      --allowedTools "Read,Write,Edit,Bash" \
+      --max-turns 12 \
+      --no-session-persistence \
+      > /dev/null 2>&1
+
+    # Re-evaluate the original input against the updated config
+    RECHECK=$(echo "$HOOK_JSON" | "$BIN" --hook 2>/dev/null) || true
+    RECHECK_DECISION=$(echo "$RECHECK" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null) || true
+
+    if [ "$RECHECK_DECISION" = "allow" ]; then
+      break
+    fi
+
+    ATTEMPT=$((ATTEMPT + 1))
+    EXTRA=" IMPORTANT: An existing rule does NOT result in an 'allow' for this ${TOOL_NAME} invocation (${INPUT_DESC}). You MUST write a rule that matches this exact invocation. Be more general with patterns if needed. Read the session config at ${SESSION_CONFIG} and fix the rule."
+  done
 ) &
 
 exit 0
