@@ -21,9 +21,12 @@ HOOK_JSON=$(cat)
 # Re-evaluate: pipe JSON to cc-allow --hook
 # Go decoder ignores extra PostToolUse fields (tool_response, hook_event_name, etc.)
 # cc-allow reads session_id from JSON and loads the session config chain automatically
-RESULT=$(echo "$HOOK_JSON" | "$BIN" --hook 2>/dev/null) || true
+RESULT=$(echo "$HOOK_JSON" | "$BIN" --hook --post 2>/dev/null) || true
 DECISION=$(echo "$RESULT" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null) || true
 REASON=$(echo "$RESULT" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null) || true
+
+# Always forward the hook result to Claude Code (it may contain additionalContext)
+echo "$RESULT"
 
 # Only act on default "ask" — explicit ask rules are intentional
 if [ "$DECISION" != "ask" ] || [[ "$REASON" != default:* ]]; then
