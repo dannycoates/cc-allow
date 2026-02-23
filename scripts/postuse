@@ -64,12 +64,22 @@ esac
 PROJECT_DIR="${CC_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-${CWD:-$(pwd)}}}"
 SESSION_CONFIG="${PROJECT_DIR}/.config/cc-allow/sessions/${SESSION_ID}.toml"
 
+# Ensure session config file exists with version header before invoking claude -p
+if [ ! -f "$SESSION_CONFIG" ]; then
+  mkdir -p "$(dirname "$SESSION_CONFIG")"
+  printf 'version = "2.0"\n\n[bash.allow]\ncommands = []' > "$SESSION_CONFIG"
+fi
+
 # Construct prompt for claude -p
-PROMPT="The user has allowed ${TOOL_NAME} ${INPUT_DESC}. Please update the session cc-allow config to allow it. The session id is ${SESSION_ID}. The session config is at ${SESSION_CONFIG}. Create the file and directories if needed (version = \"2.0\" header). Read any existing session and project configs first to avoid duplicates. The rule should not be too loose or specific. Create a rule based on the _intent_ that the user most likely expects. If there's another rule already in the config that's very similar generalize one to cover that type of invocation. IMPORTANT: File path globs must NEVER end with specific filenames or partial patterns (e.g. WRONG: 'path:\$PROJECT_ROOT/**/Cargo.toml', 'path:/home/user/**/*.lock'). Paths should specify as much of the root directory path as desired but ALWAYS end with '**' (e.g. RIGHT: 'path:\$PROJECT_ROOT/**', 'path:/home/user/.config/**')."
+PROMPT="The user has allowed ${TOOL_NAME} ${INPUT_DESC}. Please update the session cc-allow config to allow it. The session id is ${SESSION_ID}. The session config is at ${SESSION_CONFIG}. Read any existing session configs first to avoid duplicates. The rule should not be too loose or specific. Create a rule based on the _intent_ that the user most likely expects. If there's another rule already in the config that's very similar generalize one to cover that type of invocation. IMPORTANT: File path globs must NEVER end with specific filenames or partial patterns (e.g. WRONG: 'path:\$PROJECT_ROOT/**/Cargo.toml', 'path:/home/user/**/*.lock'). Paths should specify as much of the root directory path as desired but ALWAYS end with '**' (e.g. RIGHT: 'path:\$PROJECT_ROOT/**', 'path:/home/user/.config/**').
+
+IMPORTANT: Don't follow the default skill workflow, simply add the new rule(s) - do not test or provide an explanation, simply respond with 'done'"
 
 case "$TOOL_NAME" in
   Bash)
-    PROMPT="${PROMPT} If the 'ask' was caused by a file path argument (e.g. 'head -20 /some/path', 'cat ~/.config/foo'), prefer adding a [read.allow], [write.allow], or [edit.allow] file rule over bash args."
+    PROMPT+="
+
+If the 'ask' was caused by a file path argument (e.g. 'head -20 /some/path', 'cat ~/.config/foo'), prefer adding a [read.allow], [write.allow], or [edit.allow] file rule over bash args."
     ;;
 esac
 
@@ -84,7 +94,7 @@ SKILL_FILE="${PLUGIN_ROOT}/skills/allow-rules/SKILL.md"
   EXTRA=""
 
   while [ $ATTEMPT -lt $MAX_RETRIES ]; do
-    claude -p "${PROMPT}${EXTRA}" \
+    CLAUDE_CODE_SIMPLE=1 claude -p "${PROMPT}${EXTRA}" \
       --model haiku \
       --settings '{"disableAllHooks":true}' \
       --append-system-prompt-file "$SKILL_FILE" \
@@ -102,7 +112,9 @@ SKILL_FILE="${PLUGIN_ROOT}/skills/allow-rules/SKILL.md"
     fi
 
     ATTEMPT=$((ATTEMPT + 1))
-    EXTRA=" IMPORTANT: An existing rule does NOT result in an 'allow' for this ${TOOL_NAME} invocation (${INPUT_DESC}). You MUST write a rule that matches this exact invocation. Be more general with patterns if needed. Read the session config at ${SESSION_CONFIG} and fix the rule."
+    EXTRA="
+
+IMPORTANT: An existing rule does NOT result in an 'allow' for this ${TOOL_NAME} invocation (${INPUT_DESC}). You MUST write a rule that matches this invocation. Be more general with patterns if needed. Read the session config at ${SESSION_CONFIG} and correct or add rules as necessary."
   done
 ) </dev/null >/dev/null 2>&1 &
 
