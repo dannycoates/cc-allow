@@ -86,6 +86,17 @@ func runFmt(configPath string, sessionID string) ExitCode {
 			fmt.Printf("    bash.deny.commands = %d command(s)\n", len(cfg.Bash.Deny.Commands))
 		}
 
+		// Display classification sections
+		if len(cfg.Bash.Read.Commands) > 0 {
+			fmt.Printf("    bash.read.commands = %d command(s)\n", len(cfg.Bash.Read.Commands))
+		}
+		if len(cfg.Bash.Write.Commands) > 0 {
+			fmt.Printf("    bash.write.commands = %d command(s)\n", len(cfg.Bash.Write.Commands))
+		}
+		if len(cfg.Bash.Edit.Commands) > 0 {
+			fmt.Printf("    bash.edit.commands = %d command(s)\n", len(cfg.Bash.Edit.Commands))
+		}
+
 		// Collect rules with scores
 		rules := cfg.getParsedRules()
 		for j, rule := range rules {

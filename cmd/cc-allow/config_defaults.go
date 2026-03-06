@@ -48,6 +48,44 @@ func applyDefaults(cfg *Config) {
 	}
 }
 
+// defaultClassification returns the built-in command file access classification.
+// Applied when no bash.read/write/edit sections exist in any config.
+func defaultClassification() map[string]ToolName {
+	return map[string]ToolName{
+		// Read commands — output to stdout, don't modify files
+		"cat": ToolRead, "less": ToolRead, "more": ToolRead, "head": ToolRead, "tail": ToolRead,
+		"grep": ToolRead, "egrep": ToolRead, "fgrep": ToolRead, "rg": ToolRead,
+		"find": ToolRead, "file": ToolRead, "readlink": ToolRead,
+		"wc": ToolRead, "diff": ToolRead, "cmp": ToolRead, "comm": ToolRead,
+		"stat": ToolRead, "md5sum": ToolRead, "sha256sum": ToolRead, "sha1sum": ToolRead,
+		"od": ToolRead, "xxd": ToolRead, "hexdump": ToolRead, "strings": ToolRead,
+		"sort": ToolRead, "uniq": ToolRead, "cut": ToolRead, "tr": ToolRead,
+		"awk": ToolRead, "sed": ToolRead, "jq": ToolRead, "yq": ToolRead,
+		"tee": ToolRead, "xargs": ToolRead,
+		// Write commands — create, delete, or modify filesystem entries
+		"rm": ToolWrite, "rmdir": ToolWrite,
+		"touch": ToolWrite, "mkdir": ToolWrite, "mktemp": ToolWrite,
+		"chmod": ToolWrite, "chown": ToolWrite, "chgrp": ToolWrite,
+		"unlink": ToolWrite,
+		// Positional commands — defaultArgsIO provides per-position IO types
+		"cp": ToolRead, "mv": ToolRead, "ln": ToolRead, "install": ToolRead,
+		"rsync": ToolRead, "scp": ToolRead,
+	}
+}
+
+// defaultArgsIO returns built-in per-position IO types for commands
+// where different arguments have different file access types.
+func defaultArgsIO() map[string]map[int]ToolName {
+	return map[string]map[int]ToolName{
+		"cp":      {0: ToolRead, 1: ToolWrite},
+		"mv":      {0: ToolRead, 1: ToolWrite},
+		"install": {0: ToolRead, 1: ToolWrite},
+		"rsync":   {0: ToolRead, 1: ToolWrite},
+		"scp":     {0: ToolRead, 1: ToolWrite},
+		"ln":      {0: ToolRead, 1: ToolWrite},
+	}
+}
+
 // DefaultConfig returns a minimal default configuration.
 func DefaultConfig() *Config {
 	cfg := &Config{

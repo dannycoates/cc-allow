@@ -187,18 +187,6 @@ func runEval(configPath string, sessionID string, hookMode, debugMode, postMode 
 		additionalContext = buildMigrationMessage(chain.MigrationHints)
 	}
 
-	// Warn if cwd has drifted from project root
-	if hookMode && chain.ProjectRoot != "" {
-		if cwd, err := os.Getwd(); err == nil && cwd != chain.ProjectRoot {
-			msg := "<system-reminder>your cwd is not at your project root. cd back to " + chain.ProjectRoot + "</system-reminder>"
-			if additionalContext != "" {
-				additionalContext += "\n" + msg
-			} else {
-				additionalContext = msg
-			}
-		}
-	}
-
 	// Dispatch
 	dispatcher := NewToolDispatcher(chain)
 	result := dispatcher.Dispatch(input)

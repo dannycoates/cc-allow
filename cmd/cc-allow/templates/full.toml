@@ -62,7 +62,7 @@ commands = [
     "alias:claude-user-config",
 
     # File & Directory Navigation
-    "ls", "dir", "vdir",
+    "ls", "dir", "vdir", "cd", "pushd", "popd",
     "pwd",
     "tree",
     "file",
@@ -210,9 +210,10 @@ commands = [
     "base64",
     "nix", "nix-env", "nix-shell",
     "jq",
+    "yq",
     "sd",
-    "fd",
     "eza",
+    "break",
 ]
 
 # ============================================================================
@@ -323,6 +324,7 @@ args.any = ["flags:f", "--force"]
 [[bash.ask.sed]]
 message = "{{.ArgsStr}} - in-place editing not allowed, use Edit tool"
 args.any = ["flags:i", "--in-place"]
+file_access_type = "Edit"
 
 [[bash.ask.awk]]
 message = "{{.ArgsStr}} - in-place editing not allowed, use Edit tool"
@@ -360,10 +362,7 @@ args.any = ["flags:o"]
 # ============================================================================
 
 [read]
-default = "ask"
-
-[read.allow]
-paths = ["alias:project", "alias:tmp", "alias:claude-user-config"]
+default = "allow"
 
 [read.deny]
 paths = ["alias:sensitive-read"]

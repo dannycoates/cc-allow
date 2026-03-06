@@ -51,6 +51,30 @@ subshells = "ask"                  # (command)
 heredocs = "allow"                 # <<EOF ... EOF (default: allow)
 ```
 
+### Command Classification
+
+Classify commands for file rule checking (orthogonal to allow/deny):
+
+```toml
+[bash.read]
+commands = ["cat", "less", "grep", "head", "tail", "find"]
+
+[bash.write]
+commands = ["rm", "mkdir", "chmod", "touch"]
+
+[bash.edit]
+commands = ["sed", "awk"]
+```
+
+When `respect_file_rules = true`, classified commands have their file arguments checked against the corresponding `[read]`/`[write]`/`[edit]` rules.
+
+**Built-in defaults** (used when no classification sections exist in any config):
+- Read: `cat`, `less`, `more`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `rg`, `find`, `file`, `readlink`, `wc`, `diff`, `cmp`, `comm`, `stat`, `md5sum`, `sha256sum`, `sha1sum`, `od`, `xxd`, `hexdump`, `strings`, `sort`, `uniq`, `cut`, `tr`, `awk`, `sed`, `jq`, `yq`, `tee`, `xargs`
+- Write: `rm`, `rmdir`, `touch`, `mkdir`, `mktemp`, `chmod`, `chown`, `chgrp`, `unlink`
+- Positional (source=Read, dest=Write): `cp`, `mv`, `ln`, `install`, `rsync`, `scp`
+
+Once any config defines a classification section, built-in defaults are replaced. Later configs override per-command. A command in multiple sections within one file is an error.
+
 ### Aliases
 
 Define reusable pattern aliases:
@@ -171,6 +195,23 @@ args.all = [
     { "0" = "-out", "1" = ["path:*.pem", "path:*.der"] }
 ]
 ```
+
+#### Per-Position IO Types
+
+Use `"N.type"` keys to specify file access type per position (in both `args.position` and sequence objects):
+
+```toml
+[[bash.allow.cp]]
+args.position = { "0.read" = "path:**", "1.write" = "path:**" }
+
+[[bash.allow.ffmpeg]]
+args.any = [
+    { "0" = "-i", "1.read" = "path:$PROJECT_ROOT/**" },
+    { "0" = "-o", "1.write" = "path:$PROJECT_ROOT/**" },
+]
+```
+
+The `.type` suffix (`read`, `write`, `edit`) overrides the command's classification for that argument.
 
 **Key distinction:**
 - `args.position` = **absolute** positions (arg[0] must be X)
@@ -384,7 +425,14 @@ respect_file_rules = false          # disable file checking for complex args
 
 [[bash.allow.mycommand]]
 file_access_type = "Write"          # force specific access type
+
+# Override classification for specific arg patterns
+[[bash.ask.sed]]
+args.any = ["flags:i"]
+file_access_type = "Edit"           # sed -i edits files (overrides bulk classification)
 ```
+
+`file_access_type` overrides the command's bulk classification from `[bash.read/write/edit]`. Per-position IO types (`"N.type"`) override `file_access_type`.
 
 ## Message Templates
 
@@ -432,6 +480,10 @@ message = "Cannot write to {{.FilePath}} - system directory"
 **Enable Safe Browsing**: Set `[webfetch.safe_browsing] enabled = true` with `api_key`
 
 **Control search tools**: Set `[glob]`/`[grep]` with `respect_file_rules = true` (default) to inherit Read rules
+
+**Classify a command for file rules**: Add to `[bash.read]`, `[bash.write]`, or `[bash.edit]` `commands` list
+
+**Context-sensitive classification**: Use `file_access_type` on a `[[bash.X.command]]` rule with arg matching (e.g., `sed -i` as Edit)
 
 ## Scope Detection
 

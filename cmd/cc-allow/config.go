@@ -74,6 +74,11 @@ func (a *Alias) UnmarshalTOML(data any) error {
 }
 
 // BashConfig holds all bash tool configuration.
+// ClassifyConfig holds a list of commands for file access classification.
+type ClassifyConfig struct {
+	Commands []string `toml:"commands"`
+}
+
 type BashConfig struct {
 	Default            string           `toml:"default"`             // default action: "allow", "deny", or "ask"
 	DynamicCommands    string           `toml:"dynamic_commands"`    // how to handle $VAR or $(cmd) as command names
@@ -85,6 +90,9 @@ type BashConfig struct {
 	Deny               BashAllowDeny    `toml:"deny"`                // deny rules
 	Redirects          RedirectsConfig  `toml:"redirects"`           // redirect configuration
 	Heredocs           HeredocsConfig   `toml:"heredocs"`            // heredoc configuration
+	Read               ClassifyConfig   `toml:"read"`                // commands classified as file reads
+	Write              ClassifyConfig   `toml:"write"`               // commands classified as file writes
+	Edit               ClassifyConfig   `toml:"edit"`                // commands classified as file edits
 }
 
 // ConstructsConfig controls handling of shell constructs.
@@ -105,14 +113,15 @@ type BashAllowDeny struct {
 
 // BashRule represents a complex command rule with argument matching.
 type BashRule struct {
-	Command          string      // command name (from TOML key)
-	Subcommands      []string    // subcommand path (e.g., ["status"] for [[bash.allow.git.status]])
-	Action           Action      // ActionAllow, ActionDeny, or ActionAsk
-	Message          string      `toml:"message"`            // custom message
-	Args             ArgsMatch   `toml:"args"`               // argument matching
-	Pipe             PipeContext `toml:"pipe"`               // pipe context rules
-	RespectFileRules *bool       `toml:"respect_file_rules"` // override bash.respect_file_rules
-	FileAccessType   ToolName    `toml:"file_access_type"`   // override inferred file access type
+	Command          string              // command name (from TOML key)
+	Subcommands      []string            // subcommand path (e.g., ["status"] for [[bash.allow.git.status]])
+	Action           Action              // ActionAllow, ActionDeny, or ActionAsk
+	Message          string              `toml:"message"`            // custom message
+	Args             ArgsMatch           `toml:"args"`               // argument matching
+	Pipe             PipeContext         `toml:"pipe"`               // pipe context rules
+	RespectFileRules *bool               `toml:"respect_file_rules"` // override bash.respect_file_rules
+	FileAccessType   ToolName            `toml:"file_access_type"`   // override inferred file access type
+	ArgsIO           map[int]ToolName    // per-position file access type from "N.type" keys in args.position
 }
 
 // ArgsMatch provides argument matching using boolean expressions.
@@ -140,6 +149,7 @@ type BoolExpr struct {
 	// Relative position sequence (for objects like {"0": "-i", "1": "path:..."})
 	IsSequence bool
 	Sequence   map[string]FlexiblePattern
+	SequenceIO map[string]ToolName // IO types from "N.type" keys (e.g., "1" → ToolEdit)
 }
 
 // UnmarshalTOML implements custom TOML unmarshaling for BoolExpr.
@@ -245,11 +255,18 @@ func (b *BoolExpr) parseMapWithSemantics(m map[string]any, useAll bool) error {
 		b.IsSequence = true
 		b.Sequence = make(map[string]FlexiblePattern)
 		for key, val := range m {
+			posStr, ioType := parsePositionIOKey(key)
 			fp, err := parseFlexiblePatternRaw(val)
 			if err != nil {
 				return fmt.Errorf("position %s: %w", key, err)
 			}
-			b.Sequence[key] = fp
+			b.Sequence[posStr] = fp
+			if ioType != "" {
+				if b.SequenceIO == nil {
+					b.SequenceIO = make(map[string]ToolName)
+				}
+				b.SequenceIO[posStr] = ioType
+			}
 		}
 	}
 
@@ -257,9 +274,19 @@ func (b *BoolExpr) parseMapWithSemantics(m map[string]any, useAll bool) error {
 }
 
 // isNumericKey checks if a string is a valid numeric position key.
+// Also accepts "N.type" format like "0.read", "1.write", "2.edit".
 func isNumericKey(s string) bool {
 	if s == "" {
 		return false
+	}
+	// Check for "N.type" format
+	if dotIdx := strings.IndexByte(s, '.'); dotIdx > 0 {
+		numPart := s[:dotIdx]
+		typePart := strings.ToLower(s[dotIdx+1:])
+		if typePart != "read" && typePart != "write" && typePart != "edit" {
+			return false
+		}
+		s = numPart
 	}
 	for _, c := range s {
 		if c < '0' || c > '9' {
@@ -486,20 +513,23 @@ type MergedConstructs struct {
 
 // MergedConfig represents the result of merging all configs in the chain.
 type MergedConfig struct {
-	Sources         []string
-	Policy          MergedPolicy
-	Constructs      MergedConstructs
-	Files           MergedFilesConfig
-	RedirectsPolicy MergedRedirectsConfig
-	CommandsDeny    []TrackedCommandEntry
-	CommandsAllow   []TrackedCommandEntry
-	Rules           []TrackedRule[BashRule]
-	Redirects       []TrackedRule[RedirectRule]
-	Heredocs        []TrackedRule[HeredocRule]
-	Aliases         map[string]Alias // merged aliases from all configs
-	SafeBrowsing    SafeBrowsingConfig
-	Debug           DebugConfig
-	Settings        SettingsConfig
+	Sources                []string
+	Policy                 MergedPolicy
+	Constructs             MergedConstructs
+	Files                  MergedFilesConfig
+	RedirectsPolicy        MergedRedirectsConfig
+	CommandsDeny           []TrackedCommandEntry
+	CommandsAllow          []TrackedCommandEntry
+	Rules                  []TrackedRule[BashRule]
+	Redirects              []TrackedRule[RedirectRule]
+	Heredocs               []TrackedRule[HeredocRule]
+	Classification          map[string]ToolName          // command name → Read/Write/Edit for file rule checking
+	ClassificationHasConfig bool                         // true if any config had bash.read/write/edit sections
+	DefaultArgsIO           map[string]map[int]ToolName  // command name → position → IO type (built-in defaults)
+	Aliases                map[string]Alias    // merged aliases from all configs
+	SafeBrowsing           SafeBrowsingConfig
+	Debug                  DebugConfig
+	Settings               SettingsConfig
 }
 
 // ConfigChain holds multiple configs ordered from highest to lowest priority.

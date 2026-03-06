@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -151,6 +153,17 @@ func parseBashConfigFromRaw(raw map[string]any) (*bashConfigResult, error) {
 		result.config.Deny = parseBashAllowDenyFromRaw(denyRaw)
 	}
 
+	// Extract classification sections
+	if readRaw, ok := raw["read"].(map[string]any); ok {
+		result.config.Read = parseClassifyFromRaw(readRaw)
+	}
+	if writeRaw, ok := raw["write"].(map[string]any); ok {
+		result.config.Write = parseClassifyFromRaw(writeRaw)
+	}
+	if editRaw, ok := raw["edit"].(map[string]any); ok {
+		result.config.Edit = parseClassifyFromRaw(editRaw)
+	}
+
 	// Parse nested command rules
 	rules, err := parseBashRules(raw)
 	if err != nil {
@@ -186,6 +199,19 @@ func parseBashConfigFromRaw(raw map[string]any) (*bashConfigResult, error) {
 }
 
 // parseBashAllowDenyFromRaw parses a bash.allow or bash.deny section.
+// parseClassifyFromRaw parses a bash.read/write/edit classification section.
+func parseClassifyFromRaw(raw map[string]any) ClassifyConfig {
+	var result ClassifyConfig
+	if cmds, ok := raw["commands"].([]any); ok {
+		for _, cmd := range cmds {
+			if s, ok := cmd.(string); ok {
+				result.Commands = append(result.Commands, s)
+			}
+		}
+	}
+	return result
+}
+
 func parseBashAllowDenyFromRaw(raw map[string]any) BashAllowDeny {
 	var result BashAllowDeny
 
@@ -410,11 +436,12 @@ func parseRuleFromTable(action Action, path []string, table map[string]any) (Bas
 
 	// Extract args
 	if argsRaw, ok := table["args"].(map[string]any); ok {
-		args, err := parseArgsMatch(argsRaw)
+		args, argsIO, err := parseArgsMatch(argsRaw)
 		if err != nil {
 			return BashRule{}, fmt.Errorf("args: %w", err)
 		}
 		rule.Args = args
+		rule.ArgsIO = argsIO
 	}
 
 	// Extract pipe
@@ -440,14 +467,15 @@ func parseRuleFromTable(action Action, path []string, table map[string]any) (Bas
 }
 
 // parseArgsMatch parses an args table.
-func parseArgsMatch(raw map[string]any) (ArgsMatch, error) {
+// Returns the parsed ArgsMatch and any per-position IO type overrides.
+func parseArgsMatch(raw map[string]any) (ArgsMatch, map[int]ToolName, error) {
 	var args ArgsMatch
 
 	// Parse any - uses OR semantics
 	if anyRaw, ok := raw["any"]; ok {
 		expr, err := parseBoolExprItemWithSemantics(anyRaw, false)
 		if err != nil {
-			return ArgsMatch{}, fmt.Errorf("any: %w", err)
+			return ArgsMatch{}, nil, fmt.Errorf("any: %w", err)
 		}
 		args.Any = expr
 	}
@@ -456,7 +484,7 @@ func parseArgsMatch(raw map[string]any) (ArgsMatch, error) {
 	if allRaw, ok := raw["all"]; ok {
 		expr, err := parseBoolExprItemWithSemantics(allRaw, true)
 		if err != nil {
-			return ArgsMatch{}, fmt.Errorf("all: %w", err)
+			return ArgsMatch{}, nil, fmt.Errorf("all: %w", err)
 		}
 		args.All = expr
 	}
@@ -465,7 +493,7 @@ func parseArgsMatch(raw map[string]any) (ArgsMatch, error) {
 	if notRaw, ok := raw["not"]; ok {
 		expr, err := parseBoolExprItemWithSemantics(notRaw, false)
 		if err != nil {
-			return ArgsMatch{}, fmt.Errorf("not: %w", err)
+			return ArgsMatch{}, nil, fmt.Errorf("not: %w", err)
 		}
 		args.Not = expr
 	}
@@ -474,24 +502,55 @@ func parseArgsMatch(raw map[string]any) (ArgsMatch, error) {
 	if xorRaw, ok := raw["xor"]; ok {
 		expr, err := parseBoolExprItem(xorRaw)
 		if err != nil {
-			return ArgsMatch{}, fmt.Errorf("xor: %w", err)
+			return ArgsMatch{}, nil, fmt.Errorf("xor: %w", err)
 		}
 		args.Xor = expr
 	}
 
-	// Parse position
+	// Parse position (supports "N" and "N.type" keys like "0.read", "1.write")
+	var argsIO map[int]ToolName
 	if posRaw, ok := raw["position"].(map[string]any); ok {
 		args.Position = make(map[string]FlexiblePattern)
 		for key, val := range posRaw {
+			posStr, ioType := parsePositionIOKey(key)
 			fp, err := parseFlexiblePatternRaw(val)
 			if err != nil {
-				return ArgsMatch{}, fmt.Errorf("position[%s]: %w", key, err)
+				return ArgsMatch{}, nil, fmt.Errorf("position[%s]: %w", key, err)
 			}
-			args.Position[key] = fp
+			args.Position[posStr] = fp
+			if ioType != "" {
+				if argsIO == nil {
+					argsIO = make(map[int]ToolName)
+				}
+				pos, _ := strconv.Atoi(posStr)
+				argsIO[pos] = ioType
+			}
 		}
 	}
 
-	return args, nil
+	return args, argsIO, nil
+}
+
+// parsePositionIOKey parses a position key that may include an IO type suffix.
+// "0" returns ("0", ""), "0.read" returns ("0", "Read"), "1.write" returns ("1", "Write").
+func parsePositionIOKey(key string) (posStr string, ioType ToolName) {
+	parts := strings.SplitN(key, ".", 2)
+	if len(parts) == 1 {
+		return key, ""
+	}
+	// Capitalize the IO type: "read" → "Read"
+	ioStr := strings.ToLower(parts[1])
+	switch ioStr {
+	case "read":
+		return parts[0], ToolRead
+	case "write":
+		return parts[0], ToolWrite
+	case "edit":
+		return parts[0], ToolEdit
+	default:
+		// Unknown IO type — treat as plain key (will likely fail numeric validation later)
+		return key, ""
+	}
 }
 
 // parsePipeContext parses a pipe table.

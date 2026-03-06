@@ -1,0 +1,67 @@
+version = "2.0"
+
+[bash]
+default = "allow"
+respect_file_rules = true
+
+# Classification sections (replaces hardcoded defaults)
+[bash.read]
+commands = ["cat", "head", "tail", "grep", "sed", "wc"]
+
+[bash.write]
+commands = ["rm", "rmdir", "touch", "mkdir"]
+
+[bash.edit]
+commands = ["awk"]
+
+[bash.allow]
+commands = ["cat", "head", "tail", "grep", "sed", "wc", "rm", "touch", "cp", "mv", "echo", "awk", "ffmpeg"]
+
+# sed with -i is an edit, not a read
+[[bash.allow.sed]]
+args.any = ["flags:i"]
+file_access_type = "Edit"
+
+# cp with per-position IO types
+[[bash.allow.cp]]
+args.position = { "0.read" = "path:**", "1.write" = "path:**" }
+
+# mv with per-position IO types
+[[bash.allow.mv]]
+args.position = { "0.read" = "path:**", "1.write" = "path:**" }
+
+# ffmpeg with sequence IO types
+[[bash.allow.ffmpeg]]
+args.any = [
+    { "0" = "-i", "1.read" = "path:**" },
+]
+
+# Read rules
+[read]
+default = "allow"
+
+[read.allow]
+paths = ["path:/project/**", "path:/home/user/**", "path:/tmp/**"]
+
+[read.deny]
+paths = ["path:**/.ssh/**", "path:**/*.key", "path:/etc/**", "path:/secrets/**"]
+
+# Write rules
+[write]
+default = "allow"
+
+[write.allow]
+paths = ["path:/project/**", "path:/tmp/**"]
+
+[write.deny]
+paths = ["path:/etc/**", "path:/usr/**", "path:/protected/**", "path:**/.ssh/**"]
+
+# Edit rules
+[edit]
+default = "allow"
+
+[edit.allow]
+paths = ["path:/project/**"]
+
+[edit.deny]
+paths = ["path:/etc/**", "path:**/.env*"]

@@ -191,6 +191,11 @@ func (cfg *Config) Validate() error {
 		}
 	}
 
+	// Validate classification sections for duplicate commands
+	if err := validateClassification(cfg); err != nil {
+		return err
+	}
+
 	// Validate parsed rules
 	for i, rule := range cfg.getParsedRules() {
 		ruleLocation := formatRuleLocation(rule, i)
@@ -376,6 +381,32 @@ func validateBoolExpr(expr *BoolExpr, context string) error {
 	for i, child := range expr.Xor {
 		if err := validateBoolExpr(child, fmt.Sprintf("%s.xor[%d]", context, i)); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateClassification checks for commands appearing in multiple classification sections.
+func validateClassification(cfg *Config) error {
+	seen := make(map[string]string) // command → section name
+	sections := []struct {
+		name     string
+		commands []string
+	}{
+		{"bash.read", cfg.Bash.Read.Commands},
+		{"bash.write", cfg.Bash.Write.Commands},
+		{"bash.edit", cfg.Bash.Edit.Commands},
+	}
+	for _, section := range sections {
+		for i, cmd := range section.commands {
+			if prev, ok := seen[cmd]; ok {
+				return &ConfigValidationError{
+					Location: fmt.Sprintf("%s.commands[%d]", section.name, i),
+					Value:    cmd,
+					Message:  fmt.Sprintf("command already classified in %s.commands", prev),
+				}
+			}
+			seen[cmd] = section.name
 		}
 	}
 	return nil

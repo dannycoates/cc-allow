@@ -50,7 +50,8 @@ func newEmptyMergedConfig() *MergedConfig {
 			Allow:            make(map[ToolName][]TrackedFilePatternEntry),
 			Deny:             make(map[ToolName][]TrackedFilePatternEntry),
 		},
-		Aliases:   make(map[string]Alias),
+		Classification: make(map[string]ToolName),
+		Aliases:        make(map[string]Alias),
 		Rules:     []TrackedRule[BashRule]{},
 		Redirects: []TrackedRule[RedirectRule]{},
 		Heredocs:  []TrackedRule[HeredocRule]{},
@@ -107,6 +108,11 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	// Merge bash rules with shadowing detection
 	merged.Rules = mergeRules(merged.Rules, cfg.getParsedRules(), source)
 
+	// Merge classification (later configs override per command)
+	mergeClassification(merged, &cfg.Bash.Read, ToolRead)
+	mergeClassification(merged, &cfg.Bash.Write, ToolWrite)
+	mergeClassification(merged, &cfg.Bash.Edit, ToolEdit)
+
 	// Merge redirect policy
 	merged.RedirectsPolicy.RespectFileRules = mergeTrackedBool(
 		merged.RedirectsPolicy.RespectFileRules, cfg.Bash.Redirects.RespectFileRules, source)
@@ -146,6 +152,17 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 	// Merge settings (later configs override)
 	if cfg.Settings.SessionMaxAge != "" {
 		merged.Settings.SessionMaxAge = cfg.Settings.SessionMaxAge
+	}
+}
+
+// mergeClassification merges a classification config into the merged classification map.
+func mergeClassification(merged *MergedConfig, cfg *ClassifyConfig, toolName ToolName) {
+	if len(cfg.Commands) == 0 {
+		return
+	}
+	merged.ClassificationHasConfig = true
+	for _, cmd := range cfg.Commands {
+		merged.Classification[cmd] = toolName
 	}
 }
 
@@ -247,6 +264,16 @@ func applyMergedDefaults(merged *MergedConfig) {
 	}
 	if !merged.RedirectsPolicy.RespectFileRules.IsSet() {
 		merged.RedirectsPolicy.RespectFileRules = Tracked[bool]{Value: false, Source: "(default)"}
+	}
+
+	// Apply default classification if no config had bash.read/write/edit sections
+	if !merged.ClassificationHasConfig {
+		merged.Classification = defaultClassification()
+	}
+
+	// Always apply default per-position IO types (user rules override at match time)
+	if merged.DefaultArgsIO == nil {
+		merged.DefaultArgsIO = defaultArgsIO()
 	}
 }
 
@@ -350,6 +377,14 @@ func boolExprPatternsEqual(a, b *BoolExpr) bool {
 	for k, va := range a.Sequence {
 		vb, ok := b.Sequence[k]
 		if !ok || !slicesEqual(va.Patterns, vb.Patterns) {
+			return false
+		}
+	}
+	if len(a.SequenceIO) != len(b.SequenceIO) {
+		return false
+	}
+	for k, va := range a.SequenceIO {
+		if b.SequenceIO[k] != va {
 			return false
 		}
 	}

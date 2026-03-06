@@ -10,20 +10,6 @@ import (
 	"cc-allow/pkg/pathutil"
 )
 
-// defaultFileAccessTypes maps known commands to their default file access type.
-var defaultFileAccessTypes = map[string]ToolName{
-	// Read commands
-	"cat": ToolRead, "less": ToolRead, "more": ToolRead, "head": ToolRead, "tail": ToolRead,
-	"grep": ToolRead, "egrep": ToolRead, "fgrep": ToolRead, "find": ToolRead, "file": ToolRead,
-	"wc": ToolRead, "diff": ToolRead, "cmp": ToolRead, "stat": ToolRead, "od": ToolRead,
-	"xxd": ToolRead, "hexdump": ToolRead, "strings": ToolRead,
-	// Write commands
-	"rm": ToolWrite, "rmdir": ToolWrite, "touch": ToolWrite, "mkdir": ToolWrite,
-	"chmod": ToolWrite, "chown": ToolWrite, "chgrp": ToolWrite, "ln": ToolWrite, "unlink": ToolWrite,
-	// Edit commands
-	"sed": ToolEdit,
-}
-
 // Result represents the evaluation result.
 type Result struct {
 	Action    Action // ActionAllow, ActionDeny, or ActionAsk
@@ -729,12 +715,16 @@ func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule[BashRule
 	}
 
 	defaultAccessType := e.getFileAccessType(cmd.Name, rule)
+	argsIO := e.resolveArgsIO(rule, cmd.Name, args)
 
 	for i, arg := range args {
 		if strings.HasPrefix(arg, "-") {
 			continue
 		}
 		accessType := defaultAccessType
+		if posIO, ok := argsIO[i]; ok {
+			accessType = posIO
+		}
 		if accessType == "" {
 			continue
 		}
@@ -755,12 +745,102 @@ func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule[BashRule
 	return result
 }
 
+// resolveArgsIO builds a map of absolute arg position → IO type.
+// Priority: rule args.position IO > rule sequence IO > built-in defaults.
+func (e *Evaluator) resolveArgsIO(rule *TrackedRule[BashRule], cmdName string, args []string) map[int]ToolName {
+	var result map[int]ToolName
+
+	// Start with built-in default per-position IO for this command
+	if defaults, ok := e.merged.DefaultArgsIO[cmdName]; ok {
+		result = make(map[int]ToolName, len(defaults))
+		for pos, ioType := range defaults {
+			result[pos] = ioType
+		}
+	}
+
+	if rule == nil {
+		return result
+	}
+
+	// Override with args.position IO types (already absolute positions)
+	for pos, ioType := range rule.Rule.ArgsIO {
+		if result == nil {
+			result = make(map[int]ToolName)
+		}
+		result[pos] = ioType
+	}
+
+	// Override with sequence IO types (need to find where sequences matched)
+	collectSequenceIO := func(expr *BoolExpr) {
+		if expr == nil {
+			return
+		}
+		e.walkSequenceIO(expr, args, func(absPos int, ioType ToolName) {
+			if result == nil {
+				result = make(map[int]ToolName)
+			}
+			result[absPos] = ioType
+		})
+	}
+	collectSequenceIO(rule.Rule.Args.Any)
+	collectSequenceIO(rule.Rule.Args.All)
+
+	return result
+}
+
+// walkSequenceIO finds matched sequences with IO types and calls fn for each resolved position.
+func (e *Evaluator) walkSequenceIO(expr *BoolExpr, args []string, fn func(absPos int, ioType ToolName)) {
+	if expr.IsSequence && len(expr.SequenceIO) > 0 {
+		// Find where this sequence matches
+		if start := matchSequenceStart(args, expr.Sequence, e.matchCtx); start >= 0 {
+			for posStr, ioType := range expr.SequenceIO {
+				pos, err := strconv.Atoi(posStr)
+				if err == nil {
+					fn(start+pos, ioType)
+				}
+			}
+		}
+	}
+	// Recurse into children
+	for _, child := range expr.Any {
+		e.walkSequenceIO(child, args, fn)
+	}
+	for _, child := range expr.All {
+		e.walkSequenceIO(child, args, fn)
+	}
+	if expr.Not != nil {
+		e.walkSequenceIO(expr.Not, args, fn)
+	}
+	for _, child := range expr.Xor {
+		e.walkSequenceIO(child, args, fn)
+	}
+}
+
+// matchSequenceStart returns the start position where a sequence matches, or -1.
+func matchSequenceStart(args []string, seq map[string]FlexiblePattern, ctx *MatchContext) int {
+	if len(seq) == 0 {
+		return 0
+	}
+	maxPos := 0
+	for posStr := range seq {
+		if pos, err := strconv.Atoi(posStr); err == nil && pos > maxPos {
+			maxPos = pos
+		}
+	}
+	for start := 0; start <= len(args)-(maxPos+1); start++ {
+		if matchSequenceAt(args, start, seq, ctx) {
+			return start
+		}
+	}
+	return -1
+}
+
 // getFileAccessType returns the file access type for a command.
 func (e *Evaluator) getFileAccessType(cmdName string, rule *TrackedRule[BashRule]) ToolName {
 	if rule != nil && rule.Rule.FileAccessType != "" {
 		return rule.Rule.FileAccessType
 	}
-	if accessType, ok := defaultFileAccessTypes[cmdName]; ok {
+	if accessType, ok := e.merged.Classification[cmdName]; ok {
 		return accessType
 	}
 	return ""

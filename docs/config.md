@@ -73,6 +73,33 @@ default_message = "Command requires approval"
 respect_file_rules = true          # check file rules for command args (default: true)
 ```
 
+### Command File Access Classification
+
+When `respect_file_rules` is enabled, cc-allow needs to know whether a command reads, writes, or edits files so it can check the appropriate file rules (`[read]`, `[write]`, or `[edit]`). Use `[bash.read]`, `[bash.write]`, and `[bash.edit]` sections to classify commands:
+
+```toml
+[bash.read]
+commands = ["cat", "less", "grep", "head", "tail", "find"]
+
+[bash.write]
+commands = ["rm", "mkdir", "chmod", "touch"]
+
+[bash.edit]
+commands = ["sed", "awk"]
+```
+
+Classification is **orthogonal to permission** — it only affects which file rules are checked for a command's arguments, not whether the command is allowed or denied. A command can be classified as a read command and still be denied by a `[[bash.deny.X]]` rule.
+
+**Built-in defaults:** When no `[bash.read]`, `[bash.write]`, or `[bash.edit]` sections exist anywhere in the config chain, cc-allow uses built-in defaults:
+
+- **Read**: `cat`, `less`, `more`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `rg`, `find`, `file`, `readlink`, `wc`, `diff`, `cmp`, `comm`, `stat`, `md5sum`, `sha256sum`, `sha1sum`, `od`, `xxd`, `hexdump`, `strings`, `sort`, `uniq`, `cut`, `tr`, `awk`, `sed`, `jq`, `yq`, `tee`, `xargs`
+- **Write**: `rm`, `rmdir`, `touch`, `mkdir`, `mktemp`, `chmod`, `chown`, `chgrp`, `unlink`
+- **Positional** (source=Read, dest=Write): `cp`, `mv`, `ln`, `install`, `rsync`, `scp`
+
+Once any config in the chain defines a classification section, the built-in defaults are replaced entirely — you must explicitly list all commands you want classified.
+
+**Config chain merging:** Later configs can override the classification of individual commands. If a command appears in `[bash.read]` in the project config and `[bash.write]` in a local override, the later config wins for that command. A command appearing in multiple sections within the same file is a validation error.
+
 ### Shell Constructs
 
 Control shell constructs independently of commands:
@@ -236,6 +263,22 @@ Position values can be arrays for enum matching (OR semantics):
 args.position = { "0" = ["status", "diff", "log", "branch"] }
 ```
 
+#### Per-Position IO Types
+
+By default, file arguments in `args.position` are checked against the command's classified access type (see Command File Access Classification above). Use the `"N.type"` key format to override the access type for a specific position:
+
+```toml
+# cp: first arg is read, second arg is write
+[[bash.allow.cp]]
+args.position = { "0.read" = "path:**", "1.write" = "path:**" }
+
+# install: source is read, destination is write
+[[bash.allow.install]]
+args.position = { "0.read" = "path:$PROJECT_ROOT/**", "1.write" = "path:/usr/local/bin/*" }
+```
+
+The `.type` suffix can be `read`, `write`, or `edit`. When present, the matched argument is checked against the corresponding file rules (`[read]`, `[write]`, or `[edit]`) instead of the command's default classification.
+
 ### Relative Position Sequences (Adjacent Args)
 
 For matching adjacent arguments anywhere in the command (like `-i <file>`), use relative position objects inside boolean expressions:
@@ -254,6 +297,16 @@ args.any = [
 args.all = [
     { "0" = "-in", "1" = ["path:*.pem", "path:*.crt"] },
     { "0" = "-out", "1" = ["path:*.pem", "path:*.der"] }
+]
+```
+
+The `"N.type"` key format also works in relative position sequences to specify per-position IO types:
+
+```toml
+[[bash.allow.ffmpeg]]
+args.any = [
+    { "0" = "-i", "1.read" = "path:$PROJECT_ROOT/**" },   # -i <input file> checked as read
+    { "0" = "-o", "1.write" = "path:$PROJECT_ROOT/**" },   # -o <output file> checked as write
 ]
 ```
 
@@ -751,6 +804,18 @@ respect_file_rules = false
 [[bash.allow.mybackup]]
 file_access_type = "Read"  # Check all file args against Read rules
 ```
+
+The `file_access_type` field overrides the command's bulk classification (from `[bash.read]`/`[bash.write]`/`[bash.edit]`) for all file arguments matched by this rule. This is useful for commands that behave differently depending on their arguments:
+
+```toml
+# sed is classified as edit by default, but sed -i is specifically an edit
+# while sed without -i is just a read (output goes to stdout)
+[[bash.ask.sed]]
+args.any = ["flags:i"]
+file_access_type = "Edit"
+```
+
+**Precedence:** Per-position IO types (`"N.type"`) override `file_access_type`, which overrides bulk classification.
 
 ---
 

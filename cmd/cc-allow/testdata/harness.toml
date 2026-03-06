@@ -14,6 +14,7 @@ filerules = "rulesets/filerules.toml"
 extended = "rulesets/extended.toml"
 webfetch = "rulesets/webfetch.toml"
 webfetch_sb = "rulesets/webfetch_sb.toml"
+classify = "rulesets/classify.toml"
 
 # Each [[command]] defines a bash string and expected result per ruleset
 # Results: "allow", "deny", "ask"
@@ -1707,3 +1708,152 @@ webfetch_sb = "deny"
 name = "SB: unwanted software test URL"
 url = "https://testsafebrowsing.appspot.com/s/unwanted.html"
 webfetch_sb = "deny"
+
+# =============================================================================
+# CLASSIFICATION TESTS
+# =============================================================================
+# Tests command file access classification via [bash.read/write/edit] sections
+# and per-position IO types via "N.type" key syntax.
+# The "classify" ruleset classifies:
+# - Read: cat, head, tail, grep, sed, wc
+# - Write: rm, rmdir, touch, mkdir
+# - Edit: awk
+# - sed with -i flag: Edit (via file_access_type override on [[bash.allow.sed]])
+# - cp/mv: per-position IO (0.read, 1.write)
+
+# --- Read classification ---
+
+[[command]]
+name = "classify: cat reads allowed path"
+bash = "cat /project/src/main.go"
+classify = "allow"   # cat classified as Read, /project/** allowed by read rules
+
+[[command]]
+name = "classify: cat reads denied path"
+bash = "cat /etc/passwd"
+classify = "deny"    # cat classified as Read, /etc/** denied by read rules
+
+[[command]]
+name = "classify: grep reads allowed path"
+bash = "grep pattern /home/user/docs/notes.txt"
+classify = "allow"   # grep classified as Read, /home/user/** allowed
+
+[[command]]
+name = "classify: grep reads denied path"
+bash = "grep key /secrets/api.key"
+classify = "deny"    # grep classified as Read, /secrets/** denied
+
+[[command]]
+name = "classify: head reads allowed path"
+bash = "head /project/readme.txt"
+classify = "allow"   # head classified as Read
+
+# --- Write classification ---
+
+[[command]]
+name = "classify: rm writes allowed path"
+bash = "rm /project/temp.txt"
+classify = "allow"   # rm classified as Write, /project/** allowed
+
+[[command]]
+name = "classify: rm writes denied path"
+bash = "rm /etc/hosts"
+classify = "deny"    # rm classified as Write, /etc/** denied
+
+[[command]]
+name = "classify: touch writes allowed path"
+bash = "touch /tmp/newfile.txt"
+classify = "allow"   # touch classified as Write, /tmp/** allowed
+
+[[command]]
+name = "classify: touch writes denied path"
+bash = "touch /protected/important.dat"
+classify = "deny"    # touch classified as Write, /protected/** denied
+
+# --- Edit classification ---
+
+[[command]]
+name = "classify: awk edits allowed path"
+bash = "awk '{print}' /project/data.txt"
+classify = "allow"   # awk classified as Edit, /project/** allowed
+
+[[command]]
+name = "classify: awk edits denied path"
+bash = "awk '{print}' /etc/config"
+classify = "deny"    # awk classified as Edit, /etc/** denied
+
+# --- sed classification: read by default, edit with -i ---
+
+[[command]]
+name = "classify: sed reads allowed path (no -i)"
+bash = "sed 's/foo/bar/' /project/file.txt"
+classify = "allow"   # sed classified as Read (bulk), /project/** allowed
+
+[[command]]
+name = "classify: sed reads denied path (no -i)"
+bash = "sed 's/foo/bar/' /etc/config"
+classify = "deny"    # sed classified as Read, /etc/** denied by read rules
+
+[[command]]
+name = "classify: sed -i edits allowed path"
+bash = "sed -i 's/foo/bar/' /project/file.txt"
+classify = "allow"   # sed with -i -> file_access_type=Edit, /project/** allowed by edit rules
+
+[[command]]
+name = "classify: sed -i edits denied path"
+bash = "sed -i 's/foo/bar/' /etc/config"
+classify = "deny"    # sed with -i -> Edit, /etc/** denied by edit rules
+
+[[command]]
+name = "classify: sed -i edits denied .env"
+bash = "sed -i 's/key/val/' /project/.env"
+classify = "deny"    # sed with -i -> Edit, .env* denied by edit rules
+
+# --- Per-position IO types (cp, mv) ---
+
+[[command]]
+name = "classify: cp position IO both allowed"
+bash = "cp /project/src/file.go /project/backup/file.go"
+classify = "allow"   # pos 0 (read) /project/** + pos 1 (write) /project/** both allowed
+
+[[command]]
+name = "classify: cp position IO source denied"
+bash = "cp /etc/passwd /tmp/copy.txt"
+classify = "deny"    # pos 0 (read) /etc/** denied
+
+[[command]]
+name = "classify: cp position IO dest denied"
+bash = "cp /project/config.txt /etc/config.txt"
+classify = "deny"    # pos 1 (write) /etc/** denied
+
+[[command]]
+name = "classify: cp position IO dest denied protected"
+bash = "cp /project/data.txt /protected/data.txt"
+classify = "deny"    # pos 1 (write) /protected/** denied
+
+[[command]]
+name = "classify: mv position IO both allowed"
+bash = "mv /project/old.txt /project/archive/old.txt"
+classify = "allow"   # pos 0 (read) + pos 1 (write) both /project/**
+
+[[command]]
+name = "classify: mv position IO source denied"
+bash = "mv /secrets/data.txt /tmp/data.txt"
+classify = "deny"    # pos 0 (read) /secrets/** denied
+
+[[command]]
+name = "classify: mv position IO dest denied"
+bash = "mv /tmp/script.sh /usr/bin/script"
+classify = "deny"    # pos 1 (write) /usr/** denied
+
+# --- Sequence IO types (ffmpeg -i) ---
+
+[[command]]
+name = "classify: ffmpeg -i reads allowed path"
+bash = "ffmpeg -i /project/video.mp4 output.avi"
+classify = "allow"   # sequence IO: -i followed by path -> read, /project/** allowed
+
+[[command]]
+name = "classify: ffmpeg -i reads denied path"
+bash = "ffmpeg -i /secrets/video.mp4 output.avi"
+classify = "deny"    # sequence IO: -i followed by path -> read, /secrets/** denied
