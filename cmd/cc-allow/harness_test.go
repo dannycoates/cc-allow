@@ -650,6 +650,185 @@ func TestSessionHarness(t *testing.T) {
 	})
 }
 
+// TestAgentHarness tests agent config overlay behavior.
+// An agent config is merged on top of a base project config.
+// This verifies that agent rules properly restrict/extend the base.
+func TestAgentHarness(t *testing.T) {
+	basePath := filepath.Join("testdata", "rulesets", "agent_base.toml")
+	agentPath := filepath.Join("testdata", "rulesets", "agent_explore.toml")
+
+	baseCfg, err := LoadConfigWithDefaults(basePath)
+	if err != nil {
+		t.Fatalf("Failed to load agent_base.toml: %v", err)
+	}
+	agentCfg, err := LoadConfigWithDefaults(agentPath)
+	if err != nil {
+		t.Fatalf("Failed to load agent_explore.toml: %v", err)
+	}
+
+	baseOnly := []*Config{baseCfg}
+	withAgent := []*Config{baseCfg, agentCfg}
+
+	bashTests := []struct {
+		name           string
+		bash           string
+		baseExpected   Action
+		mergedExpected Action
+	}{
+		// Commands allowed in both base and agent stay allowed
+		{
+			name:           "ls stays allowed",
+			bash:           "ls -la",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+		{
+			name:           "cat stays allowed",
+			bash:           "cat file.txt",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+		{
+			name:           "grep stays allowed",
+			bash:           "grep pattern file.txt",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+
+		// Commands allowed by base but denied by agent
+		{
+			name:           "docker allowed by base, denied by agent",
+			bash:           "docker ps",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionDeny,
+		},
+		{
+			name:           "npm allowed by base, denied by agent",
+			bash:           "npm test",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionDeny,
+		},
+
+		// Commands denied by base stay denied (deny always wins)
+		{
+			name:           "sudo stays denied",
+			bash:           "sudo ls",
+			baseExpected:   ActionDeny,
+			mergedExpected: ActionDeny,
+		},
+
+		// Commands not in base or agent: base=ask, agent=deny (agent default)
+		{
+			name:           "unknown command ask by base, denied by agent default",
+			bash:           "curl https://example.com",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionDeny,
+		},
+
+		// Agent adds commands not in base allow list
+		{
+			name:           "find not in base, allowed by agent",
+			bash:           "find /project -name '*.go'",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAllow,
+		},
+		{
+			name:           "head not in base, allowed by agent",
+			bash:           "head -20 file.txt",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionAllow,
+		},
+	}
+
+	for _, tt := range bashTests {
+		t.Run("base/"+tt.name, func(t *testing.T) {
+			result := evalBashChain(t, baseOnly, tt.bash)
+			if result.Action != tt.baseExpected {
+				t.Errorf("bash=%q\nbase expected %s, got %s", tt.bash, tt.baseExpected, result.Action)
+				if result.Message != "" {
+					t.Logf("message: %s", result.Message)
+				}
+			}
+		})
+		t.Run("agent/"+tt.name, func(t *testing.T) {
+			result := evalBashChain(t, withAgent, tt.bash)
+			if result.Action != tt.mergedExpected {
+				t.Errorf("bash=%q\nagent expected %s, got %s", tt.bash, tt.mergedExpected, result.Action)
+				if result.Message != "" {
+					t.Logf("message: %s", result.Message)
+				}
+			}
+		})
+	}
+
+	// File tool tests
+	fileTests := []struct {
+		name           string
+		tool           ToolName
+		path           string
+		baseExpected   Action
+		mergedExpected Action
+	}{
+		// Read allowed in base stays allowed (agent doesn't restrict reads)
+		{
+			name:           "read project file stays allowed",
+			tool:           ToolRead,
+			path:           "/project/src/main.go",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionAllow,
+		},
+		// Read denied in base stays denied
+		{
+			name:           "read secrets stays denied",
+			tool:           ToolRead,
+			path:           "/secrets/key.txt",
+			baseExpected:   ActionDeny,
+			mergedExpected: ActionDeny,
+		},
+		// Write allowed by base, denied by agent (Explore is read-only)
+		{
+			name:           "write project allowed by base, denied by agent",
+			tool:           ToolWrite,
+			path:           "/project/output.txt",
+			baseExpected:   ActionAllow,
+			mergedExpected: ActionDeny,
+		},
+		// Write denied by base stays denied
+		{
+			name:           "write /etc stays denied",
+			tool:           ToolWrite,
+			path:           "/etc/hosts",
+			baseExpected:   ActionDeny,
+			mergedExpected: ActionDeny,
+		},
+		// Write to random path: ask by base, denied by agent
+		{
+			name:           "write random path ask by base, denied by agent",
+			tool:           ToolWrite,
+			path:           "/home/user/file.txt",
+			baseExpected:   ActionAsk,
+			mergedExpected: ActionDeny,
+		},
+	}
+
+	for _, tt := range fileTests {
+		t.Run("base/"+tt.name, func(t *testing.T) {
+			result := evalFileChain(t, baseOnly, tt.tool, tt.path)
+			if result.Action != tt.baseExpected {
+				t.Errorf("tool=%s path=%q\nbase expected %s, got %s (source: %s)",
+					tt.tool, tt.path, tt.baseExpected, result.Action, result.Source)
+			}
+		})
+		t.Run("agent/"+tt.name, func(t *testing.T) {
+			result := evalFileChain(t, withAgent, tt.tool, tt.path)
+			if result.Action != tt.mergedExpected {
+				t.Errorf("tool=%s path=%q\nagent expected %s, got %s (source: %s)",
+					tt.tool, tt.path, tt.mergedExpected, result.Action, result.Source)
+			}
+		})
+	}
+}
+
 // TestHarnessRulesetLoading verifies all rulesets can be loaded
 func TestHarnessRulesetLoading(t *testing.T) {
 	harnessPath := filepath.Join("testdata", "harness.toml")

@@ -1,0 +1,32 @@
+# Agent harness: base project config
+# Permissive base that agents can restrict
+
+version = "2.0"
+
+[bash]
+default = "ask"
+
+[bash.allow]
+commands = ["ls", "cat", "echo", "grep", "git", "npm", "docker"]
+
+[bash.deny]
+commands = ["sudo", "su"]
+message = "Dangerous command denied"
+
+[read]
+default = "ask"
+
+[read.allow]
+paths = ["path:/project/**"]
+
+[read.deny]
+paths = ["path:/secrets/**"]
+
+[write]
+default = "ask"
+
+[write.allow]
+paths = ["path:/project/**"]
+
+[write.deny]
+paths = ["path:/etc/**"]

@@ -10,6 +10,7 @@ import (
 // HookInput represents the JSON input from Claude Code hooks
 type HookInput struct {
 	SessionID string   `json:"session_id"`
+	AgentType string   `json:"agent_type"`
 	ToolName  ToolName `json:"tool_name"`
 	ToolInput struct {
 		Command  string `json:"command"`   // Bash tool

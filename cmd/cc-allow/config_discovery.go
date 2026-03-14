@@ -138,7 +138,11 @@ func findAgentConfig(agent string) string {
 // findAgentConfigWithRoot is like findAgentConfig but accepts a pre-computed project root
 // to avoid redundant filesystem traversals.
 func findAgentConfigWithRoot(agent string, projectRoot string) string {
-	if projectRoot == "" {
+	if agent == "" || projectRoot == "" {
+		return ""
+	}
+	// Sanitize: reject path traversal
+	if strings.Contains(agent, "/") || strings.Contains(agent, "\\") || strings.Contains(agent, "..") {
 		return ""
 	}
 

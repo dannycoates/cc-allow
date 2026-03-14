@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -951,6 +952,84 @@ func TestFindAgentConfig(t *testing.T) {
 		got := findAgentConfig("myagent")
 		if got != agentFile {
 			t.Errorf("findAgentConfig(\"myagent\") = %q, want %q", got, agentFile)
+		}
+	})
+}
+
+func TestFindAgentConfigSanitization(t *testing.T) {
+	t.Setenv("CC_PROJECT_DIR", "")
+
+	t.Run("rejects path traversal with ..", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Chdir(tmp)
+		os.MkdirAll(filepath.Join(tmp, ".git"), 0755)
+
+		got := findAgentConfig("../etc/passwd")
+		if got != "" {
+			t.Errorf("findAgentConfig(\"../etc/passwd\") = %q, want empty", got)
+		}
+	})
+
+	t.Run("rejects forward slash", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Chdir(tmp)
+		os.MkdirAll(filepath.Join(tmp, ".git"), 0755)
+
+		got := findAgentConfig("foo/bar")
+		if got != "" {
+			t.Errorf("findAgentConfig(\"foo/bar\") = %q, want empty", got)
+		}
+	})
+
+	t.Run("rejects backslash", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Chdir(tmp)
+		os.MkdirAll(filepath.Join(tmp, ".git"), 0755)
+
+		got := findAgentConfig("foo\\bar")
+		if got != "" {
+			t.Errorf("findAgentConfig(\"foo\\\\bar\") = %q, want empty", got)
+		}
+	})
+
+	t.Run("rejects empty agent", func(t *testing.T) {
+		tmp := t.TempDir()
+		t.Chdir(tmp)
+		os.MkdirAll(filepath.Join(tmp, ".git"), 0755)
+
+		got := findAgentConfig("")
+		if got != "" {
+			t.Errorf("findAgentConfig(\"\") = %q, want empty", got)
+		}
+	})
+}
+
+func TestHookInputAgentType(t *testing.T) {
+	t.Run("deserializes agent_type from JSON", func(t *testing.T) {
+		jsonInput := `{"session_id":"abc","agent_type":"Explore","tool_name":"Bash","tool_input":{"command":"ls"}}`
+		var input HookInput
+		if err := json.Unmarshal([]byte(jsonInput), &input); err != nil {
+			t.Fatal(err)
+		}
+		if input.AgentType != "Explore" {
+			t.Errorf("AgentType = %q, want %q", input.AgentType, "Explore")
+		}
+		if input.SessionID != "abc" {
+			t.Errorf("SessionID = %q, want %q", input.SessionID, "abc")
+		}
+		if input.ToolName != ToolBash {
+			t.Errorf("ToolName = %q, want %q", input.ToolName, ToolBash)
+		}
+	})
+
+	t.Run("empty when agent_type not in JSON", func(t *testing.T) {
+		jsonInput := `{"session_id":"abc","tool_name":"Bash","tool_input":{"command":"ls"}}`
+		var input HookInput
+		if err := json.Unmarshal([]byte(jsonInput), &input); err != nil {
+			t.Fatal(err)
+		}
+		if input.AgentType != "" {
+			t.Errorf("AgentType = %q, want empty", input.AgentType)
 		}
 	})
 }

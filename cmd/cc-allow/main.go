@@ -135,7 +135,7 @@ func main() {
 	case *fmtMode:
 		os.Exit(int(runFmt(*configPath, *sessionID)))
 	default:
-		os.Exit(int(runEval(*configPath, *sessionID, *hookMode, *debugMode, *postMode, toolMode)))
+		os.Exit(int(runEval(*configPath, *agentType, *sessionID, *hookMode, *debugMode, *postMode, toolMode)))
 	}
 }
 
@@ -143,7 +143,7 @@ func main() {
 // In hook mode, it reads JSON from stdin and outputs JSON.
 // In pipe mode, it reads the input directly from stdin.
 // toolMode specifies the tool type: "Bash", "Read", "Write", "Edit", or "" (defaults to Bash).
-func runEval(configPath string, sessionID string, hookMode, debugMode, postMode bool, toolMode ToolName) ExitCode {
+func runEval(configPath string, agentType string, sessionID string, hookMode, debugMode, postMode bool, toolMode ToolName) ExitCode {
 	// 1. Build input first (need session ID from hook JSON)
 	input, err := buildInput(hookMode, toolMode)
 	if err != nil {
@@ -155,6 +155,13 @@ func runEval(configPath string, sessionID string, hookMode, debugMode, postMode 
 	effectiveSessionID := sessionID
 	if hookMode && input.SessionID != "" {
 		effectiveSessionID = input.SessionID
+	}
+
+	// 2b. Hook JSON agent_type: use if no explicit --agent or --config was provided
+	if hookMode && agentType == "" && input.AgentType != "" && configPath == "" {
+		if agentPath := findAgentConfig(input.AgentType); agentPath != "" {
+			configPath = agentPath
+		}
 	}
 
 	// 3. Load config chain with session ID

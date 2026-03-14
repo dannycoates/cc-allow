@@ -1,0 +1,24 @@
+# Agent harness: Explore agent overlay
+# Explore agents are read-only: deny writes, restrict bash to safe commands
+
+version = "2.0"
+
+[bash]
+default = "deny"
+default_message = "Explore agents can only run read-only commands"
+
+[bash.allow]
+commands = ["ls", "cat", "echo", "grep", "find", "head", "tail", "wc"]
+
+# Deny docker and npm (allowed in base but not for Explore)
+[bash.deny]
+commands = ["docker", "npm"]
+message = "Explore agents cannot run docker or npm"
+
+[write]
+default = "deny"
+default_message = "Explore agents cannot write files"
+
+[write.deny]
+paths = ["path:**"]
+message = "Explore agents cannot write files"

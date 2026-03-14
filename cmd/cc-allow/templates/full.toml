@@ -329,6 +329,7 @@ file_access_type = "Edit"
 [[bash.ask.awk]]
 message = "{{.ArgsStr}} - in-place editing not allowed, use Edit tool"
 args.any = ["flags:i"]
+file_access_type = "Edit"
 
 # --- Block piping to shell from download commands ---
 [[bash.ask.bash]]
