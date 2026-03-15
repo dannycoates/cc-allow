@@ -51,6 +51,7 @@ const (
 	ToolWebFetch ToolName = "WebFetch"
 	ToolGlob     ToolName = "Glob"
 	ToolGrep     ToolName = "Grep"
+	ToolSkip     ToolName = "Skip" // marks an arg position as non-file (pattern, expression, etc.)
 )
 
 // ExitCode represents the process exit code for a permission decision.

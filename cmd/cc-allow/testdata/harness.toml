@@ -1809,6 +1809,55 @@ name = "classify: sed -i edits denied .env"
 bash = "sed -i 's/key/val/' /project/.env"
 classify = "deny"    # sed with -i -> Edit, .env* denied by edit rules
 
+# --- Pattern-first skipping: patterns with "/" are not treated as file paths ---
+
+[[command]]
+name = "classify: grep pattern with / not treated as path"
+bash = "grep '/etc/passwd' /project/src/main.go"
+classify = "allow"   # /etc/passwd is the pattern (skipped), /project/** allowed
+
+[[command]]
+name = "classify: grep comment pattern not treated as path"
+bash = "grep '// TODO' /project/src/main.go"
+classify = "allow"   # // TODO is the pattern (skipped), /project/** allowed
+
+[[command]]
+name = "classify: grep -r pattern with / not treated as path"
+bash = "grep -r '/secrets/key' /project/src/"
+classify = "allow"   # -r is flag, /secrets/key is pattern (skipped), /project/** allowed
+
+[[command]]
+name = "classify: sed expression with / not treated as path"
+bash = "sed 's/etc/passwd/g' /project/file.txt"
+classify = "allow"   # s/etc/passwd/g is pattern (skipped), /project/** allowed
+
+[[command]]
+name = "classify: sed -i expression with / not treated as path"
+bash = "sed -i 's/secrets/redacted/g' /project/file.txt"
+classify = "allow"   # -i flag, s/secrets/redacted/g is pattern (skipped), /project/** allowed by edit rules
+
+[[command]]
+name = "classify: awk regex with / not treated as path"
+bash = "awk '/etc/' /project/data.txt"
+classify = "allow"   # /etc/ is pattern (skipped), /project/** allowed by edit rules
+
+[[command]]
+name = "classify: jq selector with / not treated as path"
+bash = "jq '.items/name' /project/data.json"
+classify = "allow"   # .items/name is pattern (skipped), /project/** not checked (jq not in classify.toml read list, uses default classification)
+
+# --- Sequence IO with pattern/skip type (grep -e) ---
+
+[[command]]
+name = "classify: grep -e pattern with / not treated as path"
+bash = "grep -e '/etc/passwd' /project/src/main.go"
+classify = "allow"   # -e flag, /etc/passwd marked as pattern via sequence IO, /project/** allowed
+
+[[command]]
+name = "classify: grep -e -e multi pattern not treated as path"
+bash = "grep -e '/etc/passwd' -e '/secrets/key' /project/src/main.go"
+classify = "allow"   # both -e values marked as pattern via sequence IO, /project/** allowed
+
 # --- Per-position IO types (cp, mv) ---
 
 [[command]]

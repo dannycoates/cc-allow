@@ -589,6 +589,120 @@ paths = ["path:/tmp/**"]
 	})
 }
 
+func TestPatternFirstSkipsPatternArg(t *testing.T) {
+	// Config where file defaults are "ask" — false positives would surface as "ask" instead of "allow"
+	cfg := configFromTOML(t, `
+version = "2.0"
+[bash]
+default = "allow"
+
+[bash.read]
+commands = ["grep", "sed", "awk", "jq", "cat", "head"]
+
+[bash.write]
+commands = ["touch", "rm"]
+
+[bash.allow]
+commands = ["grep", "sed", "awk", "jq", "cat", "head", "touch", "rm"]
+
+[read]
+default = "ask"
+
+[read.allow]
+paths = ["path:/dev/**"]
+
+[read.deny]
+paths = ["path:/secrets/**", "path:/etc/**"]
+
+[write]
+default = "ask"
+
+[write.deny]
+paths = ["path:/etc/**"]
+`)
+
+	tests := []struct {
+		name   string
+		bash   string
+		expect Action
+	}{
+		// Pattern-first commands: first non-flag arg is a pattern, should be skipped
+		{
+			name:   "grep pattern with slash not treated as path",
+			bash:   "grep '/etc/passwd' /dev/null",
+			expect: ActionAllow, // /etc/passwd is a pattern (skipped), /dev/null is a real file
+		},
+		{
+			name:   "grep comment pattern not treated as path",
+			bash:   "grep '// TODO' /dev/null",
+			expect: ActionAllow,
+		},
+		{
+			name:   "sed expression not treated as path",
+			bash:   "sed 's/foo/bar/g' /dev/null",
+			expect: ActionAllow,
+		},
+		{
+			name:   "sed -i expression skipped correctly",
+			bash:   "sed -i 's/foo/bar/' /dev/null",
+			expect: ActionAllow,
+		},
+		{
+			name:   "awk regex not treated as path",
+			bash:   "awk '/pattern/' /dev/null",
+			expect: ActionAllow,
+		},
+		{
+			name:   "jq selector not treated as path",
+			bash:   "jq '.items/name' /dev/null",
+			expect: ActionAllow,
+		},
+		// grep -e variant: first non-flag is still skipped
+		{
+			name:   "grep -e pattern with slash skipped",
+			bash:   "grep -e '/etc/passwd' /dev/null",
+			expect: ActionAllow, // -e is flag, /etc/passwd is first non-flag (skipped)
+		},
+		{
+			name:   "grep -e multi pattern with denied paths not treated as paths",
+			bash:   "grep -e '/etc/passwd' -e '/secrets/key' /dev/null",
+			expect: ActionAllow, // both -e values skipped via patternFlags
+		},
+		// Non-pattern-first commands: all non-flag args are file paths
+		{
+			name:   "cat with denied path still denied",
+			bash:   "cat /etc/passwd",
+			expect: ActionDeny,
+		},
+		{
+			name:   "head with denied path still denied",
+			bash:   "head /secrets/data.txt",
+			expect: ActionDeny,
+		},
+		// Pattern-first commands: file args (position 1+) still checked
+		{
+			name:   "grep file arg still checked against rules",
+			bash:   "grep pattern /etc/passwd",
+			expect: ActionDeny, // pattern is skipped, /etc/passwd is file arg → denied
+		},
+		{
+			name:   "sed file arg still checked against rules",
+			bash:   "sed 's/a/b/' /etc/config",
+			expect: ActionDeny,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseAndEval(t, cfg, tt.bash)
+			if result.Action != tt.expect {
+				t.Errorf("bash=%q\nexpected %s, got %s (source: %s, msg: %s)",
+					tt.bash, tt.expect, result.Action, result.Source, result.Message)
+			}
+		})
+	}
+}
+
 func TestAllowModeValidation(t *testing.T) {
 	_, err := parseConfig(`
 version = "2.0"

@@ -533,12 +533,12 @@ func parseArgsMatch(raw map[string]any) (ArgsMatch, map[int]ToolName, error) {
 
 // parsePositionIOKey parses a position key that may include an IO type suffix.
 // "0" returns ("0", ""), "0.read" returns ("0", "Read"), "1.write" returns ("1", "Write").
+// "1.pattern" or "1.skip" returns ("1", ToolSkip) — marks the position as non-file.
 func parsePositionIOKey(key string) (posStr string, ioType ToolName) {
 	parts := strings.SplitN(key, ".", 2)
 	if len(parts) == 1 {
 		return key, ""
 	}
-	// Capitalize the IO type: "read" → "Read"
 	ioStr := strings.ToLower(parts[1])
 	switch ioStr {
 	case "read":
@@ -547,6 +547,8 @@ func parsePositionIOKey(key string) (posStr string, ioType ToolName) {
 		return parts[0], ToolWrite
 	case "edit":
 		return parts[0], ToolEdit
+	case "pattern", "skip":
+		return parts[0], ToolSkip
 	default:
 		// Unknown IO type — treat as plain key (will likely fail numeric validation later)
 		return key, ""

@@ -275,6 +275,14 @@ func applyMergedDefaults(merged *MergedConfig) {
 	if merged.DefaultArgsIO == nil {
 		merged.DefaultArgsIO = defaultArgsIO()
 	}
+
+	// Always apply pattern-first and pattern-flags defaults
+	if merged.PatternFirst == nil {
+		merged.PatternFirst = defaultPatternFirst()
+	}
+	if merged.PatternFlags == nil {
+		merged.PatternFlags = defaultPatternFlags()
+	}
 }
 
 // MergeConfigs merges multiple configs into a single MergedConfig.

@@ -274,7 +274,7 @@ func (b *BoolExpr) parseMapWithSemantics(m map[string]any, useAll bool) error {
 }
 
 // isNumericKey checks if a string is a valid numeric position key.
-// Also accepts "N.type" format like "0.read", "1.write", "2.edit".
+// Also accepts "N.type" format like "0.read", "1.write", "2.edit", "1.pattern", "1.skip".
 func isNumericKey(s string) bool {
 	if s == "" {
 		return false
@@ -283,7 +283,10 @@ func isNumericKey(s string) bool {
 	if dotIdx := strings.IndexByte(s, '.'); dotIdx > 0 {
 		numPart := s[:dotIdx]
 		typePart := strings.ToLower(s[dotIdx+1:])
-		if typePart != "read" && typePart != "write" && typePart != "edit" {
+		switch typePart {
+		case "read", "write", "edit", "pattern", "skip":
+			// valid IO types
+		default:
 			return false
 		}
 		s = numPart
@@ -526,6 +529,8 @@ type MergedConfig struct {
 	Classification          map[string]ToolName          // command name → Read/Write/Edit for file rule checking
 	ClassificationHasConfig bool                         // true if any config had bash.read/write/edit sections
 	DefaultArgsIO           map[string]map[int]ToolName  // command name → position → IO type (built-in defaults)
+	PatternFirst            map[string]bool              // commands where first non-flag arg is a pattern (not a path)
+	PatternFlags            map[string]map[string]bool   // command → flags that consume the next arg as a pattern
 	Aliases                map[string]Alias    // merged aliases from all configs
 	SafeBrowsing           SafeBrowsingConfig
 	Debug                  DebugConfig

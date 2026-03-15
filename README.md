@@ -11,6 +11,7 @@ Permission control for Claude Code tools. Evaluates bash commands, file operatio
 - **Pipe security** - Block dangerous patterns like `curl | bash`
 - **Redirect control** - Prevent writes to sensitive paths
 - **File rule integration** - Bash commands respect file access rules (e.g., `cat /etc/passwd` denied if `/etc/**` is in Read deny list)
+- **Smart argument detection** - Pattern-first commands (grep, sed, awk, jq) automatically skip pattern arguments during file rule checking, avoiding false positives
 
 ## Disclaimer
 
@@ -207,6 +208,8 @@ With this config:
 - `cat ~/.ssh/id_rsa` → denied (Read command accessing denied path)
 - `echo "x" > ~/.bashrc` → denied (redirect to denied Write path)
 
+Pattern-first commands (grep, sed, awk, jq, yq, rg) automatically skip their pattern argument, so `grep '/etc/passwd' file.txt` correctly treats `/etc/passwd` as a search pattern, not a file to read. Pattern-consuming flags like `grep -e` are also handled.
+
 For commands like `cp` and `mv` where arguments have different access types, use positional file rules:
 
 ```toml
@@ -214,7 +217,7 @@ For commands like `cp` and `mv` where arguments have different access types, use
 args.position = { "0" = "ref:read.allow.paths", "1" = "ref:write.allow.paths" }
 ```
 
-This checks the source against Read rules and destination against Write rules.
+This checks the source against Read rules and destination against Write rules. Use `"N.pattern"` or `"N.skip"` to mark positions as non-file for custom commands.
 
 ### Search Tool Permissions
 

@@ -86,6 +86,29 @@ func defaultArgsIO() map[string]map[int]ToolName {
 	}
 }
 
+// defaultPatternFirst returns commands where the first non-flag argument is a
+// pattern/expression, not a file path. Skipped during file rule checking.
+func defaultPatternFirst() map[string]bool {
+	return map[string]bool{
+		"grep": true, "egrep": true, "fgrep": true, "rg": true,
+		"sed": true,
+		"awk": true, "gawk": true, "mawk": true,
+		"jq": true, "yq": true,
+	}
+}
+
+// defaultPatternFlags returns flags that consume the next argument as a pattern.
+// When these flags are seen, the following non-flag argument is skipped.
+func defaultPatternFlags() map[string]map[string]bool {
+	return map[string]map[string]bool{
+		"grep":  {"-e": true, "--regexp": true, "-f": true, "--file": true},
+		"egrep": {"-e": true, "--regexp": true, "-f": true, "--file": true},
+		"fgrep": {"-e": true, "--regexp": true, "-f": true, "--file": true},
+		"rg":    {"-e": true, "--regexp": true},
+		"sed":   {"-e": true, "--expression": true, "-f": true, "--file": true},
+	}
+}
+
 // DefaultConfig returns a minimal default configuration.
 func DefaultConfig() *Config {
 	cfg := &Config{

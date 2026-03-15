@@ -211,7 +211,7 @@ args.any = [
 ]
 ```
 
-The `.type` suffix (`read`, `write`, `edit`) overrides the command's classification for that argument.
+The `.type` suffix (`read`, `write`, `edit`, `pattern`, `skip`) overrides the command's classification for that argument. Use `pattern` or `skip` to mark positions as non-file (e.g., search patterns, expressions).
 
 **Key distinction:**
 - `args.position` = **absolute** positions (arg[0] must be X)
@@ -484,6 +484,10 @@ message = "Cannot write to {{.FilePath}} - system directory"
 **Classify a command for file rules**: Add to `[bash.read]`, `[bash.write]`, or `[bash.edit]` `commands` list
 
 **Context-sensitive classification**: Use `file_access_type` on a `[[bash.X.command]]` rule with arg matching (e.g., `sed -i` as Edit)
+
+**Mark args as non-file**: Use `"N.pattern"` or `"N.skip"` IO type in `args.position` or sequence objects to exclude arguments from file rule checking
+
+**Note on pattern-first commands**: grep, sed, awk, jq, yq, and rg automatically skip their first non-flag argument (the pattern/expression) during file rule checking. Flags like `-e`/`--regexp` (grep) and `-e`/`--expression` (sed) also skip their consumed argument. No configuration needed for these built-in behaviors.
 
 ## Scope Detection
 

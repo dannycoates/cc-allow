@@ -277,7 +277,15 @@ args.position = { "0.read" = "path:**", "1.write" = "path:**" }
 args.position = { "0.read" = "path:$PROJECT_ROOT/**", "1.write" = "path:/usr/local/bin/*" }
 ```
 
-The `.type` suffix can be `read`, `write`, or `edit`. When present, the matched argument is checked against the corresponding file rules (`[read]`, `[write]`, or `[edit]`) instead of the command's default classification.
+The `.type` suffix can be `read`, `write`, `edit`, `pattern`, or `skip`. When `read`/`write`/`edit`, the matched argument is checked against the corresponding file rules instead of the command's default classification. When `pattern` or `skip`, the argument is excluded from file rule checking entirely — useful for marking non-file arguments like search patterns or expressions.
+
+```toml
+# Mark args after -e as patterns (not file paths)
+[[bash.allow.mygrep]]
+args.any = [
+    { "0" = "-e", "1.pattern" = "path:**" },
+]
+```
 
 ### Relative Position Sequences (Adjacent Args)
 
@@ -307,6 +315,12 @@ The `"N.type"` key format also works in relative position sequences to specify p
 args.any = [
     { "0" = "-i", "1.read" = "path:$PROJECT_ROOT/**" },   # -i <input file> checked as read
     { "0" = "-o", "1.write" = "path:$PROJECT_ROOT/**" },   # -o <output file> checked as write
+]
+
+# Mark flag values as non-file arguments
+[[bash.allow.mycommand]]
+args.any = [
+    { "0" = "--pattern", "1.pattern" = "path:**" },   # --pattern <value> is never a file
 ]
 ```
 
@@ -816,6 +830,29 @@ file_access_type = "Edit"
 ```
 
 **Precedence:** Per-position IO types (`"N.type"`) override `file_access_type`, which overrides bulk classification.
+
+### File Argument Detection
+
+When checking file rules for bash command arguments, cc-allow uses heuristics to determine which arguments are file paths. This avoids false positives from pattern arguments like `grep '/etc/passwd' file.txt` where `/etc/passwd` is a search string, not a file being read.
+
+**Pattern-first commands:** For commands where the first non-flag argument is always a pattern or expression (not a file path), that argument is automatically skipped:
+
+- `grep`, `egrep`, `fgrep`, `rg` — first non-flag arg is the search pattern
+- `sed` — first non-flag arg is the sed expression
+- `awk`, `gawk`, `mawk` — first non-flag arg is the awk program
+- `jq`, `yq` — first non-flag arg is the query expression
+
+**Pattern-consuming flags:** Some flags consume the next argument as a pattern. These are handled automatically:
+
+- `grep -e <pattern>`, `grep --regexp <pattern>`, `grep -f <file>`
+- `sed -e <expression>`, `sed --expression <expression>`, `sed -f <file>`
+- `rg -e <pattern>`, `rg --regexp <pattern>`
+
+Multiple pattern flags work correctly: `grep -e 'pat1' -e 'pat2' file.txt` skips both patterns.
+
+**Filesystem validation:** Arguments containing `/` that aren't recognized by the above heuristics are validated against the filesystem (stat check). If the path doesn't exist as a file or directory, it's not treated as a file argument. This catches remaining edge cases like `sed -e 's/a/b/' -e 's/c/d/' file` where the second expression passes through pattern-first skipping.
+
+**Custom pattern positions:** Use `"N.pattern"` or `"N.skip"` IO types in `args.position` or sequence objects to explicitly mark argument positions as non-file for commands not covered by the built-in lists.
 
 ---
 

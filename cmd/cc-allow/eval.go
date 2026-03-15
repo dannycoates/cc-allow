@@ -716,16 +716,37 @@ func (e *Evaluator) checkCommandFileArgs(cmd Command, rule *TrackedRule[BashRule
 
 	defaultAccessType := e.getFileAccessType(cmd.Name, rule)
 	argsIO := e.resolveArgsIO(rule, cmd.Name, args)
+	patternFirst := e.merged.PatternFirst[cmd.Name]
+	seenFirstNonFlag := false
+	cmdPatternFlags := e.merged.PatternFlags[cmd.Name]
+	skipNextAsPattern := false
 
 	for i, arg := range args {
 		if strings.HasPrefix(arg, "-") {
+			// Check if this flag consumes the next arg as a pattern
+			if cmdPatternFlags != nil && cmdPatternFlags[arg] {
+				skipNextAsPattern = true
+			}
 			continue
 		}
+		// Skip args consumed by pattern flags (e.g., grep -e pattern)
+		if skipNextAsPattern {
+			skipNextAsPattern = false
+			seenFirstNonFlag = true
+			continue
+		}
+		// Skip the first non-flag arg for pattern-first commands (grep, sed, awk, etc.)
+		if patternFirst && !seenFirstNonFlag {
+			seenFirstNonFlag = true
+			continue
+		}
+		seenFirstNonFlag = true
+
 		accessType := defaultAccessType
 		if posIO, ok := argsIO[i]; ok {
 			accessType = posIO
 		}
-		if accessType == "" {
+		if accessType == "" || accessType == ToolSkip {
 			continue
 		}
 		if !e.isPathArgument(arg, cmd.EffectiveCwd, accessType) {
@@ -847,23 +868,51 @@ func (e *Evaluator) getFileAccessType(cmdName string, rule *TrackedRule[BashRule
 }
 
 // isPathArgument checks if an argument appears to be a file path.
+// Uses tiered detection: strong prefixes (./, ../, ~/) are always paths,
+// while ambiguous signals (contains "/", has file extension) require
+// filesystem validation to avoid false positives from patterns/expressions.
 func (e *Evaluator) isPathArgument(arg, cwd string, accessType ToolName) bool {
 	if strings.HasPrefix(arg, "-") {
 		return false
 	}
-	if pathutil.IsPathLike(arg) {
+
+	// URLs are never file paths
+	if strings.Contains(arg, "://") {
+		return false
+	}
+
+	// Strong path signals — these prefixes almost always indicate file paths.
+	// For pattern-first commands (grep, sed, awk), the pattern arg is already
+	// skipped in checkCommandFileArgs before reaching here.
+	if strings.HasPrefix(arg, "/") ||
+		strings.HasPrefix(arg, "./") ||
+		strings.HasPrefix(arg, "../") ||
+		strings.HasPrefix(arg, "~/") ||
+		arg == "." || arg == ".." || arg == "~" {
 		return true
 	}
-	if pathutil.HasFileExtension(arg) {
-		absPath := pathutil.ResolvePath(arg, cwd, e.matchCtx.PathVars.Home)
-		switch accessType {
-		case ToolWrite:
-			return pathutil.DirExists(filepath.Dir(absPath))
-		default:
-			return pathutil.FileExists(absPath)
-		}
+
+	// Everything else requires filesystem validation:
+	// contains "/" (including leading /), or has file extension
+	checkDir := false
+	if strings.Contains(arg, "/") {
+		checkDir = true
+	} else if pathutil.HasFileExtension(arg) {
+		// bare filename like "file.txt" — existing behavior
+	} else {
+		return false
 	}
-	return false
+
+	absPath := pathutil.ResolvePath(arg, cwd, e.matchCtx.PathVars.Home)
+	switch accessType {
+	case ToolWrite:
+		return pathutil.DirExists(filepath.Dir(absPath))
+	default:
+		if pathutil.FileExists(absPath) {
+			return true
+		}
+		return checkDir && pathutil.DirExists(absPath)
+	}
 }
 
 // evaluateRedirect checks a redirect against the merged config.
