@@ -174,6 +174,41 @@ func runEval(configPath string, agentType string, sessionID string, hookMode, de
 		return ExitError
 	}
 
+	// Build additional context for hook output (declared early for migration step)
+	var additionalContext string
+	if len(chain.MigrationHints) > 0 {
+		additionalContext = buildMigrationMessage(chain.MigrationHints)
+	}
+
+	// 3.5 Migrate permissions from settings.local.json
+	if hookMode && !postMode && chain.ProjectRoot != "" {
+		if migrated := migrateSettingsPermissions(chain.ProjectRoot); len(migrated) > 0 {
+			// Reload local config into chain
+			localPath := filepath.Join(chain.ProjectRoot, ".config", "cc-allow.local.toml")
+			if cfg, err := loadConfig(localPath); err == nil {
+				// Check if local config was already loaded to avoid duplicates
+				alreadyLoaded := false
+				for _, c := range chain.Configs {
+					if c.Path == localPath {
+						alreadyLoaded = true
+						break
+					}
+				}
+				if !alreadyLoaded {
+					chain.Configs = append(chain.Configs, cfg)
+				}
+				chain.Merged = MergeConfigs(chain.Configs)
+			}
+			msg := fmt.Sprintf("Migrated %d command(s) from settings.local.json to cc-allow: %s",
+				len(migrated), strings.Join(migrated, ", "))
+			if additionalContext != "" {
+				additionalContext += "\n" + msg
+			} else {
+				additionalContext = msg
+			}
+		}
+	}
+
 	// 4. Session cleanup (best-effort)
 	if chain.Merged.Settings.SessionMaxAge != "" {
 		if maxAge, err := parseSessionMaxAge(chain.Merged.Settings.SessionMaxAge); err == nil {
@@ -188,10 +223,16 @@ func runEval(configPath string, agentType string, sessionID string, hookMode, de
 	}
 	logDebugConfigChain(chain)
 
-	// Build additional context for hook output
-	var additionalContext string
-	if len(chain.MigrationHints) > 0 {
-		additionalContext = buildMigrationMessage(chain.MigrationHints)
+	// Warn if cwd has drifted from project root
+	if hookMode && chain.ProjectRoot != "" {
+		if cwd, err := os.Getwd(); err == nil && cwd != chain.ProjectRoot {
+			msg := "<system-reminder>your cwd is not at your project root. cd back to " + chain.ProjectRoot + "</system-reminder>"
+			if additionalContext != "" {
+				additionalContext += "\n" + msg
+			} else {
+				additionalContext = msg
+			}
+		}
 	}
 
 	// Dispatch
