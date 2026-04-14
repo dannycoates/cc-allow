@@ -175,7 +175,7 @@ func runEval(configPath string, sessionID string, hookMode, debugMode, postMode 
 
 	// 3.5 Migrate permissions from settings.local.json
 	if hookMode && !postMode && chain.ProjectRoot != "" {
-		if migrated := migrateSettingsPermissions(chain.ProjectRoot); len(migrated) > 0 {
+		if migrated := migrateSettingsPermissions(chain.ProjectRoot); migrated != nil && !migrated.empty() {
 			// Reload local config into chain
 			localPath := filepath.Join(chain.ProjectRoot, ".config", "cc-allow.local.toml")
 			if cfg, err := loadConfig(localPath); err == nil {
@@ -192,8 +192,7 @@ func runEval(configPath string, sessionID string, hookMode, debugMode, postMode 
 				}
 				chain.Merged = MergeConfigs(chain.Configs)
 			}
-			msg := fmt.Sprintf("Migrated %d command(s) from settings.local.json to cc-allow: %s",
-				len(migrated), strings.Join(migrated, ", "))
+			msg := buildMigratedMessage(migrated)
 			if additionalContext != "" {
 				additionalContext += "\n" + msg
 			} else {
@@ -452,6 +451,26 @@ func buildMigrationMessage(legacyPaths []string) string {
 			"Please offer to move the config file(s) for the user by running: %s",
 		strings.Join(moves, " && "),
 	)
+}
+
+// buildMigratedMessage formats an additionalContext message for migrated permissions.
+func buildMigratedMessage(r *migrationResult) string {
+	var parts []string
+	if len(r.Commands) > 0 {
+		parts = append(parts, fmt.Sprintf("commands=[%s]", strings.Join(r.Commands, ", ")))
+	}
+	for _, tool := range []string{"edit", "read", "write"} {
+		if paths, ok := r.Paths[tool]; ok && len(paths) > 0 {
+			// Strip "path:" prefix for readability.
+			display := make([]string, len(paths))
+			for i, p := range paths {
+				display[i] = strings.TrimPrefix(p, "path:")
+			}
+			parts = append(parts, fmt.Sprintf("%s=[%s]", tool, strings.Join(display, ", ")))
+		}
+	}
+	return fmt.Sprintf("Migrated %d command(s) and %d file path(s) from settings.local.json to cc-allow: %s",
+		len(r.Commands), r.totalPaths(), strings.Join(parts, ", "))
 }
 
 // Helper functions for word extraction (used by tests and walk.go)
