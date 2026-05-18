@@ -83,10 +83,119 @@ Use `--agent <type>` to load configs from `.config/cc-allow/<type>.toml`. This a
 - `path:*.txt` - Glob pattern with `**` support (also used for path variable expansion)
 - `re:^/etc/.*` - Regular expression
 - `!prefix:pattern` - Negation (only with explicit prefix)
+- `flags:xyz` - Single-dash flag matching: `flags:rf` matches `-rf`, `-fr`, `-vrf`, or separate `-r -f`
+- `flags[--]:name` - Long flag matching: `flags[--]:recursive` matches `--recursive`
+- `flags[-]:x` - Explicit single-dash delimiter (same as `flags:x`)
+- `ref:section.field` - Cross-reference other config values (OR semantics, cannot be negated)
+
+#### `ref:` Cross-References
+
+Supported ref paths:
+- `ref:read.allow.paths`, `ref:read.deny.paths` (and `write`, `edit`, `glob`, `grep`)
+- `ref:bash.allow.commands`, `ref:bash.deny.commands`
+- `ref:aliases.<name>` — resolves alias patterns
+
+#### `args.sequence` (Sliding Window)
+
+Matches consecutive arguments at any position in the arg list:
+```toml
+[[bash.deny.git]]
+args.sequence = {"0" = "commit", "1" = "-m"}
+```
+Keys are string-encoded offsets (`"0"`, `"1"`, ...). The window slides through args until all positions match simultaneously.
 
 ### Pipe Context Tracking
 
 Commands track `PipesTo` (immediate next) and `PipesFrom` (all upstream). This enables rules like "deny bash when receiving from curl" that catch both `curl | bash` and `curl | cat | bash`.
+
+### Alias System
+
+Aliases are defined in `[aliases]` and referenced via `alias:name` in any pattern field (commands, paths, pipe rules). An alias can be a single string or array of strings. Built-in variables available in path patterns:
+
+- `$HOME` — user home directory
+- `$PROJECT_ROOT` — project root (detected from `.claude/` or `.git/`)
+
+```toml
+[aliases]
+project = "path:$PROJECT_ROOT/**"
+sensitive = ["path:$HOME/.ssh/**", "path:**/*.key"]
+```
+
+### Template Messages
+
+Rule messages support Go `text/template` syntax with these variables:
+
+| Variable | Context | Description |
+|----------|---------|-------------|
+| `{{.Command}}` | command | Command name |
+| `{{.Args}}` | command | All args (including command name) |
+| `{{.ArgsStr}}` | command | Args joined by space |
+| `{{.Arg 0}}` | command | Arg at position (0-indexed, excludes command name) |
+| `{{.ResolvedPath}}` | command | Absolute path to binary |
+| `{{.Cwd}}` | command | Effective working directory |
+| `{{.PipesTo}}` | command | Commands piped to |
+| `{{.PipesFrom}}` | command | Commands piped from |
+| `{{.Target}}` | redirect | Redirect target path |
+| `{{.Append}}` | redirect | True if `>>` mode |
+| `{{.TargetFileName}}` | redirect | Base name of target |
+| `{{.TargetDir}}` | redirect | Directory of target |
+| `{{.Delimiter}}` | heredoc | Heredoc delimiter |
+| `{{.Body}}` | heredoc | Content (truncated to 100 chars) |
+| `{{.FilePath}}` | file | File path being accessed |
+| `{{.FileName}}` | file | Base name of file |
+| `{{.FileDir}}` | file | Directory of file |
+| `{{.Tool}}` | file | `"Read"`, `"Write"`, or `"Edit"` |
+| `{{.Home}}` | always | `$HOME` |
+| `{{.ProjectRoot}}` | always | `$PROJECT_ROOT` |
+
+### Default File Access Type Inference
+
+When bash commands have path arguments, cc-allow automatically checks file tool rules based on the command's inferred access type:
+
+- **Read:** `cat`, `less`, `more`, `head`, `tail`, `grep`, `egrep`, `fgrep`, `find`, `file`, `wc`, `diff`, `cmp`, `stat`, `od`, `xxd`, `hexdump`, `strings`
+- **Write:** `rm`, `rmdir`, `touch`, `mkdir`, `chmod`, `chown`, `chgrp`, `ln`, `unlink`
+- **Edit:** `sed`
+
+### Config Merge: `mode = "replace"`
+
+By default, configs merge additively (union). Setting `mode = "replace"` on `[bash.allow]` clears all previous allow commands and allow-action rules from earlier configs:
+
+```toml
+[bash.allow]
+mode = "replace"
+commands = ["ls", "pwd"]  # Only these allowed, ignoring global config
+```
+
+Only valid for allow sections, not deny.
+
+### Safe Browsing API
+
+WebFetch URLs can be checked against Google Safe Browsing v4 for malware, social engineering, unwanted software, and potentially harmful applications.
+
+```toml
+[webfetch.safe_browsing]
+enabled = true
+api_key = "your-google-api-key"
+```
+
+Fails open (allows) on API errors. 5-second timeout per request.
+
+### PostToolUse Session Scanning
+
+The `scripts/postuse` hook runs after successful tool uses. `session_match.go` counts how many other session configs would also allow the same tool use. When matches are found, it injects a system reminder prompting Claude Code to generalize the rule to project-level config via `/allow-rules`.
+
+### CWD Drift Detection
+
+In hook mode, if the working directory differs from `$PROJECT_ROOT`, cc-allow injects a system reminder telling Claude Code to `cd` back. This prevents file operations from targeting wrong paths.
+
+### Debug Config
+
+```toml
+[debug]
+log_dir = "/tmp/cc-allow-debug"  # per-session JSONL debug logs
+```
+
+Also available via CLI: `cc-allow --debug`. Path supports `$HOME` and `$PROJECT_ROOT` variables.
 
 ## Test Harness
 
