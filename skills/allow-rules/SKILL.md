@@ -35,7 +35,7 @@ The v2 format is **tool-centric** with top-level sections: `[bash]`, `[read]`, `
 ```toml
 [bash]
 default = "ask"                    # "allow", "deny", or "ask"
-dynamic_commands = "deny"          # action for $VAR or $(cmd) as command name
+dynamic_commands = "deny"          # action for an unresolvable $VAR/$(cmd) command name (literal-assigned vars are folded first)
 default_message = "Command not allowed"
 unresolved_commands = "ask"        # "ask" or "deny" for commands not found
 respect_file_rules = true          # check file rules for command args

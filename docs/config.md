@@ -67,11 +67,36 @@ This is useful when a `--config` override needs to restrict permissions to a sma
 ```toml
 [bash]
 default = "ask"                    # "allow", "deny", or "ask" for unmatched commands
-dynamic_commands = "deny"          # action for $VAR or $(cmd) as command name
+dynamic_commands = "deny"          # action for an UNRESOLVABLE $VAR / $(cmd) command name or redirect
 unresolved_commands = "ask"        # "ask" or "deny" for commands not found in PATH
 default_message = "Command requires approval"
 respect_file_rules = true          # check file rules for command args (default: true)
 ```
+
+### Constant folding (variable resolution)
+
+Before classifying a command name or redirect target as "dynamic", cc-allow
+resolves variables whose value it can prove statically — i.e. a variable assigned
+a plain string literal earlier in the same command list:
+
+```bash
+SKILL=/opt/tools; "$SKILL/run"      # resolves to /opt/tools/run, matched as a normal command
+```
+
+A resolved value is checked against the ordinary allow/deny/path rules, not
+`dynamic_commands`. This means a `$VAR` command can also be *denied* by folding —
+`X=rm; $X -rf /` resolves to `rm` and hits an `rm` deny rule.
+
+`dynamic_commands` only applies when the value genuinely cannot be proven. A
+variable is **not** folded (stays dynamic) when its value comes from a command
+substitution (`X=$(...)`), an unknown/environment variable, a `+=` append, or a
+value bash would word-split, glob, or tilde-expand differently than the literal.
+Folding is also dropped — reverting to `dynamic_commands` — the moment anything
+that could change the variable runs between assignment and use (reassignment,
+`unset`, `read`/`declare`/loop variables/arithmetic, `${var:=...}`, or an
+arbitrary mutator like `eval`/`source`/a function/`trap`). Resolution only ever
+makes cc-allow *more* precise; it never turns a would-be prompt into a silent
+allow for a value bash wouldn't actually use.
 
 ### Command File Access Classification
 
