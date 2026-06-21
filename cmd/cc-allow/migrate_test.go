@@ -51,8 +51,8 @@ func TestMigrateBashEntries(t *testing.T) {
 		"permissions": map[string]interface{}{
 			"allow": []string{
 				"Bash(git:*)",
-				"Bash(npm run:*)",
-				"Bash(cargo build:*)",
+				"Bash(npm:*)",
+				"Bash(cargo:*)",
 				"MCP(server:tool)",
 			},
 		},
@@ -217,9 +217,13 @@ func TestMigrateStripsWebFetchEntries(t *testing.T) {
 		t.Errorf("expected only MCP, got %v", allow)
 	}
 
+	// WebFetch domains are migrated to a [webfetch.allow] regex pattern.
+	if len(result.WebFetch) != 1 || result.WebFetch[0] != `re:^https?://example\.com(/|$)` {
+		t.Errorf("expected translated webfetch pattern, got %v", result.WebFetch)
+	}
 	localToml, _ := os.ReadFile(filepath.Join(tmpDir, ".config", "cc-allow.local.toml"))
-	if strings.Contains(string(localToml), "WebFetch") || strings.Contains(string(localToml), "example.com") {
-		t.Error("local.toml should not contain WebFetch entries")
+	if !strings.Contains(string(localToml), "[webfetch.allow]") {
+		t.Errorf("local.toml missing [webfetch.allow]: %s", localToml)
 	}
 }
 
@@ -273,8 +277,8 @@ func TestMigrateFileToolPaths(t *testing.T) {
 		t.Errorf("expected 0 commands, got %v", result.Commands)
 	}
 	editPaths := result.Paths["edit"]
-	if len(editPaths) != 1 || editPaths[0] != "path:.fix-tickets/fix-tickets-*.json" {
-		t.Errorf("expected edit path, got %v", editPaths)
+	if len(editPaths) != 1 || editPaths[0] != "path:$PROJECT_ROOT/.fix-tickets/fix-tickets-*.json" {
+		t.Errorf("expected anchored edit path, got %v", editPaths)
 	}
 
 	data, _ := os.ReadFile(filepath.Join(tmpDir, ".config", "cc-allow.local.toml"))
@@ -282,8 +286,8 @@ func TestMigrateFileToolPaths(t *testing.T) {
 	if !strings.Contains(content, "[edit.allow]") {
 		t.Error("local.toml missing [edit.allow] section")
 	}
-	if !strings.Contains(content, "path:.fix-tickets/fix-tickets-*.json") {
-		t.Error("local.toml missing edit path")
+	if !strings.Contains(content, "path:$PROJECT_ROOT/.fix-tickets/fix-tickets-*.json") {
+		t.Error("local.toml missing anchored edit path")
 	}
 	if strings.Contains(content, "[bash.allow]") {
 		t.Error("local.toml should not have [bash.allow] with no commands")
@@ -374,7 +378,7 @@ func TestMigrateMergeExistingFilePaths(t *testing.T) {
 commands = ["git"]
 
 [edit.allow]
-paths = ["path:existing/*.md"]
+paths = ["path:$PROJECT_ROOT/existing/*.md"]
 `), 0644)
 
 	settingsDir := filepath.Join(tmpDir, ".claude")
@@ -393,11 +397,13 @@ paths = ["path:existing/*.md"]
 	if !strings.Contains(content, `"cargo"`) || !strings.Contains(content, `"git"`) {
 		t.Errorf("commands not merged correctly: %s", content)
 	}
-	if !strings.Contains(content, "path:existing/*.md") || !strings.Contains(content, "path:new/*.json") {
+	if !strings.Contains(content, "path:$PROJECT_ROOT/existing/*.md") || !strings.Contains(content, "path:$PROJECT_ROOT/new/*.json") {
 		t.Errorf("edit paths not merged correctly: %s", content)
 	}
-	if strings.Count(content, "existing/*.md") != 1 {
-		t.Error("duplicate edit path in local.toml")
+	// The pre-existing path and the newly-migrated Edit(existing/*.md) translate to
+	// the same anchored pattern and must be de-duplicated.
+	if strings.Count(content, "$PROJECT_ROOT/existing/*.md") != 1 {
+		t.Errorf("duplicate edit path in local.toml: %s", content)
 	}
 }
 
@@ -451,6 +457,181 @@ func TestMigrateCombinedBashAndFileTools(t *testing.T) {
 	allow := perms["allow"].([]interface{})
 	if len(allow) != 1 || allow[0].(string) != "MCP(server:tool)" {
 		t.Errorf("expected only MCP, got %v", allow)
+	}
+}
+
+// --- Translation unit tests ---
+
+func TestTranslateBash(t *testing.T) {
+	cases := []struct {
+		spec     string
+		wantCmd  string   // non-empty when a bare command is expected
+		wantSubs []string // non-nil when a subcommand rule is expected
+		wantArgs []string
+		wantOK   bool
+	}{
+		{"git:*", "git", nil, nil, true},
+		{"git push:*", "", []string{"git", "push"}, nil, true},
+		{"npm run build:*", "", []string{"npm", "run", "build"}, nil, true},
+		{"gh pr view:*", "", []string{"gh", "pr", "view"}, nil, true},
+		{"prettier --write:*", "", []string{"prettier"}, []string{"--write"}, true},
+		{"npm run build", "", []string{"npm", "run", "build"}, nil, true},
+		{"for:*", "", nil, nil, false},
+		{"FOO=bar cmd:*", "", nil, nil, false},
+		{`echo "hi":*`, "", nil, nil, false},
+	}
+	for _, c := range cases {
+		cmd, rule, ok := translateBash(c.spec)
+		if ok != c.wantOK {
+			t.Errorf("translateBash(%q) ok=%v, want %v", c.spec, ok, c.wantOK)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if c.wantSubs == nil {
+			if rule != nil {
+				t.Errorf("translateBash(%q) = rule %v, want bare command %q", c.spec, rule, c.wantCmd)
+			} else if cmd != c.wantCmd {
+				t.Errorf("translateBash(%q) cmd=%q, want %q", c.spec, cmd, c.wantCmd)
+			}
+			continue
+		}
+		if rule == nil {
+			t.Errorf("translateBash(%q) = bare command %q, want rule subs %v", c.spec, cmd, c.wantSubs)
+			continue
+		}
+		if strings.Join(rule.Subs, ".") != strings.Join(c.wantSubs, ".") {
+			t.Errorf("translateBash(%q) subs=%v, want %v", c.spec, rule.Subs, c.wantSubs)
+		}
+		if strings.Join(rule.ArgsAll, " ") != strings.Join(c.wantArgs, " ") {
+			t.Errorf("translateBash(%q) args=%v, want %v", c.spec, rule.ArgsAll, c.wantArgs)
+		}
+	}
+}
+
+func TestTranslatePath(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"//tmp/abs/**", "path:/tmp/abs/**"},
+		{"/docs/**", "path:$PROJECT_ROOT/docs/**"},
+		{"~/.config/foo/**", "path:$HOME/.config/foo/**"},
+		{"~", "path:$HOME"},
+		{"src/**", "path:$PROJECT_ROOT/src/**"},
+		{"./lib/**", "path:$PROJECT_ROOT/lib/**"},
+	}
+	for _, c := range cases {
+		got, ok := translatePath(c.in)
+		if !ok || got != c.want {
+			t.Errorf("translatePath(%q) = %q (ok=%v), want %q", c.in, got, ok, c.want)
+		}
+	}
+}
+
+func TestTranslateWebFetch(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"domain:example.com", `re:^https?://example\.com(/|$)`},
+		{"domain:*.example.com", `re:^https?://([^/.]+\.)+example\.com(/|$)`},
+	}
+	for _, c := range cases {
+		got, ok := translateWebFetch(c.in)
+		if !ok || got != c.want {
+			t.Errorf("translateWebFetch(%q) = %q (ok=%v), want %q", c.in, got, ok, c.want)
+		}
+	}
+}
+
+// TestMigrateBashSubcommandSafety verifies a subcommand upsert produces a scoped
+// rule rather than collapsing to a whole-command allow.
+func TestMigrateBashSubcommandSafety(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	os.MkdirAll(settingsDir, 0755)
+	writeJSON(t, filepath.Join(settingsDir, "settings.local.json"), map[string]interface{}{
+		"permissions": map[string]interface{}{
+			"allow": []string{"Bash(git push:*)"},
+		},
+	})
+
+	result := migrateSettingsPermissions(tmpDir)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Commands) != 0 {
+		t.Errorf("expected no bare commands (would over-broaden), got %v", result.Commands)
+	}
+	if len(result.Rules) != 1 || strings.Join(result.Rules[0].Subs, ".") != "git.push" {
+		t.Fatalf("expected git.push rule, got %v", result.Rules)
+	}
+
+	data, _ := os.ReadFile(filepath.Join(tmpDir, ".config", "cc-allow.local.toml"))
+	content := string(data)
+	if !strings.Contains(content, "[[bash.allow.git.push]]") {
+		t.Errorf("local.toml missing subcommand rule: %s", content)
+	}
+	if strings.Contains(content, "[bash.allow]") {
+		t.Errorf("local.toml should not allow the whole git command: %s", content)
+	}
+}
+
+// TestMigrateGlobGrepRouteToRead verifies Glob/Grep upserts migrate into read.
+func TestMigrateGlobGrepRouteToRead(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	os.MkdirAll(settingsDir, 0755)
+	writeJSON(t, filepath.Join(settingsDir, "settings.local.json"), map[string]interface{}{
+		"permissions": map[string]interface{}{
+			"allow": []string{"Glob(lib/**)", "Grep(/src/**)", "MCP(server:tool)"},
+		},
+	})
+
+	result := migrateSettingsPermissions(tmpDir)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	want := []string{"path:$PROJECT_ROOT/lib/**", "path:$PROJECT_ROOT/src/**"}
+	if strings.Join(result.Paths["read"], "|") != strings.Join(want, "|") {
+		t.Errorf("glob/grep should route to read paths %v, got %v", want, result.Paths["read"])
+	}
+
+	// Both should be stripped from settings.
+	settingsData, _ := os.ReadFile(filepath.Join(settingsDir, "settings.local.json"))
+	var parsed map[string]interface{}
+	json.Unmarshal(settingsData, &parsed)
+	allow := parsed["permissions"].(map[string]interface{})["allow"].([]interface{})
+	if len(allow) != 1 || allow[0].(string) != "MCP(server:tool)" {
+		t.Errorf("expected only MCP remaining, got %v", allow)
+	}
+}
+
+// TestMigrateIdempotentSubcommandRules verifies a second migration preserves
+// subcommand rules written by the first.
+func TestMigrateIdempotentSubcommandRules(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	settingsDir := filepath.Join(tmpDir, ".claude")
+	os.MkdirAll(settingsDir, 0755)
+	settingsPath := filepath.Join(settingsDir, "settings.local.json")
+
+	writeJSON(t, settingsPath, map[string]interface{}{
+		"permissions": map[string]interface{}{"allow": []string{"Bash(git push:*)"}},
+	})
+	migrateSettingsPermissions(tmpDir)
+
+	// A new upsert arrives later.
+	writeJSON(t, settingsPath, map[string]interface{}{
+		"permissions": map[string]interface{}{"allow": []string{"Bash(npm run:*)"}},
+	})
+	migrateSettingsPermissions(tmpDir)
+
+	data, _ := os.ReadFile(filepath.Join(tmpDir, ".config", "cc-allow.local.toml"))
+	content := string(data)
+	if !strings.Contains(content, "[[bash.allow.git.push]]") {
+		t.Errorf("second migration dropped the first rule: %s", content)
+	}
+	if !strings.Contains(content, "[[bash.allow.npm.run]]") {
+		t.Errorf("second migration missing the new rule: %s", content)
 	}
 }
 

@@ -466,7 +466,14 @@ func buildMigratedMessage(r *migrationResult) string {
 	if len(r.Commands) > 0 {
 		parts = append(parts, fmt.Sprintf("commands=[%s]", strings.Join(r.Commands, ", ")))
 	}
-	for _, tool := range []string{"edit", "read", "write"} {
+	if len(r.Rules) > 0 {
+		rules := make([]string, len(r.Rules))
+		for i, rule := range r.Rules {
+			rules[i] = strings.Join(rule.Subs, " ")
+		}
+		parts = append(parts, fmt.Sprintf("bash=[%s]", strings.Join(rules, ", ")))
+	}
+	for _, tool := range fileSections {
 		if paths, ok := r.Paths[tool]; ok && len(paths) > 0 {
 			// Strip "path:" prefix for readability.
 			display := make([]string, len(paths))
@@ -476,8 +483,12 @@ func buildMigratedMessage(r *migrationResult) string {
 			parts = append(parts, fmt.Sprintf("%s=[%s]", tool, strings.Join(display, ", ")))
 		}
 	}
+	if len(r.WebFetch) > 0 {
+		parts = append(parts, fmt.Sprintf("webfetch=[%s]", strings.Join(r.WebFetch, ", ")))
+	}
+	cmdCount := len(r.Commands) + len(r.Rules)
 	return fmt.Sprintf("Migrated %d command(s) and %d file path(s) from settings.local.json to cc-allow: %s",
-		len(r.Commands), r.totalPaths(), strings.Join(parts, ", "))
+		cmdCount, r.totalPaths(), strings.Join(parts, ", "))
 }
 
 // Helper functions for word extraction (used by tests and walk.go)
