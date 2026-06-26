@@ -398,6 +398,26 @@ When enabled, URLs not matching any local pattern are checked against Google Saf
 
 **Merge**: strictest-wins — once enabled by any config, cannot be disabled. API key uses last-config-wins.
 
+## Doc-Read Gates
+
+A `[[gate]]` keeps a required doc fresh in context at the moment a gated action fires. On a tool call matching the gate's pattern, the gate inspects the session transcript: if the doc was read or injected within the last `window` tool-call events, the call proceeds untouched; if stale, the gate denies and injects the doc's full contents into the deny reason, and the immediate retry sees that injection as fresh and proceeds.
+
+```toml
+[[gate]]
+doc = "$HOME/.claude/docs/jira.md"                    # required: doc to keep fresh ($HOME / ~ expanded)
+bash = "re:\\bacli\\b|atlassian\\.|/rest/(api|agile)" # match against the raw Bash command
+window = 10                                           # optional: freshness window in tool-call events (default 10)
+# webfetch = "re:atlassian\\."                        # optional: match against a WebFetch URL
+# message = "..."                                      # optional: preamble before the injected doc
+```
+
+A gate requires `doc` plus at least one matcher (`bash` or `webfetch`); matchers use the usual prefixes (`re:`, `path:`). Authoring rules:
+
+- **Freshness is recent read OR recent injection**, counted in tool-call events (not wall-clock), and is recency rather than ever-read — a read older than `window` re-fires the gate. Injection is detected via a sentinel the gate emits, so a stale deny is followed by exactly one injection, never a loop. Keep `window` small (the default 10 is usually right).
+- **The gate only escalates** allow/ask to deny and returns an existing deny untouched. It never weakens a rule, never participates in specificity, and never gates a read of the doc itself.
+- **It fails open** when there is no transcript, the transcript is unreadable, or `doc` does not exist on the host — so a host-specific doc is not required to exist at `--fmt` time.
+- **Register gates in the global config** to apply them in every project. Match the action precisely: a too-broad `bash` pattern gates unrelated commands; for Jira, the `/rest/(api|agile)` branch is what catches the raw `curl` to `api.atlassian.com`.
+
 ## ref: Cross-References
 
 Use `ref:` to reference other config values:

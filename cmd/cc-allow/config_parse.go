@@ -96,7 +96,31 @@ func configFromRaw(raw map[string]any) (*Config, error) {
 		cfg.Settings.SessionMaxAge, _ = settingsRaw["session_max_age"].(string)
 	}
 
+	// Extract doc gates ([[gate]] array of tables)
+	cfg.Gates = parseDocGatesFromRaw(raw)
+
 	return cfg, nil
+}
+
+// parseDocGatesFromRaw parses [[gate]] array-of-tables into DocGate values.
+func parseDocGatesFromRaw(raw map[string]any) []DocGate {
+	var gates []DocGate
+	for _, table := range toTableSlice(raw["gate"]) {
+		var g DocGate
+		g.Doc, _ = table["doc"].(string)
+		g.Bash, _ = table["bash"].(string)
+		g.WebFetch, _ = table["webfetch"].(string)
+		g.Message, _ = table["message"].(string)
+		// TOML integers decode as int64; accept int as well for safety.
+		switch w := table["window"].(type) {
+		case int64:
+			g.Window = int(w)
+		case int:
+			g.Window = w
+		}
+		gates = append(gates, g)
+	}
+	return gates
 }
 
 // parseAliasesFromRaw parses the aliases section.

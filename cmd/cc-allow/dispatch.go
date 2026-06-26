@@ -9,10 +9,12 @@ import (
 
 // HookInput represents the JSON input from Claude Code hooks
 type HookInput struct {
-	SessionID string   `json:"session_id"`
-	AgentType string   `json:"agent_type"`
-	ToolName  ToolName `json:"tool_name"`
-	ToolInput struct {
+	SessionID      string   `json:"session_id"`
+	AgentType      string   `json:"agent_type"`
+	TranscriptPath string   `json:"transcript_path"` // path to the session JSONL transcript (doc gates)
+	Cwd            string   `json:"cwd"`             // working directory the hook fired in (doc gates)
+	ToolName       ToolName `json:"tool_name"`
+	ToolInput      struct {
 		Command  string `json:"command"`   // Bash tool
 		FilePath string `json:"file_path"` // Read, Edit, Write tools
 		URL      string `json:"url"`       // WebFetch tool
