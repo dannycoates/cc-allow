@@ -523,3 +523,12 @@ func MatchPositionWithContext(args []string, pos int, pattern string, ctx *Match
 	}
 	return p.MatchWithContext(args[pos], ctx)
 }
+
+// matchOne parses a single pattern string and reports whether it matches target.
+// A parse failure (already rejected by config validation) matches nothing. This
+// is the shared form of the ParsePattern+MatchWithContext idiom repeated across
+// eval.go; gateMatches uses it so the gate introduces no new matching path.
+func matchOne(pattern, target string, ctx *MatchContext) bool {
+	p, err := ParsePattern(pattern)
+	return err == nil && p.MatchWithContext(target, ctx)
+}

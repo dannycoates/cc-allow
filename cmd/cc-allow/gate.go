@@ -28,9 +28,14 @@ import (
 // tool-call volume grows, and the gate re-fires cheaply whenever it goes stale.
 const defaultGateWindow = 10
 
-// gateTailBytes bounds the transcript tail read. Transcripts can reach a few MB,
-// but the window is single digits, so a fixed tail always covers it.
-const gateTailBytes = 256 * 1024
+// gateTailBytes bounds the transcript tail read. 512 KB covers a full freshness
+// window in all but the densest sessions: across the 30 largest local
+// transcripts, 256 KB left 5 short of window+2 tool-uses and 512 KB left 2. A
+// genuine read beyond the tail causes only one spurious re-injection — the
+// retry's injection is the newest tool_result, so the gate never loops — an
+// accepted trade for a fixed, single-read tail (no fixed size beats a
+// multi-MB tool_result; an expanding read was considered and declined).
+const gateTailBytes = 512 * 1024
 
 // gateWindow returns the effective freshness window for a gate.
 func gateWindow(g DocGate) int {
@@ -44,6 +49,13 @@ func gateWindow(g DocGate) int {
 // reason. It encodes the resolved doc path so distinct gates cannot
 // cross-satisfy each other, and docFreshInTranscript finds it in a recent
 // tool_result on the retry (the loop-protection case).
+//
+// A synthetic sentinel is used rather than detecting the doc's own content in
+// the transcript: a denied tool_result carries no structured cc-allow marker
+// (only content/is_error/tool_use_id/type), and matching doc content is fragile —
+// Read results prefix every line with "<n>\t" (so only single-line fingerprints
+// survive) and a single line risks a false "fresh" that would silently disable
+// the gate. The sentinel is exact, gate-only, and path-scoped.
 func gateSentinel(docPath string) string {
 	return "⟦cc-allow:doc-gate:" + docPath + "⟧"
 }
@@ -95,14 +107,10 @@ func applyDocGates(input HookInput, merged *MergedConfig, result Result) Result 
 // gateMatches reports whether the gate's matcher applies to this tool call.
 func gateMatches(g DocGate, input HookInput, ctx *MatchContext) bool {
 	if g.Bash != "" && (input.ToolName == ToolBash || input.ToolName == "") {
-		if p, err := ParsePattern(g.Bash); err == nil && p.MatchWithContext(input.ToolInput.Command, ctx) {
-			return true
-		}
+		return matchOne(g.Bash, input.ToolInput.Command, ctx)
 	}
 	if g.WebFetch != "" && input.ToolName == ToolWebFetch {
-		if p, err := ParsePattern(g.WebFetch); err == nil && p.MatchWithContext(input.ToolInput.URL, ctx) {
-			return true
-		}
+		return matchOne(g.WebFetch, input.ToolInput.URL, ctx)
 	}
 	return false
 }
