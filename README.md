@@ -141,7 +141,7 @@ version = "2.0"
 
 [bash]
 default = "ask"
-dynamic_commands = "deny"  # block $VAR or $(cmd) as command names
+dynamic_commands = "deny"  # block unresolvable $VAR / $(cmd) command names (provable literals are folded first — see docs/config.md "Constant folding")
 
 [bash.allow]
 commands = ["ls", "cat", "grep", "git", "go", "npm"]
