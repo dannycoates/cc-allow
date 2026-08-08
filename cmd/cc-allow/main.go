@@ -53,6 +53,7 @@ func main() {
 	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and per-session JSONL log files")
 	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
 	initMode := flag.Bool("init", false, "create project config at .config/cc-allow.toml")
+	suggestMode := flag.Bool("suggest-rule", false, "deterministically write a session allow-rule for an approved Read/Write/Edit/WebFetch/Glob/Grep, given PostToolUse hook JSON on stdin")
 	sessionID := flag.String("session", "", "session ID for session-scoped config lookup")
 	postMode := flag.Bool("post", false, "PostToolUse mode: also scan other sessions for matching rules (requires --hook)")
 
@@ -134,6 +135,8 @@ func main() {
 		os.Exit(int(runInit(*hookMode)))
 	case *fmtMode:
 		os.Exit(int(runFmt(*configPath, *sessionID)))
+	case *suggestMode:
+		os.Exit(int(runSuggestRule()))
 	default:
 		os.Exit(int(runEval(*configPath, *agentType, *sessionID, *hookMode, *debugMode, *postMode, toolMode)))
 	}
@@ -174,6 +177,40 @@ func runEval(configPath string, agentType string, sessionID string, hookMode, de
 		return ExitError
 	}
 
+	// Build additional context for hook output (declared early for migration step)
+	var additionalContext string
+	if len(chain.MigrationHints) > 0 {
+		additionalContext = buildMigrationMessage(chain.MigrationHints)
+	}
+
+	// 3.5 Migrate permissions from settings.local.json
+	if hookMode && !postMode && chain.ProjectRoot != "" {
+		if migrated := migrateSettingsPermissions(chain.ProjectRoot); migrated != nil && !migrated.empty() {
+			// Reload local config into chain
+			localPath := filepath.Join(chain.ProjectRoot, ".config", "cc-allow.local.toml")
+			if cfg, err := loadConfig(localPath); err == nil {
+				// Check if local config was already loaded to avoid duplicates
+				alreadyLoaded := false
+				for _, c := range chain.Configs {
+					if c.Path == localPath {
+						alreadyLoaded = true
+						break
+					}
+				}
+				if !alreadyLoaded {
+					chain.Configs = append(chain.Configs, cfg)
+				}
+				chain.Merged = MergeConfigs(chain.Configs)
+			}
+			msg := buildMigratedMessage(migrated)
+			if additionalContext != "" {
+				additionalContext += "\n" + msg
+			} else {
+				additionalContext = msg
+			}
+		}
+	}
+
 	// 4. Session cleanup (best-effort)
 	if chain.Merged.Settings.SessionMaxAge != "" {
 		if maxAge, err := parseSessionMaxAge(chain.Merged.Settings.SessionMaxAge); err == nil {
@@ -188,10 +225,16 @@ func runEval(configPath string, agentType string, sessionID string, hookMode, de
 	}
 	logDebugConfigChain(chain)
 
-	// Build additional context for hook output
-	var additionalContext string
-	if len(chain.MigrationHints) > 0 {
-		additionalContext = buildMigrationMessage(chain.MigrationHints)
+	// Warn if cwd has drifted from project root
+	if hookMode && chain.ProjectRoot != "" {
+		if cwd, err := os.Getwd(); err == nil && cwd != chain.ProjectRoot {
+			msg := "<system-reminder>your cwd is not at your project root. cd back to " + chain.ProjectRoot + "</system-reminder>"
+			if additionalContext != "" {
+				additionalContext += "\n" + msg
+			} else {
+				additionalContext = msg
+			}
+		}
 	}
 
 	// Dispatch
@@ -418,6 +461,37 @@ func buildMigrationMessage(legacyPaths []string) string {
 			"Please offer to move the config file(s) for the user by running: %s",
 		strings.Join(moves, " && "),
 	)
+}
+
+// buildMigratedMessage formats an additionalContext message for migrated permissions.
+func buildMigratedMessage(r *migrationResult) string {
+	var parts []string
+	if len(r.Commands) > 0 {
+		parts = append(parts, fmt.Sprintf("commands=[%s]", strings.Join(r.Commands, ", ")))
+	}
+	if len(r.Rules) > 0 {
+		rules := make([]string, len(r.Rules))
+		for i, rule := range r.Rules {
+			rules[i] = strings.Join(rule.Subs, " ")
+		}
+		parts = append(parts, fmt.Sprintf("bash=[%s]", strings.Join(rules, ", ")))
+	}
+	for _, tool := range fileSections {
+		if paths, ok := r.Paths[tool]; ok && len(paths) > 0 {
+			// Strip "path:" prefix for readability.
+			display := make([]string, len(paths))
+			for i, p := range paths {
+				display[i] = strings.TrimPrefix(p, "path:")
+			}
+			parts = append(parts, fmt.Sprintf("%s=[%s]", tool, strings.Join(display, ", ")))
+		}
+	}
+	if len(r.WebFetch) > 0 {
+		parts = append(parts, fmt.Sprintf("webfetch=[%s]", strings.Join(r.WebFetch, ", ")))
+	}
+	cmdCount := len(r.Commands) + len(r.Rules)
+	return fmt.Sprintf("Migrated %d command(s) and %d file path(s) from settings.local.json to cc-allow: %s",
+		cmdCount, r.totalPaths(), strings.Join(parts, ", "))
 }
 
 // Helper functions for word extraction (used by tests and walk.go)
