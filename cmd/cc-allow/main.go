@@ -53,6 +53,7 @@ func main() {
 	debugMode := flag.Bool("debug", false, "enable debug logging to stderr and per-session JSONL log files")
 	fmtMode := flag.Bool("fmt", false, "validate config and display rules sorted by specificity")
 	initMode := flag.Bool("init", false, "create project config at .config/cc-allow.toml")
+	suggestMode := flag.Bool("suggest-rule", false, "deterministically write a session allow-rule for an approved Read/Write/Edit/WebFetch/Glob/Grep, given PostToolUse hook JSON on stdin")
 	sessionID := flag.String("session", "", "session ID for session-scoped config lookup")
 	postMode := flag.Bool("post", false, "PostToolUse mode: also scan other sessions for matching rules (requires --hook)")
 
@@ -134,6 +135,8 @@ func main() {
 		os.Exit(int(runInit(*hookMode)))
 	case *fmtMode:
 		os.Exit(int(runFmt(*configPath, *sessionID)))
+	case *suggestMode:
+		os.Exit(int(runSuggestRule()))
 	default:
 		os.Exit(int(runEval(*configPath, *agentType, *sessionID, *hookMode, *debugMode, *postMode, toolMode)))
 	}

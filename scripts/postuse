@@ -45,19 +45,18 @@ if [ -z "$TOOL_NAME" ] || [ -z "$SESSION_ID" ]; then
   exit 0
 fi
 
-# Build human-readable input description per tool type
-# (avoid passing large blobs like Write file content)
+# File/URL tools get a deterministic rule with no LLM round-trip: picking a
+# directory or origin to generalize to is a mechanical decision. Bash keeps
+# the LLM path below, since flag/subcommand scoping genuinely needs judgment.
 case "$TOOL_NAME" in
   Bash)
     INPUT_DESC="command: \`$(echo "$HOOK_JSON" | jq -r '.tool_input.command // empty')\`" ;;
-  Read|Write|Edit)
-    INPUT_DESC="file path: \`$(echo "$HOOK_JSON" | jq -r '.tool_input.file_path // empty')\`" ;;
-  WebFetch)
-    INPUT_DESC="URL: \`$(echo "$HOOK_JSON" | jq -r '.tool_input.url // empty')\`" ;;
-  Glob|Grep)
-    P=$(echo "$HOOK_JSON" | jq -r '.tool_input.pattern // empty')
-    D=$(echo "$HOOK_JSON" | jq -r '.tool_input.path // empty')
-    INPUT_DESC="pattern='$P' path='$D'" ;;
+  Read|Write|Edit|WebFetch|Glob|Grep)
+    if echo "$HOOK_JSON" | "$BIN" --suggest-rule >/dev/null 2>&1; then
+      exit 0
+    fi
+    exit 0
+    ;;
   *) exit 0 ;;
 esac
 
