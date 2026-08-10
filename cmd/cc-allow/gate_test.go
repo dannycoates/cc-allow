@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"cc-allow/pkg/pathutil"
 )
@@ -185,6 +186,89 @@ func TestDocGateInjectionLoopProtection(t *testing.T) {
 	got := applyDocGates(bashInput(acliCmd, retry), merged, allow())
 	if got.Action != ActionAllow {
 		t.Fatalf("expected allow on retry (injection fresh), got %s (%s)", got.Action, got.Message)
+	}
+}
+
+// TestDocGateSurvivesTranscriptLag covers the race the sentinel alone cannot.
+//
+// The transcript is written asynchronously, so an immediate retry's hook can
+// fire before the injection's tool_result has been flushed. The transcript then
+// shows only the first attempt, whose command is byte-identical, so isSelfCall
+// consumes it and the window is left empty with no sentinel in sight - and the
+// gate injects the whole doc a second time. Observed live: one command produced
+// two full injections of the same doc, one transcript line apart.
+func TestDocGateSurvivesTranscriptLag(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(gateMarkerDirEnv, filepath.Join(dir, "markers"))
+	doc := gateDoc(t, dir)
+	merged := gateMerged(t, doc, jiraBash, 10)
+
+	stale := writeTranscript(t, dir, asstToolUse(t, "Bash", map[string]any{"command": "ls"}))
+	first := bashInput(acliCmd, stale)
+	first.SessionID = "sess-lag"
+	if got := applyDocGates(first, merged, allow()); got.Action != ActionDeny {
+		t.Fatalf("setup: expected initial deny, got %s", got.Action)
+	}
+
+	// The retry, with the injection's tool_result not yet on disk.
+	lagged := writeTranscript(t, dir, asstToolUse(t, "Bash", map[string]any{"command": acliCmd}))
+	retry := bashInput(acliCmd, lagged)
+	retry.SessionID = "sess-lag"
+	if got := applyDocGates(retry, merged, allow()); got.Action != ActionAllow {
+		t.Fatalf("re-injected despite an injection recorded moments earlier: %s", got.Action)
+	}
+}
+
+// TestDocGateMarkerIsSessionScoped: one session's injection must not satisfy
+// another's, or a fresh session would silently skip its required reading.
+func TestDocGateMarkerIsSessionScoped(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(gateMarkerDirEnv, filepath.Join(dir, "markers"))
+	doc := gateDoc(t, dir)
+	merged := gateMerged(t, doc, jiraBash, 10)
+
+	stale := writeTranscript(t, dir, asstToolUse(t, "Bash", map[string]any{"command": "ls"}))
+	a := bashInput(acliCmd, stale)
+	a.SessionID = "sess-a"
+	if got := applyDocGates(a, merged, allow()); got.Action != ActionDeny {
+		t.Fatalf("setup: expected deny for session a, got %s", got.Action)
+	}
+
+	b := bashInput(acliCmd, stale)
+	b.SessionID = "sess-b"
+	if got := applyDocGates(b, merged, allow()); got.Action != ActionDeny {
+		t.Fatalf("session b rode session a's marker: %s", got.Action)
+	}
+}
+
+// TestDocGateMarkerExpires: the marker bridges a flush lag, it does not grant
+// permanent freshness. Past the grace period the transcript is authoritative
+// again.
+func TestDocGateMarkerExpires(t *testing.T) {
+	dir := t.TempDir()
+	markers := filepath.Join(dir, "markers")
+	t.Setenv(gateMarkerDirEnv, markers)
+	doc := gateDoc(t, dir)
+	merged := gateMerged(t, doc, jiraBash, 10)
+
+	stale := writeTranscript(t, dir, asstToolUse(t, "Bash", map[string]any{"command": "ls"}))
+	in := bashInput(acliCmd, stale)
+	in.SessionID = "sess-exp"
+	if got := applyDocGates(in, merged, allow()); got.Action != ActionDeny {
+		t.Fatalf("setup: expected deny, got %s", got.Action)
+	}
+
+	p, err := gateMarkerPath("sess-exp", canonicalDoc(doc))
+	if err != nil {
+		t.Fatalf("marker path: %v", err)
+	}
+	old := time.Now().Add(-2 * gateInjectionGrace)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatalf("age marker: %v", err)
+	}
+
+	if got := applyDocGates(in, merged, allow()); got.Action != ActionDeny {
+		t.Fatalf("expired marker still counted as fresh: %s", got.Action)
 	}
 }
 

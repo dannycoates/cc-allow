@@ -1,11 +1,15 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"cc-allow/pkg/pathutil"
 )
@@ -43,6 +47,99 @@ func gateWindow(g DocGate) int {
 		return defaultGateWindow
 	}
 	return g.Window
+}
+
+// gateInjectionGrace bounds how long a recorded injection stands in for the
+// transcript.
+//
+// It exists for one reason: the transcript is written asynchronously, so on an
+// immediate retry the hook can fire before the previous injection's tool_result
+// has been flushed to the JSONL. The gate then finds no sentinel and injects the
+// whole doc a second time - the exact inject loop the sentinel was meant to
+// prevent. Worse, the newest tool_use at that moment is the *previous* attempt,
+// whose command is byte-identical, so isSelfCall skips it and the window is left
+// empty. That makes the failure specific to identical retries, which is the case
+// the guarantee is supposed to cover.
+//
+// The transcript stays the authority for the real freshness window. This marker
+// only covers evidence that has not landed on disk yet, so it is deliberately
+// short: long enough to absorb a loaded host, far shorter than any window.
+const gateInjectionGrace = 60 * time.Second
+
+// gateMarkerDirEnv lets tests point the marker directory somewhere disposable.
+// os.UserCacheDir honours XDG_CACHE_HOME only on some platforms, so an explicit
+// seam keeps the test portable.
+const gateMarkerDirEnv = "CC_ALLOW_GATE_DIR"
+
+// gateMarkerPath is the marker for one (session, doc) pair. Hashing both keeps
+// two sessions, or two gates in one session, from satisfying each other, and
+// keeps arbitrary doc paths out of a filename.
+func gateMarkerPath(sessionID, docPath string) (string, error) {
+	dir := os.Getenv(gateMarkerDirEnv)
+	if dir == "" {
+		base, err := os.UserCacheDir()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(base, "cc-allow", "gate")
+	}
+	sum := sha256.Sum256([]byte(sessionID + "\x00" + docPath))
+	return filepath.Join(dir, hex.EncodeToString(sum[:16])), nil
+}
+
+// recordGateInjection notes that this doc was just injected for this session.
+// Best effort throughout: a failure here costs at most one extra injection, and
+// must never interfere with the deny that carries the doc.
+func recordGateInjection(sessionID, docPath string) {
+	if sessionID == "" {
+		return // nothing to key on; transcript detection is the only path
+	}
+	p, err := gateMarkerPath(sessionID, docPath)
+	if err != nil {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return
+	}
+	if err := os.WriteFile(p, nil, 0o644); err != nil {
+		return
+	}
+	sweepGateMarkers(filepath.Dir(p))
+}
+
+// gateInjectedRecently reports whether this session had this doc injected
+// within the grace period.
+func gateInjectedRecently(sessionID, docPath string) bool {
+	if sessionID == "" {
+		return false
+	}
+	p, err := gateMarkerPath(sessionID, docPath)
+	if err != nil {
+		return false
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return false
+	}
+	return time.Since(fi.ModTime()) < gateInjectionGrace
+}
+
+// sweepGateMarkers drops markers long past their grace period, so the directory
+// cannot grow without bound as sessions come and go. Cheap: it holds one empty
+// file per (session, doc) that was actually gated.
+func sweepGateMarkers(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-24 * time.Hour)
+	for _, e := range entries {
+		fi, err := e.Info()
+		if err != nil || fi.ModTime().After(cutoff) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(dir, e.Name()))
+	}
 }
 
 // gateSentinel is the machine-detectable marker that leads an injected deny
@@ -88,6 +185,13 @@ func applyDocGates(input HookInput, merged *MergedConfig, result Result) Result 
 		if isReadOfDoc(input, docPath, pv) {
 			continue // never gate the doc read itself
 		}
+		// Checked before the transcript because it is both cheaper (one stat
+		// versus a 512 KB tail read) and more reliable: it records the
+		// injection at the instant it happens, rather than waiting for the
+		// transcript to be flushed. See gateInjectionGrace.
+		if gateInjectedRecently(input.SessionID, docPath) {
+			continue
+		}
 		if docFreshInTranscript(input.TranscriptPath, docPath, gateWindow(g), input, pv) {
 			continue
 		}
@@ -95,6 +199,7 @@ func applyDocGates(input HookInput, merged *MergedConfig, result Result) Result 
 		if err != nil {
 			return result // misconfig (e.g. host-specific doc absent) → fail-open
 		}
+		recordGateInjection(input.SessionID, docPath)
 		return Result{
 			Action:  ActionDeny,
 			Message: buildInjection(docPath, string(contents), g.Message, gateWindow(g)),
