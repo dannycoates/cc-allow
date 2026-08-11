@@ -20,18 +20,19 @@ just tidy               # go mod tidy
 ```
 
 Run a single test:
+
 ```bash
 go test ./cmd/cc-allow/... -run TestName -v
 ```
 
 ## Exit Codes
 
-| Code | Action | Meaning |
-|------|--------|---------|
-| 0 | allow | Explicitly allowed |
-| 1 | ask | Defer to Claude Code |
-| 2 | deny | Explicitly denied |
-| 3 | error | Config or parse error |
+| Code | Action | Meaning               |
+| ---- | ------ | --------------------- |
+| 0    | allow  | Explicitly allowed    |
+| 1    | ask    | Defer to Claude Code  |
+| 2    | deny   | Explicitly denied     |
+| 3    | error  | Config or parse error |
 
 ## Architecture
 
@@ -109,3 +110,7 @@ Use `./print-ast` to see what the AST of a bash string is.
 ```sh
 echo "./cc-allow --debug <<< 'rm -r folder'" | ./print-ast
 ```
+
+## Transcript Reading
+
+The doc gates in `cmd/cc-allow/gate.go` are the only part of cc-allow that reads the session transcript, and both of their historical bugs came from treating it as an oracle for current state rather than as a record of the past. Before adding another read, look for a deterministic source: the hook payload already carries `session_id`, `agent_id`, `cwd`, and `transcript_path`. Note in particular that `transcript_path` is derived from the session id, so inside a subagent it names the parent's transcript — `agent_id` is what identifies the agent's own. See `~/.claude/docs/transcript-reading.md`.
