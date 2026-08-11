@@ -16,8 +16,9 @@ import (
 
 // Doc-read gates: a state-aware overlay that runs as a post-pass after the
 // normal permission decision. On a tool call that matches a gate's pattern, the
-// gate checks the session transcript for whether the gate's doc was read or
-// injected within a small window of recent tool-call events. If fresh, the call
+// gate checks this agent's transcript (see agentTranscriptPath) for whether the
+// gate's doc was read or injected within a small window of recent tool-call
+// events. If fresh, the call
 // proceeds untouched. If stale, the gate denies and injects the doc's full
 // contents into the deny reason, so the content enters fresh context with no
 // reliance on the model choosing to read it; the immediate retry then sees the
@@ -71,10 +72,11 @@ const gateInjectionGrace = 60 * time.Second
 // seam keeps the test portable.
 const gateMarkerDirEnv = "CC_ALLOW_GATE_DIR"
 
-// gateMarkerPath is the marker for one (session, doc) pair. Hashing both keeps
-// two sessions, or two gates in one session, from satisfying each other, and
-// keeps arbitrary doc paths out of a filename.
-func gateMarkerPath(sessionID, docPath string) (string, error) {
+// gateMarkerPath is the marker for one (agent, doc) pair, where key identifies
+// the agent (see gateMarkerKey). Hashing both keeps two agents, or two gates in
+// one agent, from satisfying each other, and keeps arbitrary doc paths out of a
+// filename.
+func gateMarkerPath(key, docPath string) (string, error) {
 	dir := os.Getenv(gateMarkerDirEnv)
 	if dir == "" {
 		base, err := os.UserCacheDir()
@@ -83,18 +85,31 @@ func gateMarkerPath(sessionID, docPath string) (string, error) {
 		}
 		dir = filepath.Join(base, "cc-allow", "gate")
 	}
-	sum := sha256.Sum256([]byte(sessionID + "\x00" + docPath))
+	sum := sha256.Sum256([]byte(key + "\x00" + docPath))
 	return filepath.Join(dir, hex.EncodeToString(sum[:16])), nil
 }
 
-// recordGateInjection notes that this doc was just injected for this session.
+// gateMarkerKey identifies whose injection a marker records. A sidechain tool
+// call carries the *parent's* session id, so keying on the session alone would
+// let a parent's injection satisfy a subagent's gate for the whole grace period.
+// The subagent would then run the gated command having never seen the doc -
+// exactly what the gate exists to prevent. agent_id is present only inside a
+// subagent, so it takes precedence wherever it is set.
+func gateMarkerKey(input HookInput) string {
+	if input.AgentID != "" {
+		return input.AgentID
+	}
+	return input.SessionID
+}
+
+// recordGateInjection notes that this doc was just injected for this agent.
 // Best effort throughout: a failure here costs at most one extra injection, and
 // must never interfere with the deny that carries the doc.
-func recordGateInjection(sessionID, docPath string) {
-	if sessionID == "" {
+func recordGateInjection(key, docPath string) {
+	if key == "" {
 		return // nothing to key on; transcript detection is the only path
 	}
-	p, err := gateMarkerPath(sessionID, docPath)
+	p, err := gateMarkerPath(key, docPath)
 	if err != nil {
 		return
 	}
@@ -107,13 +122,13 @@ func recordGateInjection(sessionID, docPath string) {
 	sweepGateMarkers(filepath.Dir(p))
 }
 
-// gateInjectedRecently reports whether this session had this doc injected
-// within the grace period.
-func gateInjectedRecently(sessionID, docPath string) bool {
-	if sessionID == "" {
+// gateInjectedRecently reports whether this agent had this doc injected within
+// the grace period.
+func gateInjectedRecently(key, docPath string) bool {
+	if key == "" {
 		return false
 	}
-	p, err := gateMarkerPath(sessionID, docPath)
+	p, err := gateMarkerPath(key, docPath)
 	if err != nil {
 		return false
 	}
@@ -126,7 +141,7 @@ func gateInjectedRecently(sessionID, docPath string) bool {
 
 // sweepGateMarkers drops markers long past their grace period, so the directory
 // cannot grow without bound as sessions come and go. Cheap: it holds one empty
-// file per (session, doc) that was actually gated.
+// file per (agent, doc) that was actually gated.
 func sweepGateMarkers(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -140,6 +155,41 @@ func sweepGateMarkers(dir string) {
 		}
 		_ = os.Remove(filepath.Join(dir, e.Name()))
 	}
+}
+
+// agentTranscriptPath returns the transcript that records this call.
+//
+// Claude Code derives transcript_path from the session id alone, and a subagent
+// shares its parent's session id - so a sidechain tool call is handed the PARENT
+// transcript, which never contains the subagent's own reads or injections. Left
+// unresolved, a gate reading it denies every retry forever. agent_id is in the
+// payload for exactly this purpose, and the agent's transcript is named after it.
+func agentTranscriptPath(input HookInput) string {
+	if input.AgentID == "" {
+		return input.TranscriptPath // main thread
+	}
+	base := strings.TrimSuffix(input.TranscriptPath, ".jsonl") // <projects>/<session>
+	dir := filepath.Join(base, "subagents")
+	p := filepath.Join(dir, "agent-"+input.AgentID+".jsonl")
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	// Nested agents get one extra path segment; the id still names the file.
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			q := filepath.Join(dir, e.Name(), "agent-"+input.AgentID+".jsonl")
+			if _, err := os.Stat(q); err == nil {
+				return q
+			}
+		}
+	}
+	// Not flushed yet. Returning the derived path (never input.TranscriptPath,
+	// which is the parent's) makes the tail read fail open, so a subagent's very
+	// first gated call is allowed rather than judged against the wrong file.
+	return p
 }
 
 // gateSentinel is the machine-detectable marker that leads an injected deny
@@ -176,6 +226,8 @@ func applyDocGates(input HookInput, merged *MergedConfig, result Result) Result 
 		pv.Cwd = input.Cwd
 	}
 	ctx := &MatchContext{PathVars: pv, Merged: merged}
+	transcriptPath := agentTranscriptPath(input)
+	markerKey := gateMarkerKey(input)
 
 	for _, g := range merged.Gates {
 		if !gateMatches(g, input, ctx) {
@@ -189,17 +241,17 @@ func applyDocGates(input HookInput, merged *MergedConfig, result Result) Result 
 		// versus a 512 KB tail read) and more reliable: it records the
 		// injection at the instant it happens, rather than waiting for the
 		// transcript to be flushed. See gateInjectionGrace.
-		if gateInjectedRecently(input.SessionID, docPath) {
+		if gateInjectedRecently(markerKey, docPath) {
 			continue
 		}
-		if docFreshInTranscript(input.TranscriptPath, docPath, gateWindow(g), input, pv) {
+		if docFreshInTranscript(transcriptPath, docPath, gateWindow(g), input, pv) {
 			continue
 		}
 		contents, err := os.ReadFile(docPath)
 		if err != nil {
 			return result // misconfig (e.g. host-specific doc absent) → fail-open
 		}
-		recordGateInjection(input.SessionID, docPath)
+		recordGateInjection(markerKey, docPath)
 		return Result{
 			Action:  ActionDeny,
 			Message: buildInjection(docPath, string(contents), g.Message, gateWindow(g)),

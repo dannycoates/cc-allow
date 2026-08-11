@@ -11,6 +11,7 @@ import (
 type HookInput struct {
 	SessionID      string   `json:"session_id"`
 	AgentType      string   `json:"agent_type"`
+	AgentID        string   `json:"agent_id"`        // set only inside a subagent; see agentTranscriptPath
 	TranscriptPath string   `json:"transcript_path"` // path to the session JSONL transcript (doc gates)
 	Cwd            string   `json:"cwd"`             // working directory the hook fired in (doc gates)
 	ToolName       ToolName `json:"tool_name"`
