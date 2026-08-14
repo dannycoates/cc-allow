@@ -553,3 +553,25 @@ func TestFlagPatternMatchAcrossArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestMatchOne(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		target  string
+		want    bool
+	}{
+		{"regex match", `re:\bacli\b`, "acli jira workitem view MAC-1", true},
+		{"regex no match", `re:\bacli\b`, "ls -la", false},
+		{"literal match", "git", "git", true},
+		{"literal mismatch", "git", "gite", false},
+		{"malformed regex matches nothing", "re:(", "anything", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchOne(tt.pattern, tt.target, nil); got != tt.want {
+				t.Errorf("matchOne(%q, %q) = %v, want %v", tt.pattern, tt.target, got, tt.want)
+			}
+		})
+	}
+}

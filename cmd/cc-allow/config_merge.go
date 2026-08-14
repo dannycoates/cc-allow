@@ -141,6 +141,9 @@ func mergeConfigInto(merged *MergedConfig, cfg *Config) {
 		merged.SafeBrowsing.APIKey = cfg.WebFetch.SafeBrowsing.APIKey
 	}
 
+	// Merge doc gates (additive, order-independent — every config's gates apply)
+	merged.Gates = append(merged.Gates, cfg.Gates...)
+
 	// Merge aliases (later configs can add or override)
 	maps.Copy(merged.Aliases, cfg.Aliases)
 

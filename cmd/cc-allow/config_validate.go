@@ -282,6 +282,46 @@ func (cfg *Config) Validate() error {
 		}
 	}
 
+	// Validate doc gates: require a doc plus at least one matcher, and valid
+	// matcher pattern syntax. The doc file is not required to exist (it may be
+	// host-specific) — a missing doc fails open at runtime, not at validation.
+	for i, g := range cfg.Gates {
+		loc := fmt.Sprintf("gate[%d]", i)
+		if strings.TrimSpace(g.Doc) == "" {
+			return &ConfigValidationError{
+				Location: loc + ".doc",
+				Value:    g.Doc,
+				Message:  "gate requires a non-empty doc path",
+			}
+		}
+		if strings.TrimSpace(g.Bash) == "" && strings.TrimSpace(g.WebFetch) == "" {
+			return &ConfigValidationError{
+				Location: loc,
+				Message:  "gate requires at least one matcher (bash or webfetch)",
+			}
+		}
+		if g.Bash != "" {
+			if _, err := ParsePattern(g.Bash); err != nil {
+				return &ConfigValidationError{
+					Location: loc + ".bash",
+					Value:    g.Bash,
+					Message:  "invalid pattern",
+					Cause:    err,
+				}
+			}
+		}
+		if g.WebFetch != "" {
+			if _, err := ParsePattern(g.WebFetch); err != nil {
+				return &ConfigValidationError{
+					Location: loc + ".webfetch",
+					Value:    g.WebFetch,
+					Message:  "invalid pattern",
+					Cause:    err,
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

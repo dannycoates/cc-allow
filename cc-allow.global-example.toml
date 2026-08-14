@@ -403,3 +403,21 @@ respect_file_rules = true
 
 [grep]
 respect_file_rules = true
+
+# ============================================================================
+# DOC-READ GATES
+# ============================================================================
+# A [[gate]] is a state-aware overlay. On a tool call matching its pattern, the
+# gate checks the session transcript for whether `doc` was read or injected
+# within the last `window` tool-call events. If stale, it denies and injects the
+# doc's full contents into the deny reason; the immediate retry sees that
+# injection as fresh and proceeds (never an inject loop). The gate only escalates
+# allow/ask to deny — it never weakens a rule and never participates in
+# specificity. Requires `doc` plus at least one matcher (bash or webfetch).
+
+# [[gate]]
+# doc = "$HOME/.claude/docs/jira.md"                    # required ($HOME / ~ expanded)
+# bash = "re:\\bacli\\b|atlassian\\.|/rest/(api|agile)" # match the raw Bash command
+# window = 10                                           # tool-call events (default 10)
+# webfetch = "re:atlassian\\."                          # optional: match a WebFetch URL
+# message = "..."                                       # optional: preamble before the doc
